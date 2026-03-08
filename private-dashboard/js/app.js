@@ -802,7 +802,7 @@ async function refreshWeather() {
   renderWidgets();
 
   try {
-    const target = await getAutoLocation();
+    const target = await getPreferredWeatherLocation();
 
     const [weatherData, locationData] = await Promise.all([
       fetchJson(
@@ -836,7 +836,7 @@ async function refreshWeather() {
       location: formatLocationLabel(city, district),
       temperature: `${Math.round(current.temperature_2m)}°C`,
       detail: weatherCodeToText(current.weather_code),
-      message: "已通过浏览器定位获取当地天气",
+      message: target.source === "browser" ? "浏览器定位" : "IP 定位",
       forecast,
     };
   } catch (error) {
@@ -845,7 +845,7 @@ async function refreshWeather() {
       location: "位置不可用",
       temperature: "--",
       detail: "未能获取天气数据",
-      message: "需要定位权限或有效城市名称",
+      message: "定位与天气接口均失败",
       forecast: [],
     };
   }
@@ -923,6 +923,23 @@ function getAutoLocation() {
       { enableHighAccuracy: true, timeout: 8000, maximumAge: 300000 }
     );
   });
+}
+
+async function getPreferredWeatherLocation() {
+  try {
+    const browserLocation = await getAutoLocation();
+    return { ...browserLocation, source: "browser" };
+  } catch (error) {
+    const ipLocation = await fetchJson("https://ipapi.co/json/");
+    if (!Number.isFinite(ipLocation.latitude) || !Number.isFinite(ipLocation.longitude)) {
+      throw error;
+    }
+    return {
+      latitude: Number(ipLocation.latitude),
+      longitude: Number(ipLocation.longitude),
+      source: "ip",
+    };
+  }
 }
 
 function weatherCodeToText(code) {
