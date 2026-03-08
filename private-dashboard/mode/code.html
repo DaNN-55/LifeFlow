@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#ffffff",
+                        "background-light": "#f8f6f6",
+                        "background-dark": "#0a0a0a",
+                    },
+                    fontFamily: {
+                        "display": ["Public Sans", "sans-serif"],
+                        "mono": ["JetBrains Mono", "monospace"]
+                    },
+                    borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+<style>
+        body { font-family: 'Public Sans', sans-serif; }
+        .mono { font-family: 'JetBrains Mono', monospace; }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #472724; border-radius: 10px; }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 min-h-screen">
+<div class="flex flex-col h-screen overflow-hidden">
+<!-- Top Navigation -->
+<header class="flex items-center justify-between border-b px-6 py-3 bg-background-light dark:bg-background-dark">
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-2">
+<div class="size-6 bg-white flex items-center justify-center rounded-sm"><span class="text-black font-bold text-lg" style="">D</span></div>
+<h2 class="text-slate-900 dark:text-slate-100 text-sm font-mono tracking-tighter uppercase" style="">Dashboard</h2>
+</div>
+<nav class="flex gap-4">
+<a class="text-xs font-mono border-b border-primary px-1" href="#" style="">HOME</a>
+<a class="text-slate-500 dark:text-slate-400 text-xs font-mono hover:text-primary px-1 transition-colors" href="#" style="">FINANCE</a><a class="text-slate-500 dark:text-slate-400 text-xs font-mono hover:text-primary px-1 transition-colors" href="#">SCIENCE</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex bg-slate-100 dark:bg-white/5 p-0.5 rounded-sm border border-slate-200 dark:border-white/10">
+<button class="flex items-center gap-1.5 px-2 py-1 text-[10px] font-mono transition-all bg-white dark:bg-transparent text-black dark:text-slate-400 shadow-sm rounded-sm">
+<span class="material-symbols-outlined text-xs">light_mode</span>
+            LIGHT
+        </button>
+<button class="flex items-center gap-1.5 px-2 py-1 text-[10px] font-mono transition-all text-slate-500 dark:text-white">
+<span class="material-symbols-outlined text-xs">dark_mode</span>
+            DARK
+        </button>
+</div>
+</div></header>
+<main class="flex flex-1 overflow-hidden">
+<!-- Left Sidebar -->
+<aside class="w-80 bg-slate-50/50 dark:bg-black/20 overflow-y-auto custom-scrollbar flex flex-col gap-6 p-4">
+<!-- Calendar -->
+<div class="bg-white dark:bg-slate-900/40 border rounded-lg p-3">
+<div class="flex items-center justify-between mb-4">
+<h3 class="text-xs font-mono uppercase" style="">September 2024</h3>
+<div class="flex gap-1">
+<span class="material-symbols-outlined text-sm cursor-pointer hover:text-primary" style="">chevron_left</span>
+<span class="material-symbols-outlined text-sm cursor-pointer hover:text-primary" style="">chevron_right</span>
+</div>
+</div>
+<div class="grid grid-cols-7 text-[10px] font-mono text-center mb-2 text-slate-400">
+<span class="" style="">S</span><span class="" style="">M</span><span class="" style="">T</span><span class="" style="">W</span><span class="" style="">T</span><span class="" style="">F</span><span class="" style="">S</span>
+</div>
+<div class="grid grid-cols-7 gap-1 text-[11px] font-mono text-center">
+<!-- Simplified Calendar Grid -->
+<div class="py-1 text-slate-600" style="">28</div><div class="py-1 text-slate-600" style="">29</div><div class="py-1 text-slate-600" style="">30</div><div class="py-1 text-slate-600" style="">31</div>
+<div class="py-1 border border-transparent hover:border-primary/30 cursor-pointer" style="">1</div>
+<div class="py-1 border border-transparent hover:border-primary/30 cursor-pointer" style="">2</div>
+<div class="py-1 border border-transparent hover:border-primary/30 cursor-pointer" style="">3</div>
+<div class="py-1 border border-transparent hover:border-primary/30 cursor-pointer" style="">4</div>
+<div class="py-1 text-white rounded-sm" style="">5</div>
+<div class="py-1 bg-primary text-background-dark font-bold rounded-full" style="">6</div>
+<div class="py-1 border border-transparent hover:border-primary/30 cursor-pointer" style="">7</div>
+<div class="py-1 border border-transparent hover:border-primary/30 cursor-pointer" style="">8</div>
+<div class="py-1 border border-transparent hover:border-primary/30 cursor-pointer" style="">9</div>
+<div class="py-1 border border-transparent hover:border-primary/30 cursor-pointer" style="">10</div>
+<div class="py-1 border border-transparent hover:border-primary/30 cursor-pointer" style="">11</div>
+<div class="py-1 border border-transparent hover:border-primary/30 cursor-pointer" style="">12</div>
+<div class="py-1 border border-transparent hover:border-primary/30 cursor-pointer" style="">13</div>
+<div class="py-1 border border-transparent hover:border-primary/30 cursor-pointer" style="">14</div>
+<div class="py-1 border border-transparent hover:border-primary/30 cursor-pointer" style="">15</div>
+<div class="py-1 border border-transparent hover:border-primary/30 cursor-pointer" style="">16</div>
+<div class="py-1 border border-transparent hover:border-primary/30 cursor-pointer" style="">17</div>
+<div class="py-1 border border-transparent hover:border-primary/30 cursor-pointer" style="">18</div>
+</div>
+</div>
+<!-- Finance -->
+<section>
+<div class="flex items-center justify-between mb-3 border-b pb-1">
+<h3 class="text-xs font-mono uppercase flex items-center gap-2" style="">
+<span class="material-symbols-outlined text-sm" style="">trending_up</span> Finance
+                        </h3>
+<a class="text-[10px] font-mono text-slate-500 hover:text-primary" href="#" style="">SHOW_ALL</a>
+</div>
+<div class="space-y-3">
+<div class="group cursor-pointer">
+<p class="text-xs font-medium line-clamp-2 group-hover:text-primary transition-colors" style="">Tech index reaches all-time high amidst chip shortage relief</p>
+<span class="text-[10px] font-mono text-slate-500" style="">2H AGO // REUTERS</span>
+</div>
+<div class="group cursor-pointer">
+<p class="text-xs font-medium line-clamp-2 group-hover:text-primary transition-colors" style="">Central banks signal potential rate hold for Q4</p>
+<span class="text-[10px] font-mono text-slate-500" style="">5H AGO // BLOOMBERG</span>
+</div>
+</div>
+</section>
+<!-- Science -->
+<section>
+<div class="flex items-center justify-between mb-3 border-b pb-1">
+<h3 class="text-xs font-mono uppercase flex items-center gap-2" style="">
+<span class="material-symbols-outlined text-sm" style="">science</span> Science
+                        </h3>
+<a class="text-[10px] font-mono text-slate-500 hover:text-primary" href="#" style="">ARCHIVE</a>
+</div>
+<div class="space-y-4">
+<div class="border-l-2 pl-3">
+<p class="text-xs font-mono uppercase text-slate-400 mb-1" style="">Nature_v.241</p>
+<p class="text-xs font-medium leading-relaxed" style="">Neural Mapping: Advanced synaptic resolution in feline cortex models</p>
+</div>
+<div class="border-l-2 pl-3">
+<p class="text-xs font-mono uppercase text-slate-400 mb-1" style="">ArXiv_Physics</p>
+<p class="text-xs font-medium leading-relaxed" style="">Room-temp superconductors: Meta-analysis of recent ceramic breakthroughs</p>
+</div>
+</div>
+</section>
+</aside>
+<!-- Center Main Area -->
+<section class="flex-1 bg-white dark:bg-background-dark p-6 overflow-y-auto custom-scrollbar flex flex-col">
+<div class="flex items-center justify-between mb-8">
+<div class="flex bg-slate-100 dark:bg-white/5 p-1 rounded-sm border">
+<button class="px-4 py-1 text-xs font-mono bg-white text-black shadow-sm rounded-sm transition-all" style="">TODAY</button>
+<button class="px-4 py-1 text-xs font-mono text-slate-500 dark:text-slate-400 hover:text-white transition-colors" style="">WEEKLY</button>
+</div>
+<div class="flex items-center gap-2 text-slate-400 text-xs font-mono">
+<span class="material-symbols-outlined text-sm" style="">filter_list</span>
+<span class="" style="">SORT: PRIORITY</span>
+</div>
+</div>
+<div class="space-y-6 flex-1">
+<!-- Task 1 -->
+<div class="group flex gap-4 items-start p-4 border rounded-sm hover:border-primary/40 transition-colors bg-slate-50/30 dark:bg-white/5 border-b border-slate-200 dark:border-white/10">
+<div class="mt-1">
+<input class="w-4 h-4 rounded-sm border-primary/40 bg-transparent focus:ring-primary/20" type="checkbox"/>
+</div>
+<div class="flex-1">
+<div class="flex items-center justify-between mb-1">
+<h4 class="text-sm font-semibold tracking-tight" style="">Review quarterly R&amp;D budget proposal</h4>
+<span class="px-2 py-0.5 text-[9px] font-mono border" style="">URGENT</span>
+</div>
+<p class="text-xs text-slate-500 dark:text-slate-400 font-mono mb-2" style="">Ref: Finance_Section_4.2. Need to verify overhead costs for the new lab equipment.</p>
+<div class="flex gap-4">
+<div class="flex items-center gap-1 text-[10px] font-mono text-slate-400">
+<span class="material-symbols-outlined text-[14px]" style="">attachment</span>
+<span class="" style="">budget_draft_v2.pdf</span>
+</div>
+<div class="flex items-center gap-1 text-[10px] font-mono text-slate-400">
+<span class="material-symbols-outlined text-[14px]" style="">schedule</span>
+<span class="" style="">14:00 EST</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Task 2 -->
+<div class="group flex gap-4 items-start p-4 border rounded-sm hover:border-primary/40 transition-colors bg-slate-50/30 dark:bg-white/5 border-b border-slate-200 dark:border-white/10">
+<div class="mt-1">
+<input checked="" class="w-4 h-4 rounded-sm border-primary/40 bg-transparent focus:ring-primary/20" type="checkbox"/>
+</div>
+<div class="flex-1">
+<div class="flex items-center justify-between mb-1">
+<h4 class="text-sm font-semibold tracking-tight line-through opacity-50" style="">Sync with design team on dark mode components</h4>
+<span class="px-2 py-0.5 text-[9px] font-mono bg-slate-100 dark:bg-white/10 text-slate-400 border border-transparent" style="">DONE</span>
+</div>
+<p class="text-xs text-slate-500 dark:text-slate-400 font-mono italic opacity-50" style="">Notes: Color palette approved. Tailwind config updated with primary orange #ec5b13.</p>
+</div>
+</div>
+<!-- Task 3 -->
+<div class="group flex gap-4 items-start p-4 border rounded-sm hover:border-primary/40 transition-colors bg-slate-50/30 dark:bg-white/5 border-b border-slate-200 dark:border-white/10">
+<div class="mt-1">
+<input class="w-4 h-4 rounded-sm border-primary/40 bg-transparent focus:ring-primary/20" type="checkbox"/>
+</div>
+<div class="flex-1">
+<div class="flex items-center justify-between mb-1">
+<h4 class="text-sm font-semibold tracking-tight" style="">System hardware diagnostic check</h4>
+<span class="px-2 py-0.5 text-[9px] font-mono bg-blue-500/10 text-blue-500 border border-blue-500/20" style="">SCHEDULED</span>
+</div>
+<p class="text-xs text-slate-500 dark:text-slate-400 font-mono mb-2" style="">Run full scan on server cluster 04. Check for thermal throttling on node B.</p>
+</div>
+</div>
+<!-- Placeholder for adding task -->
+<div class="flex items-center gap-2 cursor-pointer hover:text-primary transition-colors group px-4 py-2">
+<span class="material-symbols-outlined text-sm text-slate-400 group-hover:text-primary" style="">add</span>
+<span class="text-xs font-mono text-slate-400 group-hover:text-primary" style="">NEW_ENTRY</span>
+</div>
+</div>
+</section>
+<!-- Right Sidebar -->
+<aside class="w-80 bg-slate-50/50 dark:bg-black/20 overflow-y-auto custom-scrollbar flex flex-col gap-6 p-4">
+<!-- Weather Widget -->
+<div class="relative bg-gradient-to-br from-white to-slate-50 dark:from-slate-900/40 dark:to-background-dark border rounded-lg p-4">
+<div class="flex items-center justify-between mb-4"><div class="absolute top-2 right-2">
+<span class="material-symbols-outlined text-xs text-slate-500 cursor-pointer hover:text-primary transition-colors" style="">settings</span>
+</div>
+<div class="flex flex-col">
+<span class="text-[10px] font-mono text-slate-500 uppercase" style="">San Francisco, CA</span>
+<span class="text-2xl font-bold font-mono" style="">22°C</span>
+</div>
+<span class="material-symbols-outlined text-3xl" style="">partly_cloudy_day</span>
+</div>
+<!-- Small Sparkline Chart Simulation -->
+<div class="flex items-end gap-1 h-12 w-full mb-2">
+<div class="bg-primary/20 w-full h-1/2 rounded-t-sm"></div>
+<div class="bg-primary/30 w-full h-2/3 rounded-t-sm"></div>
+<div class="bg-primary/40 w-full h-3/4 rounded-t-sm"></div>
+<div class="bg-primary/60 w-full h-1/2 rounded-t-sm"></div>
+<div class="w-full h-full rounded-t-sm"></div>
+<div class="bg-primary/60 w-full h-4/5 rounded-t-sm"></div>
+<div class="bg-primary/40 w-full h-2/3 rounded-t-sm"></div>
+<div class="bg-primary/20 w-full h-1/3 rounded-t-sm"></div>
+</div>
+<div class="flex justify-between text-[9px] font-mono text-slate-500">
+<span class="" style="">08:00</span><span class="" style="">12:00</span><span class="" style="">16:00</span><span class="" style="">20:00</span>
+</div>
+</div>
+<!-- Stock Widget -->
+<div class="space-y-4"><h3 class="text-xs font-mono uppercase flex items-center gap-2 border-b pb-1" style="">
+<span class="material-symbols-outlined text-sm" style="">query_stats</span> Market_Indices
+<span class="material-symbols-outlined text-xs ml-auto cursor-pointer text-slate-500 hover:text-primary transition-colors" style="">settings</span></h3>
+<div class="divide-y divide-slate-200 dark:divide-white/10">
+<div class="py-2 flex justify-between items-center">
+<div class="flex flex-col">
+<span class="text-[11px] font-bold font-mono" style="">NASDAQ:IXIC</span>
+<span class="text-[10px] text-slate-500 font-mono" style="">16,274.95</span>
+</div>
+<div class="flex items-center gap-3">
+<div class="w-12 h-4">
+<svg class="w-full h-full text-green-500 fill-none stroke-current stroke-1" viewbox="0 0 100 20">
+<polyline points="0,15 10,12 20,18 30,10 40,8 50,12 60,5 70,8 80,3 90,5 100,0"></polyline>
+</svg>
+</div>
+<span class="text-[10px] font-mono text-green-500 font-bold" style="">+1.24%</span>
+</div>
+</div>
+<div class="py-2 flex justify-between items-center">
+<div class="flex flex-col">
+<span class="text-[11px] font-bold font-mono" style="">S&amp;P 500:SPX</span>
+<span class="text-[10px] text-slate-500 font-mono" style="">5,248.49</span>
+</div>
+<div class="flex items-center gap-3">
+<div class="w-12 h-4">
+<svg class="w-full h-full text-red-500 fill-none stroke-current stroke-1" viewbox="0 0 100 20">
+<polyline points="0,5 15,8 30,5 45,12 60,10 75,15 100,18"></polyline>
+</svg>
+</div>
+<span class="text-[10px] font-mono text-red-500 font-bold" style="">-0.15%</span>
+</div>
+</div>
+<div class="py-2 flex justify-between items-center">
+<div class="flex flex-col">
+<span class="text-[11px] font-bold font-mono" style="">DJI:INDEX</span>
+<span class="text-[10px] text-slate-500 font-mono" style="">39,127.14</span>
+</div>
+<div class="flex items-center gap-3">
+<div class="w-12 h-4">
+<svg class="w-full h-full text-slate-400 fill-none stroke-current stroke-1" viewbox="0 0 100 20">
+<polyline points="0,10 100,10"></polyline>
+</svg>
+</div>
+<span class="text-[10px] font-mono text-slate-400 font-bold" style="">0.00%</span>
+</div>
+</div>
+</div></div>
+<!-- Bottom System Log -->
+</aside>
+</main>
+<!-- Bottom Footer (Bar) -->
+</div>
+</body></html>

@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>个人执行 Dashboard</title>
+    <meta
+      name="description"
+      content="个人执行 Dashboard，支持每日打卡、周复盘、主题切换与可扩展信息模块。"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Public+Sans:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@300;400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./css/styles.css" />
+  </head>
+  <body>
+    <div class="app-frame">
+      <header class="main-nav">
+        <div class="nav-brand">
+          <div class="brand-mark" aria-label="用户名称">Dan</div>
+          <div class="brand-copy">
+            <strong>Dashboard</strong>
+            <span>Personal execution console</span>
+          </div>
+        </div>
+
+        <nav class="top-tabs" aria-label="主导航">
+          <button type="button" class="top-tab is-active" data-app-tab="home">
+            Home
+          </button>
+          <button type="button" class="top-tab" data-app-tab="finance">
+            Finance
+          </button>
+          <button type="button" class="top-tab" data-app-tab="science">
+            Science
+          </button>
+        </nav>
+
+        <div class="theme-switcher" aria-label="主题模式切换">
+          <button type="button" class="theme-option" data-theme="light">
+            <span class="material-symbols-outlined">light_mode</span>
+          </button>
+          <button type="button" class="theme-option" data-theme="dark">
+            <span class="material-symbols-outlined">dark_mode</span>
+          </button>
+        </div>
+      </header>
+
+      <main class="dashboard-grid">
+        <aside class="left-rail">
+          <section
+            class="rail-card calendar-card"
+            aria-labelledby="calendar-title"
+          >
+            <div class="section-head">
+              <div>
+                <p class="panel-kicker">Schedule</p>
+                <h2 id="calendar-title">Calendar</h2>
+              </div>
+              <span class="section-meta mono" id="calendar-month-label"></span>
+            </div>
+
+            <div class="calendar-weekdays" aria-hidden="true">
+              <span>一</span>
+              <span>二</span>
+              <span>三</span>
+              <span>四</span>
+              <span>五</span>
+              <span>六</span>
+              <span>日</span>
+            </div>
+            <div
+              id="calendar-grid"
+              class="calendar-grid"
+              aria-live="polite"
+            ></div>
+          </section>
+
+          <section
+            class="rail-card feed-card"
+            aria-labelledby="finance-feed-title"
+          >
+            <div class="section-head">
+              <div>
+                <p class="panel-kicker">Curated feed</p>
+                <h2 id="finance-feed-title">Finance</h2>
+              </div>
+              <span class="material-symbols-outlined section-icon"
+                >trending_up</span
+              >
+            </div>
+            <div id="finance-feed" class="feed-list"></div>
+            <button
+              type="button"
+              class="show-more"
+              data-app-tab-target="finance"
+            >
+              <span>Show More</span>
+              <span class="material-symbols-outlined">expand_more</span>
+            </button>
+          </section>
+
+          <section
+            class="rail-card feed-card"
+            aria-labelledby="science-feed-title"
+          >
+            <div class="section-head">
+              <div>
+                <p class="panel-kicker">Reading queue</p>
+                <h2 id="science-feed-title">Science</h2>
+              </div>
+              <span class="material-symbols-outlined section-icon"
+                >science</span
+              >
+            </div>
+            <div id="science-feed" class="feed-list"></div>
+            <button
+              type="button"
+              class="show-more"
+              data-app-tab-target="science"
+            >
+              <span>Show More</span>
+              <span class="material-symbols-outlined">expand_more</span>
+            </button>
+          </section>
+        </aside>
+
+        <section class="center-stage">
+          <div id="home-view" class="stage-view">
+            <div class="stage-toolbar">
+              <div class="center-tabs" aria-label="内容切换">
+                <button
+                  type="button"
+                  class="center-tab is-active"
+                  data-center-tab="daily"
+                >
+                  Today
+                </button>
+                <button
+                  type="button"
+                  class="center-tab"
+                  data-center-tab="weekly"
+                >
+                  Weekly
+                </button>
+              </div>
+            </div>
+
+            <section
+              id="daily-panel"
+              class="content-panel is-active"
+              aria-labelledby="daily-panel-title"
+            >
+              <div class="panel-header">
+                <div>
+                  <p class="panel-kicker">Focus mode</p>
+                  <h1 id="daily-panel-title">Today</h1>
+                </div>
+                <div class="panel-tools">
+                  <div class="summary-badge">
+                    <span>已完成</span>
+                    <strong id="today-completed-count">0 / 4</strong>
+                  </div>
+                </div>
+              </div>
+
+              <p class="save-note" id="save-status">数据将自动保存到本地</p>
+              <div id="task-list" class="task-stack" aria-live="polite"></div>
+            </section>
+
+            <section
+              id="weekly-panel"
+              class="content-panel"
+              aria-labelledby="weekly-panel-title"
+            >
+              <div class="panel-header">
+                <div>
+                  <p class="panel-kicker">Retrospective</p>
+                  <h1 id="weekly-panel-title">Weekly</h1>
+                </div>
+                <div class="panel-tools">
+                  <div class="summary-badge">
+                    <span>周范围</span>
+                    <strong id="current-week-range">-</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div
+                id="weekly-review-list"
+                class="review-stack"
+                aria-live="polite"
+              ></div>
+            </section>
+          </div>
+
+          <section id="finance-view" class="stage-view placeholder-view" hidden>
+            <div class="placeholder-card">
+              <p class="placeholder-tag">Finance</p>
+              <div class="placeholder-grid">
+                <div class="placeholder-block"></div>
+                <div class="placeholder-block"></div>
+                <div class="placeholder-block"></div>
+              </div>
+            </div>
+          </section>
+
+          <section id="science-view" class="stage-view placeholder-view" hidden>
+            <div class="placeholder-card">
+              <p class="placeholder-tag">Science</p>
+              <div class="placeholder-grid">
+                <div class="placeholder-block"></div>
+                <div class="placeholder-block"></div>
+                <div class="placeholder-block"></div>
+              </div>
+            </div>
+          </section>
+        </section>
+
+        <aside class="right-rail">
+          <section
+            class="rail-card widget-card"
+            aria-labelledby="weather-card-title"
+          >
+            <div class="section-head">
+              <h2 id="weather-card-title">Weather</h2>
+            </div>
+            <div id="weather-widget-display" class="widget-display"></div>
+          </section>
+
+          <section
+            class="rail-card widget-card"
+            aria-labelledby="stock-card-title"
+          >
+            <div class="section-head">
+              <h2 id="stock-card-title">Stock</h2>
+              <button
+                type="button"
+                class="icon-button"
+                data-widget-toggle="stock"
+              >
+                <span class="material-symbols-outlined">settings</span>
+              </button>
+            </div>
+            <div id="stock-widget-display" class="widget-display"></div>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <div id="settings-modal" class="settings-modal" hidden>
+      <div class="settings-backdrop" data-modal-close></div>
+      <div
+        class="settings-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-title"
+      >
+        <div class="settings-header">
+          <div>
+            <p class="panel-kicker">Settings</p>
+            <h2 id="settings-title">Widget 设置</h2>
+          </div>
+          <button
+            type="button"
+            class="settings-save modal-close"
+            data-modal-close
+          >
+            关闭
+          </button>
+        </div>
+        <form id="settings-form" class="settings-form"></form>
+      </div>
+    </div>
+
+    <script src="./js/app.js" defer></script>
+  </body>
+</html>
