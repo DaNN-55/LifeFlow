@@ -1,5 +1,7 @@
 const STORAGE_KEY = "lifeflow-private-dashboard-v1";
 const STORAGE_VERSION = 4;
+const API_BASE_STORAGE_KEY = "lifeflow-private-dashboard-api-base";
+const API_SEED_PREFIX = "lifeflow-private-dashboard-seeded:";
 
 const defaultTasks = [
   { id: "job", name: "找工作", order: 1, color: "var(--job)" },
@@ -63,6 +65,11 @@ const state = {
   activeCenterTab: "daily",
   noteDrafts: {},
   modal: { widget: null },
+  remote: {
+    status: "idle",
+    apiBase: "",
+    weeklyReview: null,
+  },
   widgetData: {
     weather: {
       status: "idle",
@@ -224,6 +231,14 @@ function saveData(message) {
 
 function persistStateSilently() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.data));
+}
+
+function saveApiBase(baseUrl) {
+  if (!baseUrl) {
+    localStorage.removeItem(API_BASE_STORAGE_KEY);
+    return;
+  }
+  localStorage.setItem(API_BASE_STORAGE_KEY, baseUrl);
 }
 
 function render() {
@@ -426,7 +441,7 @@ function renderTaskList() {
 }
 
 function renderWeeklyReview() {
-  const aggregation = aggregateWeek(state.selectedWeek);
+  const aggregation = getWeeklyAggregation(state.selectedWeek);
   elements.weeklyReviewList.innerHTML = state.data.taskTypes
     .map((task) => {
       const notes = aggregation.notesByTask[task.id];
@@ -459,6 +474,30 @@ function renderWeeklyReview() {
       `;
     })
     .join("");
+}
+
+function getWeeklyAggregation(weekValue) {
+  if (state.remote.weeklyReview?.week === weekValue) {
+    return normalizeWeeklyAggregation(state.remote.weeklyReview);
+  }
+  return aggregateWeek(weekValue);
+}
+
+function normalizeWeeklyAggregation(payload) {
+  const completionCounts = {};
+  const notesByTask = {};
+
+  state.data.taskTypes.forEach((task) => {
+    completionCounts[task.id] = Number(payload?.completionCounts?.[task.id] || 0);
+    notesByTask[task.id] = Array.isArray(payload?.notesByTask?.[task.id])
+      ? payload.notesByTask[task.id].map((item) => ({
+          dateLabel: formatMonthDay(parseLocalDate(item.date)),
+          note: item.text,
+        }))
+      : [];
+  });
+
+  return { completionCounts, notesByTask };
 }
 
 function renderWidgets() {
@@ -667,21 +706,22 @@ function themeLabel(theme) {
   return theme === "light" ? "Light 模式" : "Dark 模式";
 }
 
-function updateTaskCompletion(taskId) {
+async function updateTaskCompletion(taskId) {
   const record = ensureRecord(state.selectedDate);
   record.tasks[taskId].completed = !record.tasks[taskId].completed;
   record.updatedAt = new Date().toISOString();
-  saveData(`已保存 ${getTaskName(taskId)} 的完成状态`);
+  persistStateSilently();
   renderControls();
   renderTaskList();
   renderWeeklyReview();
+  await syncCurrentRecord(`已保存 ${getTaskName(taskId)} 的完成状态`);
 }
 
 function updateNoteDraft(taskId, value) {
   state.noteDrafts[taskId] = value;
 }
 
-function submitTaskNote(taskId) {
+async function submitTaskNote(taskId) {
   const draft = (state.noteDrafts[taskId] || "").trim();
   if (!draft) {
     return;
@@ -695,12 +735,13 @@ function submitTaskNote(taskId) {
   });
   record.updatedAt = new Date().toISOString();
   state.noteDrafts[taskId] = "";
-  saveData(`已追加 ${getTaskName(taskId)} 的备注`);
+  persistStateSilently();
   renderTaskList();
   renderWeeklyReview();
+  await syncCurrentRecord(`已追加 ${getTaskName(taskId)} 的备注`);
 }
 
-function deleteTaskNote(taskId, noteId) {
+async function deleteTaskNote(taskId, noteId) {
   const record = ensureRecord(state.selectedDate);
   const taskState = record.tasks[taskId];
   if (!taskState) {
@@ -708,36 +749,36 @@ function deleteTaskNote(taskId, noteId) {
   }
   taskState.notes = taskState.notes.filter((note) => note.id !== noteId);
   record.updatedAt = new Date().toISOString();
-  saveData(`已删除 ${getTaskName(taskId)} 的备注`);
+  persistStateSilently();
   renderTaskList();
   renderWeeklyReview();
+  await syncCurrentRecord(`已删除 ${getTaskName(taskId)} 的备注`);
 }
 
-function addTask(taskName) {
+async function addTask(taskName) {
   const normalizedName = taskName.trim();
   if (!normalizedName) {
     return;
   }
 
   const id = `task-${Date.now()}`;
-  state.data.taskTypes = [
-    ...state.data.taskTypes,
-    {
-      id,
-      name: normalizedName,
-      order: state.data.taskTypes.length + 1,
-      color: getFallbackColor(state.data.taskTypes.length),
-    },
-  ];
+  const nextTask = {
+    id,
+    name: normalizedName,
+    order: state.data.taskTypes.length + 1,
+    color: getFallbackColor(state.data.taskTypes.length),
+  };
+  state.data.taskTypes = [...state.data.taskTypes, nextTask];
   Object.values(state.data.dailyRecords).forEach((record) => {
     record.tasks[id] = { completed: false, notes: [] };
   });
   ensureRecord(state.selectedDate);
-  saveData(`已创建任务：${normalizedName}`);
+  persistStateSilently();
   render();
+  await syncTaskCreate(nextTask, `已创建任务：${normalizedName}`);
 }
 
-function deleteTask(taskId) {
+async function deleteTask(taskId) {
   const task = state.data.taskTypes.find((item) => item.id === taskId);
   if (!task) {
     return;
@@ -747,8 +788,9 @@ function deleteTask(taskId) {
     delete record.tasks[taskId];
   });
   delete state.noteDrafts[taskId];
-  saveData(`已删除任务：${task.name}`);
+  persistStateSilently();
   render();
+  await syncTaskDelete(taskId, `已删除任务：${task.name}`);
 }
 
 function openWidgetSettings(widget) {
@@ -782,6 +824,319 @@ function saveSettings(formData) {
     closeModal();
     refreshStocks();
     renderWidgets();
+  }
+}
+
+async function bootstrapRemoteData() {
+  const localSnapshot = structuredClone(state.data);
+  state.remote.status = "connecting";
+  setSaveStatus("正在检测后端连接...");
+
+  const apiBase = await detectApiBase();
+  if (!apiBase) {
+    state.remote.status = "offline";
+    setSaveStatus("未连接后端，当前使用本地保存");
+    return;
+  }
+
+  state.remote.status = "ready";
+  state.remote.apiBase = apiBase;
+  saveApiBase(apiBase);
+
+  try {
+    await seedRemoteFromLocal(localSnapshot);
+    await syncTasksFromRemote();
+    await syncSelectedDateRecord({ silent: true });
+    await syncSelectedWeekReview({ silent: true });
+    setSaveStatus("后端已连接，当前通过 API 同步数据");
+    render();
+  } catch (error) {
+    console.warn("Failed to bootstrap remote data.", error);
+    state.remote.status = "offline";
+    state.remote.apiBase = "";
+    state.remote.weeklyReview = null;
+    saveApiBase("");
+    setSaveStatus("后端同步失败，已回退为本地保存");
+  }
+}
+
+async function seedRemoteFromLocal(snapshot) {
+  if (!snapshot || !isRemoteReady()) {
+    return;
+  }
+
+  const seedKey = `${API_SEED_PREFIX}${state.remote.apiBase}`;
+  if (localStorage.getItem(seedKey) === "done") {
+    return;
+  }
+
+  const remoteTaskPayload = await fetchApiJson("/api/tasks");
+  const remoteTaskIds = new Set((remoteTaskPayload.tasks || []).map((task) => task.id));
+  const localTasks = sanitizeTaskTypes(snapshot.taskTypes);
+
+  for (const task of localTasks) {
+    if (remoteTaskIds.has(task.id)) {
+      continue;
+    }
+    await fetchApiJson("/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: task.id,
+        name: task.name,
+        color: task.color,
+        displayOrder: task.order,
+      }),
+    });
+  }
+
+  const entries = Object.entries(snapshot.dailyRecords || {}).filter(([, record]) =>
+    hasMeaningfulRecord(record)
+  );
+
+  for (const [date, record] of entries) {
+    await fetchApiJson(`/api/daily-records/${date}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildRemoteDailyPayload(record)),
+    });
+  }
+
+  localStorage.setItem(seedKey, "done");
+}
+
+function hasMeaningfulRecord(record) {
+  if (!record?.tasks) {
+    return false;
+  }
+
+  return Object.values(record.tasks).some((taskState) => {
+    return Boolean(taskState?.completed) || (Array.isArray(taskState?.notes) && taskState.notes.length > 0);
+  });
+}
+
+async function detectApiBase() {
+  const candidates = getApiBaseCandidates();
+  for (const baseUrl of candidates) {
+    try {
+      const health = await fetchJson(joinApiPath(baseUrl, "/health"));
+      if (health?.ok) {
+        return baseUrl;
+      }
+    } catch (error) {
+      // Ignore probe failures and continue with the next candidate.
+    }
+  }
+  return "";
+}
+
+function getApiBaseCandidates() {
+  const fromStorage = localStorage.getItem(API_BASE_STORAGE_KEY) || "";
+  const runtimeBase =
+    typeof window !== "undefined" && typeof window.LIFEFLOW_API_BASE === "string"
+      ? window.LIFEFLOW_API_BASE
+      : "";
+  const localhostBase =
+    window.location.hostname && window.location.hostname !== "localhost"
+      ? "http://localhost:8787"
+      : `${window.location.protocol}//${window.location.hostname || "localhost"}:8787`;
+
+  return [...new Set([fromStorage, runtimeBase, localhostBase, "http://127.0.0.1:8787"])]
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function joinApiPath(baseUrl, path) {
+  return `${baseUrl.replace(/\/$/, "")}${path}`;
+}
+
+function isRemoteReady() {
+  return state.remote.status === "ready" && Boolean(state.remote.apiBase);
+}
+
+async function fetchApiJson(path, options = {}) {
+  if (!isRemoteReady()) {
+    throw new Error("Remote API unavailable");
+  }
+  return fetchJson(joinApiPath(state.remote.apiBase, path), options);
+}
+
+async function syncTasksFromRemote() {
+  const payload = await fetchApiJson("/api/tasks");
+  const remoteTasks = sanitizeTaskTypes(
+    (payload.tasks || []).map((task, index) => ({
+      id: task.id,
+      name: task.name,
+      order: Number(task.display_order) || index + 1,
+      color: task.color || getFallbackColor(index),
+    }))
+  );
+  state.data.taskTypes = remoteTasks;
+  Object.values(state.data.dailyRecords).forEach((record) => {
+    const nextTasks = createEmptyTaskState(remoteTasks);
+    remoteTasks.forEach((task) => {
+      if (record.tasks[task.id]) {
+        nextTasks[task.id] = record.tasks[task.id];
+      }
+    });
+    record.tasks = nextTasks;
+  });
+  ensureRecord(state.selectedDate);
+  persistStateSilently();
+}
+
+async function syncSelectedDateRecord(options = {}) {
+  if (!isRemoteReady()) {
+    return ensureRecord(state.selectedDate);
+  }
+
+  const payload = await fetchApiJson(`/api/daily-records/${state.selectedDate}`);
+  const record = normalizeRemoteRecord(payload.record, state.selectedDate);
+  state.data.dailyRecords[state.selectedDate] = record;
+  persistStateSilently();
+
+  if (!options.silent) {
+    setSaveStatus(`已同步 ${formatDisplayDate(parseLocalDate(state.selectedDate))} 的记录`);
+  }
+
+  return record;
+}
+
+async function syncSelectedWeekReview(options = {}) {
+  if (!isRemoteReady()) {
+    state.remote.weeklyReview = null;
+    return null;
+  }
+
+  const payload = await fetchApiJson(`/api/weekly-review/${state.selectedWeek}`);
+  state.remote.weeklyReview = payload;
+
+  if (!options.silent) {
+    setSaveStatus(`已同步 ${formatWeekRangeText(state.selectedWeek)} 的周复盘`);
+  }
+
+  return payload;
+}
+
+function normalizeRemoteRecord(record, fallbackDate) {
+  const date = record?.date || fallbackDate;
+  const nextRecord = createEmptyDailyRecord(date, state.data.taskTypes);
+  const payloadTasks = record?.payload?.tasks || {};
+
+  state.data.taskTypes.forEach((task) => {
+    nextRecord.tasks[task.id] = {
+      completed: Boolean(payloadTasks[task.id]?.completed),
+      notes: Array.isArray(payloadTasks[task.id]?.notes)
+        ? payloadTasks[task.id].notes.map((note) => ({
+            id: note.id,
+            text: note.text,
+            createdAt: note.createdAt,
+          }))
+        : [],
+    };
+  });
+
+  nextRecord.mood = typeof record?.payload?.mood === "string" ? record.payload.mood : "";
+  nextRecord.dailySummary =
+    typeof record?.payload?.dailySummary === "string" ? record.payload.dailySummary : "";
+  nextRecord.updatedAt = record?.updatedAt || "";
+  return nextRecord;
+}
+
+function buildRemoteDailyPayload(record) {
+  const tasks = {};
+  state.data.taskTypes.forEach((task) => {
+    const taskState = record.tasks[task.id] || { completed: false, notes: [] };
+    tasks[task.id] = {
+      completed: Boolean(taskState.completed),
+      notes: Array.isArray(taskState.notes)
+        ? taskState.notes.map((note) => ({
+            id: note.id,
+            text: note.text,
+            createdAt: note.createdAt,
+          }))
+        : [],
+    };
+  });
+
+  return {
+    tasks,
+    mood: record.mood || "",
+    dailySummary: record.dailySummary || "",
+  };
+}
+
+async function syncCurrentRecord(successMessage) {
+  persistStateSilently();
+
+  if (!isRemoteReady()) {
+    setSaveStatus(successMessage);
+    return;
+  }
+
+  try {
+    const record = ensureRecord(state.selectedDate);
+    const payload = buildRemoteDailyPayload(record);
+    const response = await fetchApiJson(`/api/daily-records/${state.selectedDate}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    state.data.dailyRecords[state.selectedDate] = normalizeRemoteRecord(response.record, state.selectedDate);
+    await syncSelectedWeekReview({ silent: true });
+    persistStateSilently();
+    setSaveStatus(successMessage);
+  } catch (error) {
+    console.warn("Failed to sync daily record.", error);
+    setSaveStatus(`${successMessage}，但后端同步失败，当前仅保存在本地`);
+  }
+}
+
+async function syncTaskCreate(task, successMessage) {
+  persistStateSilently();
+
+  if (!isRemoteReady()) {
+    setSaveStatus(successMessage);
+    return;
+  }
+
+  try {
+    await fetchApiJson("/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: task.id,
+        name: task.name,
+        color: task.color,
+        displayOrder: task.order,
+      }),
+    });
+    await syncTasksFromRemote();
+    await syncCurrentRecord(successMessage);
+    render();
+  } catch (error) {
+    console.warn("Failed to create task remotely.", error);
+    setSaveStatus(`${successMessage}，但后端同步失败，当前仅保存在本地`);
+  }
+}
+
+async function syncTaskDelete(taskId, successMessage) {
+  persistStateSilently();
+
+  if (!isRemoteReady()) {
+    setSaveStatus(successMessage);
+    return;
+  }
+
+  try {
+    await fetchApiJson(`/api/tasks/${taskId}`, { method: "DELETE" });
+    await syncTasksFromRemote();
+    await syncSelectedWeekReview({ silent: true });
+    persistStateSilently();
+    setSaveStatus(successMessage);
+  } catch (error) {
+    console.warn("Failed to delete task remotely.", error);
+    setSaveStatus(`${successMessage}，但后端同步失败，当前仅保存在本地`);
   }
 }
 
@@ -898,10 +1253,13 @@ async function refreshStocks() {
   }
 }
 
-async function fetchJson(url) {
-  const response = await fetch(url);
+async function fetchJson(url, options = {}) {
+  const response = await fetch(url, options);
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status}`);
+  }
+  if (response.status === 204) {
+    return null;
   }
   return response.json();
 }
@@ -1208,7 +1566,7 @@ function handleThemeClick(event) {
   updateTheme(button.dataset.theme);
 }
 
-function handleCalendarClick(event) {
+async function handleCalendarClick(event) {
   const button = event.target.closest("[data-calendar-date]");
   if (!button) {
     return;
@@ -1216,8 +1574,15 @@ function handleCalendarClick(event) {
   state.selectedDate = button.dataset.calendarDate;
   syncWeekToDate();
   ensureRecord(state.selectedDate);
-  setSaveStatus(`已切换到 ${formatDisplayDate(parseLocalDate(state.selectedDate))}`);
+  setSaveStatus(`正在加载 ${formatDisplayDate(parseLocalDate(state.selectedDate))} 的记录...`);
+  try {
+    await syncSelectedDateRecord({ silent: true });
+    await syncSelectedWeekReview({ silent: true });
+  } catch (error) {
+    console.warn("Failed to load remote data for selected date.", error);
+  }
   render();
+  setSaveStatus(`已切换到 ${formatDisplayDate(parseLocalDate(state.selectedDate))}`);
 }
 
 function handleTaskListClick(event) {
@@ -1228,16 +1593,16 @@ function handleTaskListClick(event) {
   const { action, taskId } = actionTarget.dataset;
 
   if (action === "toggle-task") {
-    updateTaskCompletion(taskId);
+    void updateTaskCompletion(taskId);
   }
   if (action === "delete-task") {
-    deleteTask(taskId);
+    void deleteTask(taskId);
   }
   if (action === "submit-note") {
-    submitTaskNote(taskId);
+    void submitTaskNote(taskId);
   }
   if (action === "delete-note") {
-    deleteTaskNote(taskId, actionTarget.dataset.noteId);
+    void deleteTaskNote(taskId, actionTarget.dataset.noteId);
   }
 }
 
@@ -1256,7 +1621,7 @@ function handleTaskListSubmit(event) {
   }
   event.preventDefault();
   const taskName = new FormData(form).get("taskName");
-  addTask(String(taskName || ""));
+  void addTask(String(taskName || ""));
 }
 
 function handleShowMoreClick(event) {
@@ -1423,4 +1788,5 @@ bindEvents();
 ensureRecord(state.selectedDate);
 persistStateSilently();
 render();
+void bootstrapRemoteData();
 refreshExternalData();
