@@ -290,52 +290,37 @@
       </div>
     </div>
 
-    <div id="auth-modal" class="settings-modal" hidden>
-      <div class="settings-backdrop" data-auth-close></div>
-      <div
-        class="settings-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="auth-title"
-      >
-        <div class="settings-header">
-          <div>
-            <p class="panel-kicker">Auth</p>
-            <h2 id="auth-title">云端登录</h2>
-          </div>
-          <button
-            type="button"
-            class="settings-save modal-close"
-            data-auth-close
-          >
-            关闭
-          </button>
-        </div>
-        <form id="auth-form" class="settings-form">
-          <p class="settings-copy">
-            输入 Supabase 项目的 URL、Anon Key 和登录邮箱。URL 与 Anon Key
-            属于前端公开配置，保存后会存到当前浏览器。
-          </p>
-          <label class="settings-field">
-            <span class="widget-label">Supabase URL</span>
-            <input name="supabaseUrl" type="url" placeholder="https://xxx.supabase.co" required />
-          </label>
-          <label class="settings-field">
-            <span class="widget-label">Supabase Anon Key</span>
-            <textarea name="supabaseAnonKey" placeholder="粘贴你的 anon key" required></textarea>
-          </label>
+    <div id="auth-gate" class="auth-gate" hidden>
+      <div class="auth-gate-backdrop"></div>
+      <section class="auth-gate-card" aria-labelledby="auth-gate-title">
+        <p class="panel-kicker">Cloud Sync</p>
+        <h1 id="auth-gate-title">登录后同步到云端</h1>
+        <p class="auth-gate-copy">
+          登录后你的任务与备注会写入云端。试用模式下仍可正常使用，但所有数据仅保存在当前浏览器。
+        </p>
+        <form id="auth-gate-form" class="auth-gate-form">
           <label class="settings-field">
             <span class="widget-label">登录邮箱</span>
             <input name="email" type="email" placeholder="you@example.com" required />
           </label>
-          <p id="auth-feedback" class="settings-copy"></p>
-          <div class="settings-actions">
+          <p id="auth-gate-feedback" class="settings-copy"></p>
+          <div class="auth-gate-actions">
             <button type="submit" class="settings-save">发送登录链接</button>
+            <button type="button" id="trial-action" class="auth-button">
+              试用模式
+            </button>
           </div>
         </form>
-      </div>
+      </section>
     </div>
 
+    <script>
+      window.LIFEFLOW_AUTH_CONFIG = window.LIFEFLOW_AUTH_CONFIG || {
+        supabaseUrl: "https://wosmpydmpecmregvcwpq.supabase.co",
+        supabaseAnonKey:
+          "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Indvc21weWRtcGVjbXJlZ3Zjd3BxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwMzE5OTIsImV4cCI6MjA4ODYwNzk5Mn0.pPkdl9wTmPx0yCnnQXDn9sHkq-bLmpaw86LGMLk0EWk",
+      };
+    </script>
     <script src="./js/app.js" defer></script>
   </body>
 </html>

@@ -9,7 +9,7 @@
 - 自动保存到浏览器 `localStorage`
 - 按周查看完成天数和任务备注聚合
 - 支持显示“云端已连接 / 本地模式”状态
-- 预留 Supabase Auth 登录入口，便于后续多端同步
+- 支持登录页覆盖层与试用模式切换
 - 适配桌面端和手机端
 
 ## 目录结构
@@ -58,13 +58,25 @@ http://localhost:8000/private-dashboard/
 
 ## 云端登录准备
 
-页面已经预留了 Supabase Auth 登录入口。首次使用时，需要在页面里填写：
+当前版本的登录流是：
 
-- `Supabase URL`
-- `Supabase Anon Key`
-- 登录邮箱
+- 未登录时进入登录覆盖层
+- 可选择“试用模式”直接进入页面
+- 试用模式下只使用 `localStorage`
+- 登录成功后才会连接 Render + Supabase 云端数据
 
-完成后会通过邮箱魔法链接登录。登录成功后，前端会自动把 `access_token` 带给后端，为后续按 `user_id` 同步数据做准备。
+为了不在页面上暴露配置输入框，前端会从 [index.html](/Users/dan/Programs/LifeFlow/private-dashboard/index.html) 中读取：
+
+```html
+window.LIFEFLOW_AUTH_CONFIG = {
+  supabaseUrl: "",
+  supabaseAnonKey: "",
+};
+```
+
+你需要把这里填成自己的 Supabase 项目信息。它们属于前端公开配置，不是敏感密钥。
+
+登录成功后，前端会自动把 `access_token` 带给后端，为后续按 `user_id` 同步数据做准备。
 
 ## GitHub Pages 部署
 

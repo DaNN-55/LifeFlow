@@ -4,6 +4,7 @@ const API_BASE_STORAGE_KEY = "lifeflow-private-dashboard-api-base";
 const API_SEED_PREFIX = "lifeflow-private-dashboard-seeded:";
 const DEFAULT_REMOTE_API_BASE = "https://lifeflow-backend-mrs1.onrender.com";
 const AUTH_CONFIG_STORAGE_KEY = "lifeflow-private-dashboard-auth-config";
+const ENTRY_MODE_STORAGE_KEY = "lifeflow-private-dashboard-entry-mode";
 
 const defaultTasks = [
   { id: "job", name: "找工作", order: 1, color: "var(--job)" },
@@ -60,9 +61,10 @@ const elements = {
   settingsModal: document.querySelector("#settings-modal"),
   settingsForm: document.querySelector("#settings-form"),
   settingsTitle: document.querySelector("#settings-title"),
-  authModal: document.querySelector("#auth-modal"),
-  authForm: document.querySelector("#auth-form"),
-  authFeedback: document.querySelector("#auth-feedback"),
+  authGate: document.querySelector("#auth-gate"),
+  authGateForm: document.querySelector("#auth-gate-form"),
+  authGateFeedback: document.querySelector("#auth-gate-feedback"),
+  trialAction: document.querySelector("#trial-action"),
 };
 
 const state = {
@@ -85,6 +87,7 @@ const state = {
     session: null,
     config: loadAuthConfig(),
     feedback: "",
+    entryMode: loadEntryMode(),
   },
   widgetData: {
     weather: {
@@ -165,21 +168,40 @@ function loadData() {
 
 function loadAuthConfig() {
   try {
+    const runtimeConfig =
+      typeof window !== "undefined" && window.LIFEFLOW_AUTH_CONFIG
+        ? {
+            supabaseUrl: String(window.LIFEFLOW_AUTH_CONFIG.supabaseUrl || "").trim(),
+            supabaseAnonKey: String(window.LIFEFLOW_AUTH_CONFIG.supabaseAnonKey || "").trim(),
+          }
+        : { supabaseUrl: "", supabaseAnonKey: "" };
     const raw = localStorage.getItem(AUTH_CONFIG_STORAGE_KEY);
     if (!raw) {
-      return { supabaseUrl: "", supabaseAnonKey: "", email: "" };
+      return { ...runtimeConfig, email: "" };
     }
 
     const parsed = JSON.parse(raw);
     return {
-      supabaseUrl: typeof parsed.supabaseUrl === "string" ? parsed.supabaseUrl.trim() : "",
+      supabaseUrl:
+        runtimeConfig.supabaseUrl ||
+        (typeof parsed.supabaseUrl === "string" ? parsed.supabaseUrl.trim() : ""),
       supabaseAnonKey:
-        typeof parsed.supabaseAnonKey === "string" ? parsed.supabaseAnonKey.trim() : "",
+        runtimeConfig.supabaseAnonKey ||
+        (typeof parsed.supabaseAnonKey === "string" ? parsed.supabaseAnonKey.trim() : ""),
       email: typeof parsed.email === "string" ? parsed.email.trim() : "",
     };
   } catch (error) {
-    return { supabaseUrl: "", supabaseAnonKey: "", email: "" };
+    return {
+      supabaseUrl: String(window.LIFEFLOW_AUTH_CONFIG?.supabaseUrl || "").trim(),
+      supabaseAnonKey: String(window.LIFEFLOW_AUTH_CONFIG?.supabaseAnonKey || "").trim(),
+      email: "",
+    };
   }
+}
+
+function loadEntryMode() {
+  const value = localStorage.getItem(ENTRY_MODE_STORAGE_KEY);
+  return value === "trial" ? "trial" : "login";
 }
 
 function sanitizeTaskTypes(taskTypes) {
@@ -327,6 +349,11 @@ function getCurrentScopeKey() {
   return state.auth.user?.id || "public";
 }
 
+function saveEntryMode(mode) {
+  state.auth.entryMode = mode === "trial" ? "trial" : "login";
+  localStorage.setItem(ENTRY_MODE_STORAGE_KEY, state.auth.entryMode);
+}
+
 function render() {
   applyTheme(state.data.preferences.theme);
   syncWeekToDate();
@@ -339,7 +366,7 @@ function render() {
   renderWeeklyReview();
   renderWidgets();
   renderModal();
-  renderAuthModal();
+  renderAuthGate();
 }
 
 function renderTopTabs() {
@@ -416,11 +443,25 @@ function renderAuthStatusChip() {
   }
 
   if (hasAuthConfig()) {
-    chip.textContent = "未登录";
+    chip.textContent = state.auth.entryMode === "trial" ? "试用中" : "未登录";
   } else {
     chip.textContent = "未配置";
   }
   elements.authAction.textContent = "云端登录";
+}
+
+function renderAuthGate() {
+  const shouldShow = !state.auth.user && state.auth.entryMode !== "trial";
+  elements.authGate.hidden = !shouldShow;
+  if (!shouldShow) {
+    return;
+  }
+
+  if (elements.authGateForm) {
+    elements.authGateForm.elements.email.value = state.auth.config.email || "";
+  }
+
+  elements.authGateFeedback.textContent = state.auth.feedback || getAuthGateHint();
 }
 
 function renderCalendar() {
@@ -762,16 +803,11 @@ function renderModal() {
   elements.settingsForm.innerHTML = renderSettingsForm(widget);
 }
 
-function renderAuthModal() {
-  if (elements.authModal.hidden) {
-    return;
+function getAuthGateHint() {
+  if (!hasAuthConfig()) {
+    return "当前前端还未配置 Supabase 登录参数，请先在代码中补齐 URL 与 Anon Key。";
   }
-
-  const form = elements.authForm;
-  form.elements.supabaseUrl.value = state.auth.config.supabaseUrl || "";
-  form.elements.supabaseAnonKey.value = state.auth.config.supabaseAnonKey || "";
-  form.elements.email.value = state.auth.config.email || "";
-  elements.authFeedback.textContent = state.auth.feedback || "";
+  return "使用邮箱魔法链接登录。试用模式仅保存在当前浏览器，不会同步到云端。";
 }
 
 function renderSettingsForm(widget) {
@@ -1002,7 +1038,9 @@ async function initAuthClient() {
     state.auth.client = null;
     state.auth.session = null;
     state.auth.user = null;
+    state.auth.feedback = "当前站点尚未配置云端登录。";
     renderControls();
+    renderAuthGate();
     return null;
   }
 
@@ -1028,41 +1066,56 @@ async function initAuthClient() {
     state.auth.user = session?.user || null;
     state.auth.status = session?.user ? "ready" : "idle";
     state.auth.feedback = session?.user ? "已连接到你的 Supabase 账号。" : "";
+    if (session?.user) {
+      saveEntryMode("login");
+    }
 
     client.auth.onAuthStateChange(async (event, sessionValue) => {
       state.auth.session = sessionValue || null;
       state.auth.user = sessionValue?.user || null;
       state.auth.status = sessionValue?.user ? "ready" : "idle";
+      if (sessionValue?.user) {
+        saveEntryMode("login");
+      }
       state.auth.feedback =
         event === "SIGNED_IN"
           ? `已登录 ${sessionValue?.user?.email || "当前账号"}`
           : event === "SIGNED_OUT"
             ? "已退出云端账号。"
             : state.auth.feedback;
-      if (isRemoteReady()) {
-        await refreshRemoteForCurrentUser();
-      } else {
-        renderControls();
-        renderAuthModal();
+      if (sessionValue?.user) {
+        await bootstrapRemoteData();
+        return;
       }
+
+      state.remote.status = "offline";
+      state.remote.apiBase = "";
+      state.remote.weeklyReview = null;
+      saveApiBase("");
+      setSaveStatus("已退出云端账号，当前使用本地保存");
+      render();
     });
 
     renderControls();
+    renderAuthGate();
+    if (session?.user) {
+      await bootstrapRemoteData();
+    }
     return client;
   } catch (error) {
     console.warn("Failed to initialize Supabase auth client.", error);
     state.auth.status = "error";
     state.auth.feedback = "Supabase Auth 初始化失败，请检查 URL 与 Anon Key。";
     renderControls();
-    renderAuthModal();
+    renderAuthGate();
     return null;
   }
 }
 
 async function requestMagicLink(formData) {
   const config = {
-    supabaseUrl: String(formData.get("supabaseUrl") || ""),
-    supabaseAnonKey: String(formData.get("supabaseAnonKey") || ""),
+    supabaseUrl: state.auth.config.supabaseUrl,
+    supabaseAnonKey: state.auth.config.supabaseAnonKey,
     email: String(formData.get("email") || ""),
   };
 
@@ -1094,13 +1147,13 @@ async function requestMagicLink(formData) {
     state.auth.status = "idle";
     state.auth.feedback = `登录链接已发送到 ${config.email}，请在邮箱中完成登录。`;
     renderControls();
-    renderAuthModal();
+    renderAuthGate();
   } catch (error) {
     console.warn("Failed to send auth link.", error);
     state.auth.status = "error";
     state.auth.feedback = "发送登录链接失败，请检查邮箱和 Supabase 配置。";
     renderControls();
-    renderAuthModal();
+    renderAuthGate();
   }
 }
 
@@ -1111,16 +1164,33 @@ async function signOutAuth() {
   await state.auth.client.auth.signOut();
 }
 
-function openAuthModal() {
-  elements.authModal.hidden = false;
-  renderAuthModal();
+function openAuthGate() {
+  saveEntryMode("login");
+  render();
 }
 
-function closeAuthModal() {
-  elements.authModal.hidden = true;
+function enterTrialMode() {
+  saveEntryMode("trial");
+  state.auth.feedback = "";
+  state.remote.status = "offline";
+  state.remote.apiBase = "";
+  state.remote.weeklyReview = null;
+  saveApiBase("");
+  setSaveStatus("试用模式已启用，数据只保存在当前浏览器");
+  render();
 }
 
 async function bootstrapRemoteData() {
+  if (!state.auth.user) {
+    state.remote.status = "offline";
+    state.remote.apiBase = "";
+    state.remote.weeklyReview = null;
+    saveApiBase("");
+    setSaveStatus("未登录云端账号，当前使用本地保存");
+    renderControls();
+    return;
+  }
+
   const localSnapshot = structuredClone(state.data);
   state.remote.status = "connecting";
   setSaveStatus("正在检测后端连接...");
@@ -1995,21 +2065,15 @@ function handleAuthAction() {
     void signOutAuth();
     return;
   }
-  openAuthModal();
-}
-
-function handleAuthModalClick(event) {
-  if (event.target.closest("[data-auth-close]")) {
-    closeAuthModal();
-  }
+  openAuthGate();
 }
 
 function handleAuthSubmit(event) {
-  if (event.target !== elements.authForm) {
+  if (event.target !== elements.authGateForm) {
     return;
   }
   event.preventDefault();
-  void requestMagicLink(new FormData(elements.authForm));
+  void requestMagicLink(new FormData(elements.authGateForm));
 }
 
 function bindEvents() {
@@ -2027,8 +2091,8 @@ function bindEvents() {
   document.querySelector(".right-rail").addEventListener("click", handleWidgetClick);
   elements.settingsModal.addEventListener("click", handleModalClick);
   elements.settingsForm.addEventListener("submit", handleModalSubmit);
-  elements.authModal.addEventListener("click", handleAuthModalClick);
-  elements.authForm.addEventListener("submit", handleAuthSubmit);
+  elements.authGateForm.addEventListener("submit", handleAuthSubmit);
+  elements.trialAction.addEventListener("click", enterTrialMode);
 }
 
 function getTodayDateString() {
