@@ -446,6 +446,77 @@ function saveEntryMode(mode) {
   localStorage.setItem(ENTRY_MODE_STORAGE_KEY, state.auth.entryMode);
 }
 
+function parseAuthHashParams() {
+  const hash = window.location.hash.startsWith("#")
+    ? window.location.hash.slice(1)
+    : window.location.hash;
+  if (!hash) {
+    return null;
+  }
+
+  const params = new URLSearchParams(hash);
+  const accessToken = params.get("access_token");
+  const refreshToken = params.get("refresh_token");
+  const errorCode = params.get("error_code");
+  const errorDescription = params.get("error_description");
+
+  if (errorCode || errorDescription) {
+    return {
+      errorCode,
+      errorDescription,
+    };
+  }
+
+  if (!accessToken || !refreshToken) {
+    return null;
+  }
+
+  return {
+    accessToken,
+    refreshToken,
+  };
+}
+
+function clearAuthHash() {
+  if (!window.location.hash) {
+    return;
+  }
+  const cleanUrl = `${window.location.origin}${window.location.pathname}${window.location.search}`;
+  window.history.replaceState({}, document.title, cleanUrl);
+}
+
+async function consumeAuthHashSession(client) {
+  const parsed = parseAuthHashParams();
+  if (!parsed) {
+    return null;
+  }
+
+  if (parsed.errorCode || parsed.errorDescription) {
+    state.auth.feedback = decodeURIComponent(
+      parsed.errorDescription || "云端登录失败，请重试。",
+    );
+    clearAuthHash();
+    return null;
+  }
+
+  try {
+    const { data, error } = await client.auth.setSession({
+      access_token: parsed.accessToken,
+      refresh_token: parsed.refreshToken,
+    });
+    if (error) {
+      throw error;
+    }
+    clearAuthHash();
+    return data.session || null;
+  } catch (error) {
+    console.warn("Failed to consume auth hash session.", error);
+    state.auth.feedback = "登录链接已返回，但会话建立失败，请重新发送登录链接。";
+    clearAuthHash();
+    return null;
+  }
+}
+
 function render() {
   applyTheme(state.data.preferences.theme);
   syncWeekToDate();
@@ -1261,15 +1332,19 @@ async function initAuthClient() {
       },
     );
 
+    const hashSession = await consumeAuthHashSession(client);
     const {
       data: { session },
     } = await client.auth.getSession();
+    const activeSession = hashSession || session || null;
     state.auth.client = client;
-    state.auth.session = session || null;
-    state.auth.user = session?.user || null;
-    state.auth.status = session?.user ? "ready" : "idle";
-    state.auth.feedback = session?.user ? "已连接到你的 Supabase 账号。" : "";
-    if (session?.user) {
+    state.auth.session = activeSession;
+    state.auth.user = activeSession?.user || null;
+    state.auth.status = activeSession?.user ? "ready" : "idle";
+    state.auth.feedback = activeSession?.user
+      ? "已连接到你的 Supabase 账号。"
+      : state.auth.feedback;
+    if (activeSession?.user) {
       saveEntryMode("login");
     }
 
@@ -1301,7 +1376,7 @@ async function initAuthClient() {
 
     renderControls();
     renderAuthGate();
-    if (session?.user) {
+    if (activeSession?.user) {
       await bootstrapRemoteData();
     }
     return client;
