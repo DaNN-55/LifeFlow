@@ -2,6 +2,7 @@ const STORAGE_KEY = "lifeflow-private-dashboard-v1";
 const STORAGE_VERSION = 4;
 const API_BASE_STORAGE_KEY = "lifeflow-private-dashboard-api-base";
 const API_SEED_PREFIX = "lifeflow-private-dashboard-seeded:";
+const DEFAULT_REMOTE_API_BASE = "https://lifeflow-backend-mrs1.onrender.com";
 
 const defaultTasks = [
   { id: "job", name: "找工作", order: 1, color: "var(--job)" },
@@ -940,8 +941,12 @@ function getApiBaseCandidates() {
     window.location.hostname && window.location.hostname !== "localhost"
       ? "http://localhost:8787"
       : `${window.location.protocol}//${window.location.hostname || "localhost"}:8787`;
+  const isLocalHost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+  const preferred = isLocalHost
+    ? [fromStorage, runtimeBase, localhostBase, "http://127.0.0.1:8787", DEFAULT_REMOTE_API_BASE]
+    : [fromStorage, runtimeBase, DEFAULT_REMOTE_API_BASE, localhostBase, "http://127.0.0.1:8787"];
 
-  return [...new Set([fromStorage, runtimeBase, localhostBase, "http://127.0.0.1:8787"])]
+  return [...new Set(preferred)]
     .map((item) => item.trim())
     .filter(Boolean);
 }
