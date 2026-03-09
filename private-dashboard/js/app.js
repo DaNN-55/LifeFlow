@@ -5,6 +5,7 @@ const API_SEED_PREFIX = "lifeflow-private-dashboard-seeded:";
 const DEFAULT_REMOTE_API_BASE = "https://lifeflow-backend-mrs1.onrender.com";
 const AUTH_CONFIG_STORAGE_KEY = "lifeflow-private-dashboard-auth-config";
 const ENTRY_MODE_STORAGE_KEY = "lifeflow-private-dashboard-entry-mode";
+const PENDING_SYNC_STORAGE_KEY = "lifeflow-private-dashboard-pending-sync";
 
 const defaultTasks = [
   { id: "task1", name: "任务1", order: 1, color: "#4f46e5" },
@@ -102,6 +103,7 @@ const state = {
     feedback: "",
     entryMode: loadEntryMode(),
   },
+  pendingSync: loadPendingSyncStore(),
   widgetData: {
     weather: {
       status: "idle",
@@ -427,6 +429,165 @@ function saveApiBase(baseUrl) {
     return;
   }
   localStorage.setItem(API_BASE_STORAGE_KEY, baseUrl);
+}
+
+function loadPendingSyncStore() {
+  try {
+    const raw = localStorage.getItem(PENDING_SYNC_STORAGE_KEY);
+    if (!raw) {
+      return {};
+    }
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (error) {
+    return {};
+  }
+}
+
+function persistPendingSyncStore() {
+  localStorage.setItem(
+    PENDING_SYNC_STORAGE_KEY,
+    JSON.stringify(state.pendingSync),
+  );
+}
+
+function getPendingScopeKey() {
+  return state.auth.user?.id || "";
+}
+
+function getPendingBucket(create = false) {
+  const scopeKey = getPendingScopeKey();
+  if (!scopeKey) {
+    return null;
+  }
+
+  if (!state.pendingSync[scopeKey] && create) {
+    state.pendingSync[scopeKey] = {
+      taskUpserts: {},
+      taskDeletes: {},
+      dirtyRecords: {},
+    };
+  }
+
+  return state.pendingSync[scopeKey] || null;
+}
+
+function hasPendingSync() {
+  const bucket = getPendingBucket(false);
+  if (!bucket) {
+    return false;
+  }
+  return (
+    Object.keys(bucket.taskUpserts || {}).length > 0 ||
+    Object.keys(bucket.taskDeletes || {}).length > 0 ||
+    Object.keys(bucket.dirtyRecords || {}).length > 0
+  );
+}
+
+function markTaskUpsertPending(task) {
+  const bucket = getPendingBucket(true);
+  if (!bucket) {
+    return;
+  }
+  bucket.taskUpserts[task.id] = {
+    id: task.id,
+    name: task.name,
+    color: task.color,
+    displayOrder: task.order,
+  };
+  delete bucket.taskDeletes[task.id];
+  persistPendingSyncStore();
+}
+
+function markTaskDeletePending(taskId) {
+  const bucket = getPendingBucket(true);
+  if (!bucket) {
+    return;
+  }
+  if (bucket.taskUpserts[taskId]) {
+    delete bucket.taskUpserts[taskId];
+  } else {
+    bucket.taskDeletes[taskId] = true;
+  }
+  persistPendingSyncStore();
+}
+
+function clearTaskPending(taskId) {
+  const bucket = getPendingBucket(false);
+  if (!bucket) {
+    return;
+  }
+  delete bucket.taskUpserts[taskId];
+  delete bucket.taskDeletes[taskId];
+  persistPendingSyncStore();
+}
+
+function markRecordPending(date) {
+  const bucket = getPendingBucket(true);
+  if (!bucket) {
+    return;
+  }
+  bucket.dirtyRecords[date] = true;
+  persistPendingSyncStore();
+}
+
+function clearRecordPending(date) {
+  const bucket = getPendingBucket(false);
+  if (!bucket) {
+    return;
+  }
+  delete bucket.dirtyRecords[date];
+  persistPendingSyncStore();
+}
+
+async function flushPendingSync() {
+  if (!isRemoteReady() || !state.auth.user) {
+    return;
+  }
+
+  const bucket = getPendingBucket(false);
+  if (!bucket) {
+    return;
+  }
+
+  for (const task of Object.values(bucket.taskUpserts || {})) {
+    await fetchApiJson(`/api/tasks/${task.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: task.name,
+        color: task.color,
+        displayOrder: task.displayOrder,
+      }),
+    }).catch(async (error) => {
+      if (String(error.message || "").includes("404")) {
+        await fetchApiJson("/api/tasks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(task),
+        });
+        return;
+      }
+      throw error;
+    });
+    clearTaskPending(task.id);
+  }
+
+  for (const taskId of Object.keys(bucket.taskDeletes || {})) {
+    await fetchApiJson(`/api/tasks/${taskId}`, { method: "DELETE" });
+    clearTaskPending(taskId);
+  }
+
+  for (const date of Object.keys(bucket.dirtyRecords || {})) {
+    const record = ensureRecord(date);
+    const payload = buildRemoteDailyPayload(record);
+    await fetchApiJson(`/api/daily-records/${date}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    clearRecordPending(date);
+  }
 }
 
 function saveAuthConfig(config) {
@@ -1422,18 +1583,26 @@ async function initAuthClient() {
           ? `已登录 ${sessionValue?.user?.email || "当前账号"}`
           : event === "SIGNED_OUT"
             ? "已退出云端账号。"
-            : state.auth.feedback;
-      if (sessionValue?.user) {
+            : event === "TOKEN_REFRESHED"
+              ? "云端会话已续期。"
+              : state.auth.feedback;
+
+      if (event === "SIGNED_IN" && sessionValue?.user) {
         await bootstrapRemoteData();
         return;
       }
 
-      state.remote.status = "offline";
-      state.remote.apiBase = "";
-      state.remote.weeklyReview = null;
-      saveApiBase("");
-      setSaveStatus("已退出云端账号，当前使用本地保存");
-      render();
+      if (event === "SIGNED_OUT") {
+        state.remote.status = "offline";
+        state.remote.apiBase = "";
+        state.remote.weeklyReview = null;
+        saveApiBase("");
+        setSaveStatus("已退出云端账号，当前使用本地保存");
+        render();
+        return;
+      }
+
+      renderControls();
     });
 
     renderControls();
@@ -1622,7 +1791,11 @@ async function bootstrapRemoteData() {
   saveApiBase(apiBase);
 
   try {
-    await seedRemoteFromLocal(localSnapshot);
+    if (hasPendingSync()) {
+      await flushPendingSync();
+    } else {
+      await seedRemoteFromLocal(localSnapshot);
+    }
     await syncTasksFromRemote();
     await syncSelectedDateRecord({ silent: true });
     await syncSelectedWeekReview({ silent: true });
@@ -1920,9 +2093,16 @@ function buildRemoteDailyPayload(record) {
 
 async function syncCurrentRecord(successMessage) {
   persistStateSilently();
+  if (state.auth.user) {
+    markRecordPending(state.selectedDate);
+  }
 
   if (!isRemoteReady()) {
-    setSaveStatus(successMessage);
+    setSaveStatus(
+      state.auth.user
+        ? `${successMessage}，已标记为待同步`
+        : successMessage,
+    );
     return;
   }
 
@@ -1941,20 +2121,32 @@ async function syncCurrentRecord(successMessage) {
       response.record,
       state.selectedDate,
     );
+    clearRecordPending(state.selectedDate);
     await syncSelectedWeekReview({ silent: true });
     persistStateSilently();
     setSaveStatus(successMessage);
   } catch (error) {
     console.warn("Failed to sync daily record.", error);
-    setSaveStatus(`${successMessage}，但后端同步失败，当前仅保存在本地`);
+    setSaveStatus(
+      state.auth.user
+        ? `${successMessage}，已标记为待同步`
+        : `${successMessage}，但后端同步失败，当前仅保存在本地`,
+    );
   }
 }
 
 async function syncTaskCreate(task, successMessage) {
   persistStateSilently();
+  if (state.auth.user) {
+    markTaskUpsertPending(task);
+  }
 
   if (!isRemoteReady()) {
-    setSaveStatus(successMessage);
+    setSaveStatus(
+      state.auth.user
+        ? `${successMessage}，已标记为待同步`
+        : successMessage,
+    );
     return;
   }
 
@@ -1970,39 +2162,63 @@ async function syncTaskCreate(task, successMessage) {
       }),
     });
     await syncTasksFromRemote();
+    clearTaskPending(task.id);
     await syncCurrentRecord(successMessage);
     render();
   } catch (error) {
     console.warn("Failed to create task remotely.", error);
-    setSaveStatus(`${successMessage}，但后端同步失败，当前仅保存在本地`);
+    setSaveStatus(
+      state.auth.user
+        ? `${successMessage}，已标记为待同步`
+        : `${successMessage}，但后端同步失败，当前仅保存在本地`,
+    );
   }
 }
 
 async function syncTaskDelete(taskId, successMessage) {
   persistStateSilently();
+  if (state.auth.user) {
+    markTaskDeletePending(taskId);
+  }
 
   if (!isRemoteReady()) {
-    setSaveStatus(successMessage);
+    setSaveStatus(
+      state.auth.user
+        ? `${successMessage}，已标记为待同步`
+        : successMessage,
+    );
     return;
   }
 
   try {
     await fetchApiJson(`/api/tasks/${taskId}`, { method: "DELETE" });
+    clearTaskPending(taskId);
     await syncTasksFromRemote();
     await syncSelectedWeekReview({ silent: true });
     persistStateSilently();
     setSaveStatus(successMessage);
   } catch (error) {
     console.warn("Failed to delete task remotely.", error);
-    setSaveStatus(`${successMessage}，但后端同步失败，当前仅保存在本地`);
+    setSaveStatus(
+      state.auth.user
+        ? `${successMessage}，已标记为待同步`
+        : `${successMessage}，但后端同步失败，当前仅保存在本地`,
+    );
   }
 }
 
 async function syncTaskUpdate(task, successMessage) {
   persistStateSilently();
+  if (state.auth.user) {
+    markTaskUpsertPending(task);
+  }
 
   if (!isRemoteReady()) {
-    setSaveStatus(successMessage);
+    setSaveStatus(
+      state.auth.user
+        ? `${successMessage}，已标记为待同步`
+        : successMessage,
+    );
     return;
   }
 
@@ -2016,13 +2232,18 @@ async function syncTaskUpdate(task, successMessage) {
         displayOrder: task.order,
       }),
     });
+    clearTaskPending(task.id);
     await syncTasksFromRemote();
     persistStateSilently();
     render();
     setSaveStatus(successMessage);
   } catch (error) {
     console.warn("Failed to update task remotely.", error);
-    setSaveStatus(`${successMessage}，但后端同步失败，当前仅保存在本地`);
+    setSaveStatus(
+      state.auth.user
+        ? `${successMessage}，已标记为待同步`
+        : `${successMessage}，但后端同步失败，当前仅保存在本地`,
+    );
   }
 }
 

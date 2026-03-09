@@ -81,7 +81,7 @@ function createApp({ config, store }) {
     }
   });
 
-  app.post("/api/tasks", requireWriteKey(config), async (request, response, next) => {
+  app.post("/api/tasks", requireAuthenticatedWrite(config), async (request, response, next) => {
     try {
       const parsed = taskSchema.parse(request.body);
       const existingTasks = await store.listTasks(request.userContext);
@@ -98,7 +98,7 @@ function createApp({ config, store }) {
     }
   });
 
-  app.patch("/api/tasks/:taskId", requireWriteKey(config), async (request, response, next) => {
+  app.patch("/api/tasks/:taskId", requireAuthenticatedWrite(config), async (request, response, next) => {
     try {
       const parsed = taskSchema.partial().parse(request.body);
       const updated = await store.updateTask(request.userContext, request.params.taskId, {
@@ -118,7 +118,7 @@ function createApp({ config, store }) {
     }
   });
 
-  app.delete("/api/tasks/:taskId", requireWriteKey(config), async (request, response, next) => {
+  app.delete("/api/tasks/:taskId", requireAuthenticatedWrite(config), async (request, response, next) => {
     try {
       await store.deleteTask(request.userContext, request.params.taskId);
       response.status(204).send();
@@ -144,7 +144,7 @@ function createApp({ config, store }) {
     }
   });
 
-  app.put("/api/daily-records/:date", requireWriteKey(config), async (request, response, next) => {
+  app.put("/api/daily-records/:date", requireAuthenticatedWrite(config), async (request, response, next) => {
     try {
       const date = normalizeDateParam(request.params.date);
       const payload = dailyRecordSchema.parse(request.body);
@@ -229,10 +229,15 @@ function createApp({ config, store }) {
   return app;
 }
 
-function requireWriteKey(config) {
+function requireAuthenticatedWrite(config) {
   return (request, response, next) => {
-    if (!config.writeKey) {
+    if (request.userContext?.isAuthenticated) {
       next();
+      return;
+    }
+
+    if (!config.writeKey) {
+      response.status(401).json({ error: "Authentication required" });
       return;
     }
 
