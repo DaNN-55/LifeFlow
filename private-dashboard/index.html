@@ -296,16 +296,31 @@
         <p class="panel-kicker">Cloud Sync</p>
         <h1 id="auth-gate-title">登录后同步到云端</h1>
         <p class="auth-gate-copy">
-          登录后你的任务与备注会写入云端。试用模式下仍可正常使用，但所有数据仅保存在当前浏览器。
+          登录后你的任务与备注会写入云端。首次使用可先创建账号，之后直接用邮箱和密码登录。试用模式下所有数据仅保存在当前浏览器。
         </p>
         <form id="auth-gate-form" class="auth-gate-form">
           <label class="settings-field">
             <span class="widget-label">登录邮箱</span>
             <input name="email" type="email" placeholder="you@example.com" required />
           </label>
+          <label class="settings-field">
+            <span class="widget-label">登录密码</span>
+            <input
+              name="password"
+              type="password"
+              placeholder="输入你的密码"
+              autocomplete="current-password"
+              required
+            />
+          </label>
           <p id="auth-gate-feedback" class="settings-copy"></p>
           <div class="auth-gate-actions">
-            <button type="submit" class="settings-save">发送登录链接</button>
+            <button type="submit" class="settings-save" data-auth-action="signin">
+              登录
+            </button>
+            <button type="submit" class="auth-button" data-auth-action="signup">
+              创建账号
+            </button>
             <button type="button" id="trial-action" class="auth-button">
               试用模式
             </button>

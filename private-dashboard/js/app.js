@@ -446,73 +446,111 @@ function saveEntryMode(mode) {
   localStorage.setItem(ENTRY_MODE_STORAGE_KEY, state.auth.entryMode);
 }
 
-function parseAuthHashParams() {
+function redirectToLoginPage() {
+  window.location.href = "./login.html";
+}
+
+function parseAuthCallbackParams() {
+  const searchParams = new URLSearchParams(window.location.search);
   const hash = window.location.hash.startsWith("#")
     ? window.location.hash.slice(1)
     : window.location.hash;
-  if (!hash) {
-    return null;
-  }
+  const hashParams = new URLSearchParams(hash);
 
-  const params = new URLSearchParams(hash);
-  const accessToken = params.get("access_token");
-  const refreshToken = params.get("refresh_token");
-  const errorCode = params.get("error_code");
-  const errorDescription = params.get("error_description");
+  const errorCode =
+    hashParams.get("error_code") || searchParams.get("error_code");
+  const errorDescription =
+    hashParams.get("error_description") ||
+    searchParams.get("error_description");
 
   if (errorCode || errorDescription) {
     return {
+      mode: "error",
       errorCode,
       errorDescription,
     };
   }
 
-  if (!accessToken || !refreshToken) {
-    return null;
+  const accessToken = hashParams.get("access_token");
+  const refreshToken = hashParams.get("refresh_token");
+  if (accessToken && refreshToken) {
+    return {
+      mode: "hash-session",
+      accessToken,
+      refreshToken,
+    };
   }
 
-  return {
-    accessToken,
-    refreshToken,
-  };
+  const code = searchParams.get("code");
+  if (code) {
+    return {
+      mode: "auth-code",
+      code,
+    };
+  }
+
+  const tokenHash = searchParams.get("token_hash");
+  if (tokenHash) {
+    return {
+      mode: "token-hash",
+      tokenHash,
+      verifyType: searchParams.get("type") || "magiclink",
+    };
+  }
+
+  return null;
 }
 
-function clearAuthHash() {
-  if (!window.location.hash) {
+function clearAuthCallbackParams() {
+  if (!window.location.hash && !window.location.search) {
     return;
   }
-  const cleanUrl = `${window.location.origin}${window.location.pathname}${window.location.search}`;
+  const cleanUrl = `${window.location.origin}${window.location.pathname}`;
   window.history.replaceState({}, document.title, cleanUrl);
 }
 
 async function consumeAuthHashSession(client) {
-  const parsed = parseAuthHashParams();
+  const parsed = parseAuthCallbackParams();
   if (!parsed) {
     return null;
   }
 
-  if (parsed.errorCode || parsed.errorDescription) {
+  if (parsed.mode === "error") {
     state.auth.feedback = decodeURIComponent(
       parsed.errorDescription || "云端登录失败，请重试。",
     );
-    clearAuthHash();
+    clearAuthCallbackParams();
     return null;
   }
 
   try {
-    const { data, error } = await client.auth.setSession({
-      access_token: parsed.accessToken,
-      refresh_token: parsed.refreshToken,
-    });
+    let result;
+    if (parsed.mode === "hash-session") {
+      result = await client.auth.setSession({
+        access_token: parsed.accessToken,
+        refresh_token: parsed.refreshToken,
+      });
+    } else if (parsed.mode === "auth-code") {
+      result = await client.auth.exchangeCodeForSession(parsed.code);
+    } else if (parsed.mode === "token-hash") {
+      result = await client.auth.verifyOtp({
+        token_hash: parsed.tokenHash,
+        type: parsed.verifyType,
+      });
+    } else {
+      return null;
+    }
+
+    const { data, error } = result;
     if (error) {
       throw error;
     }
-    clearAuthHash();
+    clearAuthCallbackParams();
     return data.session || null;
   } catch (error) {
     console.warn("Failed to consume auth hash session.", error);
     state.auth.feedback = "登录链接已返回，但会话建立失败，请重新发送登录链接。";
-    clearAuthHash();
+    clearAuthCallbackParams();
     return null;
   }
 }
@@ -620,6 +658,20 @@ function renderAuthStatusChip() {
     return;
   }
 
+  if (state.auth.status === "authenticating") {
+    chip.classList.add("is-syncing");
+    chip.textContent = "登录中";
+    elements.authAction.textContent = "云端登录";
+    return;
+  }
+
+  if (state.auth.status === "creating-account") {
+    chip.classList.add("is-syncing");
+    chip.textContent = "创建中";
+    elements.authAction.textContent = "云端登录";
+    return;
+  }
+
   if (hasAuthConfig()) {
     chip.textContent = state.auth.entryMode === "trial" ? "试用中" : "未登录";
   } else {
@@ -629,6 +681,9 @@ function renderAuthStatusChip() {
 }
 
 function renderAuthGate() {
+  if (!elements.authGate || !elements.authGateFeedback) {
+    return;
+  }
   const shouldShow = !state.auth.user && state.auth.entryMode !== "trial";
   elements.authGate.hidden = !shouldShow;
   if (!shouldShow) {
@@ -1346,6 +1401,9 @@ async function initAuthClient() {
       : state.auth.feedback;
     if (activeSession?.user) {
       saveEntryMode("login");
+    } else if (state.auth.entryMode !== "trial") {
+      redirectToLoginPage();
+      return client;
     }
 
     client.auth.onAuthStateChange(async (event, sessionValue) => {
@@ -1435,16 +1493,89 @@ async function requestMagicLink(formData) {
   }
 }
 
+async function authenticateWithPassword(formData, mode = "signin") {
+  const config = {
+    supabaseUrl: state.auth.config.supabaseUrl,
+    supabaseAnonKey: state.auth.config.supabaseAnonKey,
+    email: String(formData.get("email") || "").trim(),
+  };
+  const password = String(formData.get("password") || "");
+
+  saveAuthConfig(config);
+  state.auth.feedback = "";
+  state.auth.client = null;
+  state.auth.session = null;
+  state.auth.user = null;
+  state.auth.status = mode === "signup" ? "creating-account" : "authenticating";
+  renderControls();
+  renderAuthGate();
+
+  const client = await initAuthClient();
+  if (!client) {
+    return;
+  }
+
+  try {
+    let result;
+    if (mode === "signup") {
+      result = await client.auth.signUp({
+        email: config.email,
+        password,
+      });
+    } else {
+      result = await client.auth.signInWithPassword({
+        email: config.email,
+        password,
+      });
+    }
+
+    if (result.error) {
+      throw result.error;
+    }
+
+    if (result.data?.session?.user) {
+      state.auth.session = result.data.session;
+      state.auth.user = result.data.session.user;
+      state.auth.status = "ready";
+      state.auth.feedback = `已登录 ${result.data.session.user.email || config.email}`;
+      saveEntryMode("login");
+      await bootstrapRemoteData();
+      render();
+      return;
+    }
+
+    state.auth.status = "idle";
+    state.auth.feedback =
+      mode === "signup"
+        ? "账号已创建，请按 Supabase 的安全设置完成邮箱确认后再登录。"
+        : "登录完成，但未返回会话，请检查 Supabase Auth 配置。";
+    renderControls();
+    renderAuthGate();
+  } catch (error) {
+    console.warn("Password auth failed.", error);
+    state.auth.status = "error";
+    state.auth.feedback =
+      mode === "signup"
+        ? "创建账号失败，请检查邮箱是否已注册或密码是否符合要求。"
+        : "登录失败，请检查邮箱和密码。";
+    renderControls();
+    renderAuthGate();
+  }
+}
+
 async function signOutAuth() {
   if (!state.auth.client) {
+    saveEntryMode("login");
+    window.location.href = "./login.html";
     return;
   }
   await state.auth.client.auth.signOut();
+  saveEntryMode("login");
+  window.location.href = "./login.html";
 }
 
 function openAuthGate() {
-  saveEntryMode("login");
-  render();
+  window.location.href = "./login.html";
 }
 
 function enterTrialMode() {
@@ -2467,11 +2598,13 @@ function handleAuthAction() {
 }
 
 function handleAuthSubmit(event) {
-  if (event.target !== elements.authGateForm) {
+  if (!elements.authGateForm || event.target !== elements.authGateForm) {
     return;
   }
   event.preventDefault();
-  void requestMagicLink(new FormData(elements.authGateForm));
+  const submitter = event.submitter;
+  const action = submitter?.dataset.authAction || "signin";
+  void authenticateWithPassword(new FormData(elements.authGateForm), action);
 }
 
 function bindEvents() {
@@ -2497,8 +2630,12 @@ function bindEvents() {
     .addEventListener("click", handleWidgetClick);
   elements.settingsModal.addEventListener("click", handleModalClick);
   elements.settingsForm.addEventListener("submit", handleModalSubmit);
-  elements.authGateForm.addEventListener("submit", handleAuthSubmit);
-  elements.trialAction.addEventListener("click", enterTrialMode);
+  if (elements.authGateForm) {
+    elements.authGateForm.addEventListener("submit", handleAuthSubmit);
+  }
+  if (elements.trialAction) {
+    elements.trialAction.addEventListener("click", enterTrialMode);
+  }
 }
 
 function getTodayDateString() {

@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>登录 | 个人执行 Dashboard</title>
+    <meta
+      name="description"
+      content="登录个人执行 Dashboard，支持邮箱密码登录与试用模式。"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Public+Sans:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./css/styles.css" />
+  </head>
+  <body class="auth-page" data-theme="light">
+    <main class="auth-page-shell">
+      <section class="auth-gate-card" aria-labelledby="login-page-title">
+        <p class="panel-kicker">Cloud Sync</p>
+        <h1 id="login-page-title">登录后同步到云端</h1>
+        <p class="auth-gate-copy">
+          登录后你的任务与备注会写入云端。首次使用可先创建账号，之后直接用邮箱和密码登录。试用模式下所有数据仅保存在当前浏览器。
+        </p>
+        <form id="login-form" class="auth-gate-form">
+          <label class="settings-field">
+            <span class="widget-label">登录邮箱</span>
+            <input
+              name="email"
+              type="email"
+              placeholder="you@example.com"
+              autocomplete="email"
+              required
+            />
+          </label>
+          <label class="settings-field">
+            <span class="widget-label">登录密码</span>
+            <input
+              name="password"
+              type="password"
+              placeholder="输入你的密码"
+              autocomplete="current-password"
+              required
+            />
+          </label>
+          <p id="login-feedback" class="settings-copy"></p>
+          <div class="auth-gate-actions">
+            <button type="submit" class="settings-save" data-auth-action="signin">
+              登录
+            </button>
+            <button type="submit" class="auth-button" data-auth-action="signup">
+              创建账号
+            </button>
+            <button type="button" id="trial-login-action" class="auth-button">
+              试用模式
+            </button>
+          </div>
+        </form>
+      </section>
+    </main>
+
+    <script>
+      window.LIFEFLOW_AUTH_CONFIG = window.LIFEFLOW_AUTH_CONFIG || {
+        supabaseUrl: "https://wosmpydmpecmregvcwpq.supabase.co",
+        supabaseAnonKey:
+          "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Indvc21weWRtcGVjbXJlZ3Zjd3BxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwMzE5OTIsImV4cCI6MjA4ODYwNzk5Mn0.pPkdl9wTmPx0yCnnQXDn9sHkq-bLmpaw86LGMLk0EWk",
+      };
+    </script>
+    <script src="./js/login.js" defer></script>
+  </body>
+</html>
