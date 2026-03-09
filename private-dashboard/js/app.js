@@ -232,8 +232,12 @@ function loadEntryMode() {
 }
 
 function sanitizeTaskTypes(taskTypes) {
-  if (!Array.isArray(taskTypes) || taskTypes.length === 0) {
+  if (!Array.isArray(taskTypes)) {
     return defaultTasks;
+  }
+
+  if (taskTypes.length === 0) {
+    return [];
   }
 
   return taskTypes

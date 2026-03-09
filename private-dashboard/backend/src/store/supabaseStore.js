@@ -1,5 +1,4 @@
 const { createClient } = require("@supabase/supabase-js");
-const { defaultTasks } = require("./memoryStore");
 
 class SupabaseStore {
   constructor({ supabaseUrl, supabaseServiceRoleKey }) {
@@ -11,7 +10,6 @@ class SupabaseStore {
 
   async init() {
     this.schemaMode = await this.detectSchemaMode();
-    await this.ensureDefaultTasks({ userId: "public" });
     return this;
   }
 
@@ -20,58 +18,7 @@ class SupabaseStore {
     return error ? "legacy" : "user-scoped";
   }
 
-  async ensureDefaultTasks(scope = {}) {
-    if (this.schemaMode === "legacy") {
-      const { count, error } = await this.client
-        .from("tasks")
-        .select("id", { count: "exact", head: true });
-
-      if (error) {
-        throw error;
-      }
-
-      if (Number(count || 0) > 0) {
-        return;
-      }
-
-      const { error: seedError } = await this.client.from("tasks").upsert(defaultTasks, {
-        onConflict: "id",
-      });
-
-      if (seedError) {
-        throw seedError;
-      }
-
-      return;
-    }
-
-    const userId = scope.userId || "public";
-    const { count, error } = await this.client
-      .from("tasks")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", userId);
-
-    if (error) {
-      throw error;
-    }
-
-    if (Number(count || 0) > 0) {
-      return;
-    }
-
-    const scopedDefaults = defaultTasks.map((task) => ({ ...task, user_id: userId }));
-    const { error: seedError } = await this.client.from("tasks").upsert(scopedDefaults, {
-      onConflict: "user_id,id",
-    });
-
-    if (seedError) {
-      throw seedError;
-    }
-  }
-
   async listTasks(scope = {}) {
-    await this.ensureDefaultTasks(scope);
-
     let query = this.client
       .from("tasks")
       .select("id, name, color, display_order, created_at")

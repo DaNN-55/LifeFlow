@@ -19,7 +19,7 @@ class MemoryStore {
 
   ensureUserScope(userId = "public") {
     if (!this.tasksByUser.has(userId)) {
-      this.tasksByUser.set(userId, new Map(defaultTasks.map((task) => [task.id, { ...task }])));
+      this.tasksByUser.set(userId, new Map());
     }
     if (!this.dailyRecordsByUser.has(userId)) {
       this.dailyRecordsByUser.set(userId, new Map());
