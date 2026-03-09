@@ -248,7 +248,11 @@ function sanitizeTaskTypes(taskTypes) {
         task && typeof task.id === "string" && typeof task.name === "string",
     )
     .map((task, index) => {
-      const normalizedIdentity = normalizeTaskIdentity(task.id, index);
+      const normalizedIdentity = normalizeTaskIdentity(
+        task.id,
+        task.name,
+        index,
+      );
       return {
         id: normalizedIdentity.id,
         name: normalizedIdentity.name,
@@ -289,7 +293,7 @@ function migrateDailyRecords(dailyRecords, taskTypes) {
   return migrated;
 }
 
-function normalizeTaskIdentity(taskId, index = 0) {
+function normalizeTaskIdentity(taskId, taskName = "", index = 0) {
   const legacyMap = {
     job: defaultTasks[0],
     fitness: defaultTasks[1],
@@ -316,7 +320,10 @@ function normalizeTaskIdentity(taskId, index = 0) {
 
   return {
     id: taskId,
-    name: `任务${index + 1}`,
+    name:
+      typeof taskName === "string" && taskName.trim()
+        ? taskName.trim()
+        : `任务${index + 1}`,
     order: index + 1,
   };
 }
