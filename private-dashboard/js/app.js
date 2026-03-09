@@ -4,7 +4,6 @@ const API_BASE_STORAGE_KEY = "lifeflow-private-dashboard-api-base";
 const API_SEED_PREFIX = "lifeflow-private-dashboard-seeded:";
 const DEFAULT_REMOTE_API_BASE = "https://lifeflow-backend-mrs1.onrender.com";
 const AUTH_CONFIG_STORAGE_KEY = "lifeflow-private-dashboard-auth-config";
-const ENTRY_MODE_STORAGE_KEY = "lifeflow-private-dashboard-entry-mode";
 const PENDING_SYNC_STORAGE_KEY = "lifeflow-private-dashboard-pending-sync";
 
 const defaultTasks = [
@@ -76,7 +75,6 @@ const elements = {
   authGate: document.querySelector("#auth-gate"),
   authGateForm: document.querySelector("#auth-gate-form"),
   authGateFeedback: document.querySelector("#auth-gate-feedback"),
-  trialAction: document.querySelector("#trial-action"),
 };
 
 const state = {
@@ -102,7 +100,6 @@ const state = {
     session: null,
     config: loadAuthConfig(),
     feedback: "",
-    entryMode: loadEntryMode(),
   },
   pendingSync: loadPendingSyncStore(),
   widgetData: {
@@ -229,11 +226,6 @@ function loadAuthConfig() {
       email: "",
     };
   }
-}
-
-function loadEntryMode() {
-  const value = localStorage.getItem(ENTRY_MODE_STORAGE_KEY);
-  return value === "trial" ? "trial" : "login";
 }
 
 function sanitizeTaskTypes(taskTypes) {
@@ -616,11 +608,6 @@ function getCurrentScopeKey() {
   return state.auth.user?.id || "public";
 }
 
-function saveEntryMode(mode) {
-  state.auth.entryMode = mode === "trial" ? "trial" : "login";
-  localStorage.setItem(ENTRY_MODE_STORAGE_KEY, state.auth.entryMode);
-}
-
 function redirectToLoginPage() {
   window.location.href = "./login.html";
 }
@@ -858,7 +845,7 @@ function renderAuthStatusChip() {
   }
 
   if (hasAuthConfig()) {
-    chip.textContent = state.auth.entryMode === "trial" ? "试用中" : "未登录";
+    chip.textContent = "未登录";
   } else {
     chip.textContent = "未配置";
   }
@@ -869,7 +856,7 @@ function renderAuthGate() {
   if (!elements.authGate || !elements.authGateFeedback) {
     return;
   }
-  const shouldShow = !state.auth.user && state.auth.entryMode !== "trial";
+  const shouldShow = !state.auth.user;
   elements.authGate.hidden = !shouldShow;
   if (!shouldShow) {
     return;
@@ -1289,7 +1276,7 @@ function getAuthGateHint() {
   if (!hasAuthConfig()) {
     return "当前前端还未配置 Supabase 登录参数，请先在代码中补齐 URL 与 Anon Key。";
   }
-  return "使用邮箱魔法链接登录。试用模式仅保存在当前浏览器，不会同步到云端。";
+  return "使用邮箱和密码登录。首次使用可先创建账号。";
 }
 
 function renderSettingsForm(widget) {
@@ -1585,8 +1572,8 @@ async function initAuthClient() {
       ? "已连接到你的 Supabase 账号。"
       : state.auth.feedback;
     if (activeSession?.user) {
-      saveEntryMode("login");
-    } else if (state.auth.entryMode !== "trial") {
+      // keep current session
+    } else {
       redirectToLoginPage();
       return client;
     }
@@ -1595,9 +1582,6 @@ async function initAuthClient() {
       state.auth.session = sessionValue || null;
       state.auth.user = sessionValue?.user || null;
       state.auth.status = sessionValue?.user ? "ready" : "idle";
-      if (sessionValue?.user) {
-        saveEntryMode("login");
-      }
       state.auth.feedback =
         event === "SIGNED_IN"
           ? `已登录 ${sessionValue?.user?.email || "当前账号"}`
@@ -1732,7 +1716,6 @@ async function authenticateWithPassword(formData, mode = "signin") {
       state.auth.user = result.data.session.user;
       state.auth.status = "ready";
       state.auth.feedback = `已登录 ${result.data.session.user.email || config.email}`;
-      saveEntryMode("login");
       await bootstrapRemoteData();
       render();
       return;
@@ -1759,28 +1742,15 @@ async function authenticateWithPassword(formData, mode = "signin") {
 
 async function signOutAuth() {
   if (!state.auth.client) {
-    saveEntryMode("login");
     window.location.href = "./login.html";
     return;
   }
   await state.auth.client.auth.signOut();
-  saveEntryMode("login");
   window.location.href = "./login.html";
 }
 
 function openAuthGate() {
   window.location.href = "./login.html";
-}
-
-function enterTrialMode() {
-  saveEntryMode("trial");
-  state.auth.feedback = "";
-  state.remote.status = "offline";
-  state.remote.apiBase = "";
-  state.remote.weeklyReview = null;
-  saveApiBase("");
-  setSaveStatus("试用模式已启用，数据只保存在当前浏览器");
-  render();
 }
 
 async function bootstrapRemoteData() {
@@ -2898,9 +2868,6 @@ function bindEvents() {
   elements.settingsForm.addEventListener("submit", handleModalSubmit);
   if (elements.authGateForm) {
     elements.authGateForm.addEventListener("submit", handleAuthSubmit);
-  }
-  if (elements.trialAction) {
-    elements.trialAction.addEventListener("click", enterTrialMode);
   }
 }
 

@@ -1,10 +1,8 @@
 const AUTH_CONFIG_STORAGE_KEY = "lifeflow-private-dashboard-auth-config";
-const ENTRY_MODE_STORAGE_KEY = "lifeflow-private-dashboard-entry-mode";
 
 const authElements = {
   form: document.querySelector("#login-form"),
   feedback: document.querySelector("#login-feedback"),
-  trialAction: document.querySelector("#trial-login-action"),
 };
 
 const authState = {
@@ -50,13 +48,6 @@ function saveAuthConfig(config) {
   );
 }
 
-function saveEntryMode(mode) {
-  localStorage.setItem(
-    ENTRY_MODE_STORAGE_KEY,
-    mode === "trial" ? "trial" : "login",
-  );
-}
-
 function setFeedback(message) {
   authElements.feedback.textContent = message || "";
 }
@@ -93,7 +84,6 @@ async function bootstrapExistingSession() {
   } = await client.auth.getSession();
 
   if (session?.user) {
-    saveEntryMode("login");
     redirectToDashboard();
     return;
   }
@@ -140,7 +130,6 @@ async function handlePasswordAuth(formData, mode = "signin") {
     }
 
     if (result.data?.session?.user) {
-      saveEntryMode("login");
       redirectToDashboard();
       return;
     }
@@ -160,11 +149,6 @@ async function handlePasswordAuth(formData, mode = "signin") {
   }
 }
 
-function enterTrialMode() {
-  saveEntryMode("trial");
-  redirectToDashboard();
-}
-
 function handleLoginSubmit(event) {
   event.preventDefault();
   const action = event.submitter?.dataset.authAction || "signin";
@@ -172,5 +156,4 @@ function handleLoginSubmit(event) {
 }
 
 authElements.form.addEventListener("submit", handleLoginSubmit);
-authElements.trialAction.addEventListener("click", enterTrialMode);
 void bootstrapExistingSession();
