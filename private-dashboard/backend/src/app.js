@@ -98,6 +98,26 @@ function createApp({ config, store }) {
     }
   });
 
+  app.patch("/api/tasks/:taskId", requireWriteKey(config), async (request, response, next) => {
+    try {
+      const parsed = taskSchema.partial().parse(request.body);
+      const updated = await store.updateTask(request.userContext, request.params.taskId, {
+        name: parsed.name,
+        color: parsed.color,
+        display_order: parsed.displayOrder,
+      });
+
+      if (!updated) {
+        response.status(404).json({ error: "Task not found" });
+        return;
+      }
+
+      response.json({ task: updated });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.delete("/api/tasks/:taskId", requireWriteKey(config), async (request, response, next) => {
     try {
       await store.deleteTask(request.userContext, request.params.taskId);

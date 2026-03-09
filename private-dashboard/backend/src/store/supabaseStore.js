@@ -106,6 +106,31 @@ class SupabaseStore {
     return data;
   }
 
+  async updateTask(scope = {}, taskId, patch) {
+    let query = this.client
+      .from("tasks")
+      .update({
+        name: patch.name,
+        color: patch.color,
+        display_order: patch.display_order,
+      })
+      .eq("id", taskId);
+
+    if (this.schemaMode === "user-scoped") {
+      query = query.eq("user_id", scope.userId || "public");
+    }
+
+    const { data, error } = await query
+      .select("id, name, color, display_order, created_at")
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    return data;
+  }
+
   async deleteTask(scope = {}, taskId) {
     let query = this.client.from("tasks").delete().eq("id", taskId);
     if (this.schemaMode === "user-scoped") {

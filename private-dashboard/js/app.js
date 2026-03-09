@@ -7,10 +7,21 @@ const AUTH_CONFIG_STORAGE_KEY = "lifeflow-private-dashboard-auth-config";
 const ENTRY_MODE_STORAGE_KEY = "lifeflow-private-dashboard-entry-mode";
 
 const defaultTasks = [
-  { id: "job", name: "找工作", order: 1, color: "var(--job)" },
-  { id: "fitness", name: "健身", order: 2, color: "var(--fitness)" },
-  { id: "guitar", name: "吉他", order: 3, color: "var(--guitar)" },
-  { id: "arbitration", name: "仲裁", order: 4, color: "var(--arbitration)" },
+  { id: "task1", name: "任务1", order: 1, color: "#4f46e5" },
+  { id: "task2", name: "任务2", order: 2, color: "#0f766e" },
+  { id: "task3", name: "任务3", order: 3, color: "#ca8a04" },
+  { id: "task4", name: "任务4", order: 4, color: "#dc2626" },
+];
+
+const TASK_COLOR_PALETTES = [
+  { id: "indigo", label: "靛蓝", value: "#4f46e5" },
+  { id: "teal", label: "青绿", value: "#0f766e" },
+  { id: "amber", label: "琥珀", value: "#ca8a04" },
+  { id: "red", label: "赤红", value: "#dc2626" },
+  { id: "violet", label: "紫红", value: "#7c3aed" },
+  { id: "sky", label: "天青", value: "#0284c7" },
+  { id: "emerald", label: "翠绿", value: "#059669" },
+  { id: "rose", label: "玫红", value: "#e11d48" },
 ];
 
 const placeholderFeeds = {
@@ -74,6 +85,7 @@ const state = {
   activeAppTab: "home",
   activeCenterTab: "daily",
   noteDrafts: {},
+  newTaskColor: defaultTasks[0].color,
   modal: { widget: null },
   remote: {
     status: "idle",
@@ -147,7 +159,9 @@ function loadData() {
       taskTypes,
       dailyRecords: migrateDailyRecords(parsed.dailyRecords, taskTypes),
       preferences: {
-        theme: normalizeThemePreference(parsed.preferences?.theme || base.preferences.theme),
+        theme: normalizeThemePreference(
+          parsed.preferences?.theme || base.preferences.theme,
+        ),
         widgets: {
           weather: {
             ...base.preferences.widgets.weather,
@@ -171,8 +185,12 @@ function loadAuthConfig() {
     const runtimeConfig =
       typeof window !== "undefined" && window.LIFEFLOW_AUTH_CONFIG
         ? {
-            supabaseUrl: String(window.LIFEFLOW_AUTH_CONFIG.supabaseUrl || "").trim(),
-            supabaseAnonKey: String(window.LIFEFLOW_AUTH_CONFIG.supabaseAnonKey || "").trim(),
+            supabaseUrl: String(
+              window.LIFEFLOW_AUTH_CONFIG.supabaseUrl || "",
+            ).trim(),
+            supabaseAnonKey: String(
+              window.LIFEFLOW_AUTH_CONFIG.supabaseAnonKey || "",
+            ).trim(),
           }
         : { supabaseUrl: "", supabaseAnonKey: "" };
     const raw = localStorage.getItem(AUTH_CONFIG_STORAGE_KEY);
@@ -184,16 +202,24 @@ function loadAuthConfig() {
     return {
       supabaseUrl:
         runtimeConfig.supabaseUrl ||
-        (typeof parsed.supabaseUrl === "string" ? parsed.supabaseUrl.trim() : ""),
+        (typeof parsed.supabaseUrl === "string"
+          ? parsed.supabaseUrl.trim()
+          : ""),
       supabaseAnonKey:
         runtimeConfig.supabaseAnonKey ||
-        (typeof parsed.supabaseAnonKey === "string" ? parsed.supabaseAnonKey.trim() : ""),
+        (typeof parsed.supabaseAnonKey === "string"
+          ? parsed.supabaseAnonKey.trim()
+          : ""),
       email: typeof parsed.email === "string" ? parsed.email.trim() : "",
     };
   } catch (error) {
     return {
-      supabaseUrl: String(window.LIFEFLOW_AUTH_CONFIG?.supabaseUrl || "").trim(),
-      supabaseAnonKey: String(window.LIFEFLOW_AUTH_CONFIG?.supabaseAnonKey || "").trim(),
+      supabaseUrl: String(
+        window.LIFEFLOW_AUTH_CONFIG?.supabaseUrl || "",
+      ).trim(),
+      supabaseAnonKey: String(
+        window.LIFEFLOW_AUTH_CONFIG?.supabaseAnonKey || "",
+      ).trim(),
       email: "",
     };
   }
@@ -210,7 +236,10 @@ function sanitizeTaskTypes(taskTypes) {
   }
 
   return taskTypes
-    .filter((task) => task && typeof task.id === "string" && typeof task.name === "string")
+    .filter(
+      (task) =>
+        task && typeof task.id === "string" && typeof task.name === "string",
+    )
     .map((task, index) => ({
       id: task.id,
       name: task.name,
@@ -232,7 +261,11 @@ function migrateDailyRecords(dailyRecords, taskTypes) {
     if (record?.tasks && typeof record.tasks === "object") {
       taskTypes.forEach((task) => {
         const existing = record.tasks[task.id];
-        nextRecord.tasks[task.id] = migrateTaskRecord(existing, record?.updatedAt, date);
+        nextRecord.tasks[task.id] = migrateTaskRecord(
+          existing,
+          record?.updatedAt,
+          date,
+        );
       });
     }
     nextRecord.updatedAt = record?.updatedAt || "";
@@ -292,7 +325,10 @@ function normalizeSingleTaskNote(note, updatedAt, date, index) {
   }
 
   return {
-    id: typeof note.id === "string" && note.id ? note.id : `note-${date}-${index}`,
+    id:
+      typeof note.id === "string" && note.id
+        ? note.id
+        : `note-${date}-${index}`,
     text,
     createdAt:
       typeof note.createdAt === "string" && note.createdAt
@@ -303,7 +339,10 @@ function normalizeSingleTaskNote(note, updatedAt, date, index) {
 
 function ensureRecord(date) {
   if (!state.data.dailyRecords[date]) {
-    state.data.dailyRecords[date] = createEmptyDailyRecord(date, state.data.taskTypes);
+    state.data.dailyRecords[date] = createEmptyDailyRecord(
+      date,
+      state.data.taskTypes,
+    );
   }
 
   const record = state.data.dailyRecords[date];
@@ -312,7 +351,11 @@ function ensureRecord(date) {
       record.tasks[task.id] = { completed: false, notes: [] };
     }
     if (!Array.isArray(record.tasks[task.id].notes)) {
-      record.tasks[task.id] = migrateTaskRecord(record.tasks[task.id], record.updatedAt, date);
+      record.tasks[task.id] = migrateTaskRecord(
+        record.tasks[task.id],
+        record.updatedAt,
+        date,
+      );
     }
   });
 
@@ -342,7 +385,10 @@ function saveAuthConfig(config) {
     supabaseAnonKey: (config.supabaseAnonKey || "").trim(),
     email: (config.email || "").trim(),
   };
-  localStorage.setItem(AUTH_CONFIG_STORAGE_KEY, JSON.stringify(state.auth.config));
+  localStorage.setItem(
+    AUTH_CONFIG_STORAGE_KEY,
+    JSON.stringify(state.auth.config),
+  );
 }
 
 function getCurrentScopeKey() {
@@ -371,7 +417,10 @@ function render() {
 
 function renderTopTabs() {
   elements.topTabs.forEach((button) => {
-    button.classList.toggle("is-active", button.dataset.appTab === state.activeAppTab);
+    button.classList.toggle(
+      "is-active",
+      button.dataset.appTab === state.activeAppTab,
+    );
   });
   elements.homeView.hidden = state.activeAppTab !== "home";
   elements.financeView.hidden = state.activeAppTab !== "finance";
@@ -380,19 +429,31 @@ function renderTopTabs() {
 
 function renderCenterTabs() {
   elements.centerTabs.forEach((button) => {
-    button.classList.toggle("is-active", button.dataset.centerTab === state.activeCenterTab);
+    button.classList.toggle(
+      "is-active",
+      button.dataset.centerTab === state.activeCenterTab,
+    );
   });
-  document.querySelector("#daily-panel").classList.toggle("is-active", state.activeCenterTab === "daily");
-  document.querySelector("#weekly-panel").classList.toggle("is-active", state.activeCenterTab === "weekly");
+  document
+    .querySelector("#daily-panel")
+    .classList.toggle("is-active", state.activeCenterTab === "daily");
+  document
+    .querySelector("#weekly-panel")
+    .classList.toggle("is-active", state.activeCenterTab === "weekly");
 }
 
 function renderControls() {
   const record = ensureRecord(state.selectedDate);
   elements.todayCompletedCount.textContent = `${getCompletedCount(record)} / ${state.data.taskTypes.length}`;
-  elements.currentWeekRange.textContent = formatWeekRangeText(state.selectedWeek);
+  elements.currentWeekRange.textContent = formatWeekRangeText(
+    state.selectedWeek,
+  );
 
   elements.themeOptions.forEach((button) => {
-    button.classList.toggle("is-active", button.dataset.theme === state.data.preferences.theme);
+    button.classList.toggle(
+      "is-active",
+      button.dataset.theme === state.data.preferences.theme,
+    );
   });
   renderCloudStatusChip();
   renderAuthStatusChip();
@@ -461,7 +522,8 @@ function renderAuthGate() {
     elements.authGateForm.elements.email.value = state.auth.config.email || "";
   }
 
-  elements.authGateFeedback.textContent = state.auth.feedback || getAuthGateHint();
+  elements.authGateFeedback.textContent =
+    state.auth.feedback || getAuthGateHint();
 }
 
 function renderCalendar() {
@@ -475,7 +537,11 @@ function renderCalendar() {
     month: "long",
   }).format(date);
 
-  for (let current = new Date(firstCell); cells.length < 42; current = addDays(current, 1)) {
+  for (
+    let current = new Date(firstCell);
+    cells.length < 42;
+    current = addDays(current, 1)
+  ) {
     const currentKey = formatDateKey(current);
     cells.push(`
       <button
@@ -506,7 +572,7 @@ function renderFeedInto(container, items) {
           <p class="feed-meta">${item.meta}</p>
           <h3>${item.title}</h3>
         </article>
-      `
+      `,
     )
     .join("");
 }
@@ -545,7 +611,7 @@ function renderTaskList() {
                   </div>
                   <p>${escapeHtml(note.text)}</p>
                 </div>
-              `
+              `,
             )
             .join("")
         : '<div class="task-note-item"><span class="note-time">EMPTY</span><p>暂无备注</p></div>';
@@ -575,6 +641,10 @@ function renderTaskList() {
                 删除
               </button>
             </div>
+          </div>
+
+          <div class="task-palette" role="group" aria-label="${escapeAttribute(task.name)} 颜色选择">
+            ${renderTaskColorPalette(task.id, task.color)}
           </div>
 
           <div class="note-compose">
@@ -616,10 +686,46 @@ function renderTaskList() {
           placeholder="输入新任务名称"
           required
         />
+        <div class="task-palette new-task-palette" role="group" aria-label="新任务颜色选择">
+          ${renderNewTaskColorPalette(state.newTaskColor)}
+        </div>
         <button type="submit" class="add-task-submit">创建任务</button>
       </form>
     </article>
   `;
+}
+
+function renderTaskColorPalette(taskId, selectedColor) {
+  return TASK_COLOR_PALETTES.map(
+    (palette) => `
+      <button
+        type="button"
+        class="palette-swatch ${palette.value === selectedColor ? "is-active" : ""}"
+        style="--swatch-color:${palette.value};"
+        title="${palette.label}"
+        aria-label="${palette.label}"
+        data-action="set-task-color"
+        data-task-id="${taskId}"
+        data-color="${palette.value}"
+      ></button>
+    `,
+  ).join("");
+}
+
+function renderNewTaskColorPalette(selectedColor) {
+  return TASK_COLOR_PALETTES.map(
+    (palette) => `
+      <button
+        type="button"
+        class="palette-swatch ${palette.value === selectedColor ? "is-active" : ""}"
+        style="--swatch-color:${palette.value};"
+        title="${palette.label}"
+        aria-label="${palette.label}"
+        data-action="set-new-task-color"
+        data-color="${palette.value}"
+      ></button>
+    `,
+  ).join("");
 }
 
 function renderWeeklyReview() {
@@ -635,7 +741,7 @@ function renderWeeklyReview() {
                   <span class="review-note-date">${item.dateLabel}</span>
                   <span>${escapeHtml(item.note)}</span>
                 </div>
-              `
+              `,
             )
             .join("")
         : '<div class="review-note-item"><span class="review-note-date">-</span><span>暂无复盘备注</span></div>';
@@ -670,7 +776,9 @@ function normalizeWeeklyAggregation(payload) {
   const notesByTask = {};
 
   state.data.taskTypes.forEach((task) => {
-    completionCounts[task.id] = Number(payload?.completionCounts?.[task.id] || 0);
+    completionCounts[task.id] = Number(
+      payload?.completionCounts?.[task.id] || 0,
+    );
     notesByTask[task.id] = Array.isArray(payload?.notesByTask?.[task.id])
       ? payload.notesByTask[task.id].map((item) => ({
           dateLabel: formatMonthDay(parseLocalDate(item.date)),
@@ -707,7 +815,7 @@ function renderWeatherWidget() {
             .map(
               (item, index) => `
                 <text x="${30 + (index * 220) / Math.max(weather.forecast.length - 1, 1)}" y="106" class="weather-axis-label weather-axis-day">${item.axisLabel || index + 1}</text>
-              `
+              `,
             )
             .join("")}
         </svg>
@@ -722,7 +830,7 @@ function renderWeatherWidget() {
                     <span>${escapeHtml(item.tempLabel)}</span>
                   </div>
                 </div>
-              `
+              `,
             )
             .join("")}
         </div>
@@ -768,7 +876,7 @@ function renderStockWidget() {
                 <span>${escapeHtml(item.change)}</span>
               </div>
             </div>
-          `
+          `,
         )
         .join("")
     : `
@@ -799,7 +907,8 @@ function renderModal() {
   }
 
   elements.settingsModal.hidden = false;
-  elements.settingsTitle.textContent = widget === "weather" ? "Weather 设置" : "Stock 设置";
+  elements.settingsTitle.textContent =
+    widget === "weather" ? "Weather 设置" : "Stock 设置";
   elements.settingsForm.innerHTML = renderSettingsForm(widget);
 }
 
@@ -843,7 +952,11 @@ function aggregateWeek(weekValue) {
     notesByTask[task.id] = [];
   });
 
-  for (let current = new Date(range.start); current <= range.end; current = addDays(current, 1)) {
+  for (
+    let current = new Date(range.start);
+    current <= range.end;
+    current = addDays(current, 1)
+  ) {
     const dateKey = formatDateKey(current);
     const record = state.data.dailyRecords[dateKey];
     if (!record) {
@@ -851,7 +964,11 @@ function aggregateWeek(weekValue) {
     }
 
     state.data.taskTypes.forEach((task) => {
-      const taskState = migrateTaskRecord(record.tasks[task.id], record.updatedAt, dateKey);
+      const taskState = migrateTaskRecord(
+        record.tasks[task.id],
+        record.updatedAt,
+        dateKey,
+      );
       if (taskState.completed) {
         completionCounts[task.id] += 1;
       }
@@ -955,16 +1072,29 @@ async function addTask(taskName) {
     id,
     name: normalizedName,
     order: state.data.taskTypes.length + 1,
-    color: getFallbackColor(state.data.taskTypes.length),
+    color: state.newTaskColor,
   };
   state.data.taskTypes = [...state.data.taskTypes, nextTask];
   Object.values(state.data.dailyRecords).forEach((record) => {
     record.tasks[id] = { completed: false, notes: [] };
   });
   ensureRecord(state.selectedDate);
+  state.newTaskColor = getFallbackColor(state.data.taskTypes.length);
   persistStateSilently();
   render();
   await syncTaskCreate(nextTask, `已创建任务：${normalizedName}`);
+}
+
+async function updateTaskColor(taskId, color) {
+  const task = state.data.taskTypes.find((item) => item.id === taskId);
+  if (!task || task.color === color) {
+    return;
+  }
+  task.color = color;
+  persistStateSilently();
+  renderTaskList();
+  renderWeeklyReview();
+  await syncTaskUpdate(task, `已更新 ${task.name} 的颜色`);
 }
 
 async function deleteTask(taskId) {
@@ -972,7 +1102,9 @@ async function deleteTask(taskId) {
   if (!task) {
     return;
   }
-  state.data.taskTypes = state.data.taskTypes.filter((item) => item.id !== taskId);
+  state.data.taskTypes = state.data.taskTypes.filter(
+    (item) => item.id !== taskId,
+  );
   Object.values(state.data.dailyRecords).forEach((record) => {
     delete record.tasks[taskId];
   });
@@ -1007,7 +1139,9 @@ function saveSettings(formData) {
   if (state.modal.widget === "stock") {
     state.data.preferences.widgets.stock = {
       title: "A股概览",
-      symbols: normalizeSymbols(String(formData.get("symbols") || defaultWidgets.stock.symbols)),
+      symbols: normalizeSymbols(
+        String(formData.get("symbols") || defaultWidgets.stock.symbols),
+      ),
     };
     saveData("已保存 Stock 设置");
     closeModal();
@@ -1017,7 +1151,9 @@ function saveSettings(formData) {
 }
 
 function hasAuthConfig() {
-  return Boolean(state.auth.config.supabaseUrl && state.auth.config.supabaseAnonKey);
+  return Boolean(
+    state.auth.config.supabaseUrl && state.auth.config.supabaseAnonKey,
+  );
 }
 
 function trimEmail(email) {
@@ -1049,14 +1185,19 @@ async function initAuthClient() {
   }
 
   try {
-    const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
-    const client = createClient(state.auth.config.supabaseUrl, state.auth.config.supabaseAnonKey, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: true,
+    const { createClient } =
+      await import("https://esm.sh/@supabase/supabase-js@2");
+    const client = createClient(
+      state.auth.config.supabaseUrl,
+      state.auth.config.supabaseAnonKey,
+      {
+        auth: {
+          persistSession: true,
+          autoRefreshToken: true,
+          detectSessionInUrl: true,
+        },
       },
-    });
+    );
 
     const {
       data: { session },
@@ -1235,7 +1376,9 @@ async function refreshRemoteForCurrentUser() {
   state.remote.status = "connecting";
   state.remote.weeklyReview = null;
   setSaveStatus(
-    state.auth.user ? `正在切换到 ${state.auth.user.email} 的云端数据...` : "正在切换到公共数据..."
+    state.auth.user
+      ? `正在切换到 ${state.auth.user.email} 的云端数据...`
+      : "正在切换到公共数据...",
   );
   renderControls();
 
@@ -1245,7 +1388,9 @@ async function refreshRemoteForCurrentUser() {
     await syncSelectedWeekReview({ silent: true });
     state.remote.status = "ready";
     setSaveStatus(
-      state.auth.user ? `已连接云端账号：${state.auth.user.email}` : "已切换回公共云端数据"
+      state.auth.user
+        ? `已连接云端账号：${state.auth.user.email}`
+        : "已切换回公共云端数据",
     );
   } catch (error) {
     console.warn("Failed to refresh remote data for current user.", error);
@@ -1267,7 +1412,9 @@ async function seedRemoteFromLocal(snapshot) {
   }
 
   const remoteTaskPayload = await fetchApiJson("/api/tasks");
-  const remoteTaskIds = new Set((remoteTaskPayload.tasks || []).map((task) => task.id));
+  const remoteTaskIds = new Set(
+    (remoteTaskPayload.tasks || []).map((task) => task.id),
+  );
   const localTasks = sanitizeTaskTypes(snapshot.taskTypes);
 
   for (const task of localTasks) {
@@ -1286,8 +1433,8 @@ async function seedRemoteFromLocal(snapshot) {
     });
   }
 
-  const entries = Object.entries(snapshot.dailyRecords || {}).filter(([, record]) =>
-    hasMeaningfulRecord(record)
+  const entries = Object.entries(snapshot.dailyRecords || {}).filter(
+    ([, record]) => hasMeaningfulRecord(record),
   );
 
   for (const [date, record] of entries) {
@@ -1307,7 +1454,10 @@ function hasMeaningfulRecord(record) {
   }
 
   return Object.values(record.tasks).some((taskState) => {
-    return Boolean(taskState?.completed) || (Array.isArray(taskState?.notes) && taskState.notes.length > 0);
+    return (
+      Boolean(taskState?.completed) ||
+      (Array.isArray(taskState?.notes) && taskState.notes.length > 0)
+    );
   });
 }
 
@@ -1329,21 +1479,34 @@ async function detectApiBase() {
 function getApiBaseCandidates() {
   const fromStorage = localStorage.getItem(API_BASE_STORAGE_KEY) || "";
   const runtimeBase =
-    typeof window !== "undefined" && typeof window.LIFEFLOW_API_BASE === "string"
+    typeof window !== "undefined" &&
+    typeof window.LIFEFLOW_API_BASE === "string"
       ? window.LIFEFLOW_API_BASE
       : "";
   const localhostBase =
     window.location.hostname && window.location.hostname !== "localhost"
       ? "http://localhost:8787"
       : `${window.location.protocol}//${window.location.hostname || "localhost"}:8787`;
-  const isLocalHost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+  const isLocalHost = ["localhost", "127.0.0.1"].includes(
+    window.location.hostname,
+  );
   const preferred = isLocalHost
-    ? [fromStorage, runtimeBase, localhostBase, "http://127.0.0.1:8787", DEFAULT_REMOTE_API_BASE]
-    : [fromStorage, runtimeBase, DEFAULT_REMOTE_API_BASE, localhostBase, "http://127.0.0.1:8787"];
+    ? [
+        fromStorage,
+        runtimeBase,
+        localhostBase,
+        "http://127.0.0.1:8787",
+        DEFAULT_REMOTE_API_BASE,
+      ]
+    : [
+        fromStorage,
+        runtimeBase,
+        DEFAULT_REMOTE_API_BASE,
+        localhostBase,
+        "http://127.0.0.1:8787",
+      ];
 
-  return [...new Set(preferred)]
-    .map((item) => item.trim())
-    .filter(Boolean);
+  return [...new Set(preferred)].map((item) => item.trim()).filter(Boolean);
 }
 
 function joinApiPath(baseUrl, path) {
@@ -1363,7 +1526,10 @@ async function fetchApiJson(path, options = {}) {
   if (accessToken) {
     headers.set("Authorization", `Bearer ${accessToken}`);
   }
-  return fetchJson(joinApiPath(state.remote.apiBase, path), { ...options, headers });
+  return fetchJson(joinApiPath(state.remote.apiBase, path), {
+    ...options,
+    headers,
+  });
 }
 
 async function syncTasksFromRemote() {
@@ -1374,7 +1540,7 @@ async function syncTasksFromRemote() {
       name: task.name,
       order: Number(task.display_order) || index + 1,
       color: task.color || getFallbackColor(index),
-    }))
+    })),
   );
   state.data.taskTypes = remoteTasks;
   Object.values(state.data.dailyRecords).forEach((record) => {
@@ -1395,13 +1561,17 @@ async function syncSelectedDateRecord(options = {}) {
     return ensureRecord(state.selectedDate);
   }
 
-  const payload = await fetchApiJson(`/api/daily-records/${state.selectedDate}`);
+  const payload = await fetchApiJson(
+    `/api/daily-records/${state.selectedDate}`,
+  );
   const record = normalizeRemoteRecord(payload.record, state.selectedDate);
   state.data.dailyRecords[state.selectedDate] = record;
   persistStateSilently();
 
   if (!options.silent) {
-    setSaveStatus(`已同步 ${formatDisplayDate(parseLocalDate(state.selectedDate))} 的记录`);
+    setSaveStatus(
+      `已同步 ${formatDisplayDate(parseLocalDate(state.selectedDate))} 的记录`,
+    );
   }
 
   return record;
@@ -1413,7 +1583,9 @@ async function syncSelectedWeekReview(options = {}) {
     return null;
   }
 
-  const payload = await fetchApiJson(`/api/weekly-review/${state.selectedWeek}`);
+  const payload = await fetchApiJson(
+    `/api/weekly-review/${state.selectedWeek}`,
+  );
   state.remote.weeklyReview = payload;
 
   if (!options.silent) {
@@ -1441,9 +1613,12 @@ function normalizeRemoteRecord(record, fallbackDate) {
     };
   });
 
-  nextRecord.mood = typeof record?.payload?.mood === "string" ? record.payload.mood : "";
+  nextRecord.mood =
+    typeof record?.payload?.mood === "string" ? record.payload.mood : "";
   nextRecord.dailySummary =
-    typeof record?.payload?.dailySummary === "string" ? record.payload.dailySummary : "";
+    typeof record?.payload?.dailySummary === "string"
+      ? record.payload.dailySummary
+      : "";
   nextRecord.updatedAt = record?.updatedAt || "";
   return nextRecord;
 }
@@ -1482,12 +1657,18 @@ async function syncCurrentRecord(successMessage) {
   try {
     const record = ensureRecord(state.selectedDate);
     const payload = buildRemoteDailyPayload(record);
-    const response = await fetchApiJson(`/api/daily-records/${state.selectedDate}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    state.data.dailyRecords[state.selectedDate] = normalizeRemoteRecord(response.record, state.selectedDate);
+    const response = await fetchApiJson(
+      `/api/daily-records/${state.selectedDate}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      },
+    );
+    state.data.dailyRecords[state.selectedDate] = normalizeRemoteRecord(
+      response.record,
+      state.selectedDate,
+    );
     await syncSelectedWeekReview({ silent: true });
     persistStateSilently();
     setSaveStatus(successMessage);
@@ -1545,6 +1726,34 @@ async function syncTaskDelete(taskId, successMessage) {
   }
 }
 
+async function syncTaskUpdate(task, successMessage) {
+  persistStateSilently();
+
+  if (!isRemoteReady()) {
+    setSaveStatus(successMessage);
+    return;
+  }
+
+  try {
+    await fetchApiJson(`/api/tasks/${task.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: task.name,
+        color: task.color,
+        displayOrder: task.order,
+      }),
+    });
+    await syncTasksFromRemote();
+    persistStateSilently();
+    render();
+    setSaveStatus(successMessage);
+  } catch (error) {
+    console.warn("Failed to update task remotely.", error);
+    setSaveStatus(`${successMessage}，但后端同步失败，当前仅保存在本地`);
+  }
+}
+
 async function refreshExternalData() {
   await Promise.allSettled([refreshWeather(), refreshStocks()]);
   renderWidgets();
@@ -1566,16 +1775,21 @@ async function refreshWeather() {
 
     const [weatherData, locationData] = await Promise.all([
       fetchJson(
-        `https://api.open-meteo.com/v1/forecast?latitude=${target.latitude}&longitude=${target.longitude}&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min&forecast_days=7&timezone=auto`
+        `https://api.open-meteo.com/v1/forecast?latitude=${target.latitude}&longitude=${target.longitude}&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min&forecast_days=7&timezone=auto`,
       ),
       fetchJson(
-        `https://nominatim.openstreetmap.org/reverse?lat=${target.latitude}&lon=${target.longitude}&format=jsonv2&accept-language=zh-CN`
+        `https://nominatim.openstreetmap.org/reverse?lat=${target.latitude}&lon=${target.longitude}&format=jsonv2&accept-language=zh-CN`,
       ).catch(() => ({})),
     ]);
 
     const current = weatherData.current;
     const address = locationData.address || {};
-    const city = address.city || address.town || address.state_district || address.state || "";
+    const city =
+      address.city ||
+      address.town ||
+      address.state_district ||
+      address.state ||
+      "";
     const district =
       address.city_district ||
       address.suburb ||
@@ -1583,14 +1797,16 @@ async function refreshWeather() {
       address.quarter ||
       address.county ||
       "";
-    const forecast = (weatherData.daily?.temperature_2m_max || []).map((max, index) => ({
-      max,
-      min: weatherData.daily.temperature_2m_min[index],
-      date: weatherData.daily.time[index],
-      dayLabel: formatWeekday(weatherData.daily.time[index]),
-      axisLabel: formatWeekdayShortEn(weatherData.daily.time[index]),
-      dateLabel: formatMonthDayLabel(weatherData.daily.time[index]),
-    }));
+    const forecast = (weatherData.daily?.temperature_2m_max || []).map(
+      (max, index) => ({
+        max,
+        min: weatherData.daily.temperature_2m_min[index],
+        date: weatherData.daily.time[index],
+        dayLabel: formatWeekday(weatherData.daily.time[index]),
+        axisLabel: formatWeekdayShortEn(weatherData.daily.time[index]),
+        dateLabel: formatMonthDayLabel(weatherData.daily.time[index]),
+      }),
+    );
     state.widgetData.weather = {
       status: "ready",
       location: formatLocationLabel(city, district),
@@ -1637,7 +1853,13 @@ async function refreshStocks() {
       symbols: resolved.map((item) => {
         const quote = quotes.find((entry) => entry.symbol === item.symbol);
         if (!quote) {
-          return { symbol: item.symbol, name: item.name, price: "--", change: "--", trend: "flat" };
+          return {
+            symbol: item.symbol,
+            name: item.name,
+            price: "--",
+            change: "--",
+            trend: "flat",
+          };
         }
         return {
           symbol: item.symbol.toUpperCase(),
@@ -1652,7 +1874,13 @@ async function refreshStocks() {
   } catch (error) {
     state.widgetData.stock = {
       status: "error",
-      symbols: queries.map((symbol) => ({ symbol, name: symbol, price: "--", change: "--", trend: "flat" })),
+      symbols: queries.map((symbol) => ({
+        symbol,
+        name: symbol,
+        price: "--",
+        change: "--",
+        trend: "flat",
+      })),
       message: "A 股行情获取失败，请检查代码或名称",
     };
   }
@@ -1683,7 +1911,7 @@ function getAutoLocation() {
         });
       },
       reject,
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 300000 }
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 300000 },
     );
   });
 }
@@ -1694,7 +1922,10 @@ async function getPreferredWeatherLocation() {
     return { ...browserLocation, source: "browser" };
   } catch (error) {
     const ipLocation = await fetchJson("https://ipapi.co/json/");
-    if (!Number.isFinite(ipLocation.latitude) || !Number.isFinite(ipLocation.longitude)) {
+    if (
+      !Number.isFinite(ipLocation.latitude) ||
+      !Number.isFinite(ipLocation.longitude)
+    ) {
       throw error;
     }
     return {
@@ -1739,7 +1970,9 @@ function normalizeThemePreference(theme) {
 async function resolveAStockQueries(queries) {
   const results = [];
   for (const query of queries) {
-    const resolved = isAStockCode(query) ? normalizeAStockCode(query) : await resolveStockByName(query);
+    const resolved = isAStockCode(query)
+      ? normalizeAStockCode(query)
+      : await resolveStockByName(query);
     if (resolved) {
       results.push(resolved);
     }
@@ -1765,7 +1998,7 @@ async function resolveStockByName(query) {
   const callbackName = `stock_suggest_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   const raw = await loadScriptVariable(
     `https://suggest3.sinajs.cn/suggest/type=11,12,13,14,15&key=${encodeURIComponent(query)}&name=${callbackName}`,
-    callbackName
+    callbackName,
   );
 
   if (!raw) {
@@ -1781,7 +2014,10 @@ async function resolveStockByName(query) {
     return null;
   }
 
-  const tokens = firstEntry.split(",").map((item) => item.trim()).filter(Boolean);
+  const tokens = firstEntry
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
   const symbol = tokens.find((item) => /^(sh|sz)\d{6}$/i.test(item));
   const name = tokens.find((item) => /[\u4e00-\u9fa5]/.test(item)) || query;
 
@@ -1815,7 +2051,9 @@ async function fetchSinaQuotes(symbols) {
       const name = parts[0] || symbol.toUpperCase();
       const prevClose = Number(parts[2]) || 0;
       const price = Number(parts[3]) || 0;
-      const changeValue = prevClose ? ((price - prevClose) / prevClose) * 100 : 0;
+      const changeValue = prevClose
+        ? ((price - prevClose) / prevClose) * 100
+        : 0;
       return {
         symbol,
         name,
@@ -1864,7 +2102,9 @@ function formatLocationLabel(city, district) {
 }
 
 function buildWeatherPolyline(forecast) {
-  const values = forecast.flatMap((item) => [item.max, item.min]).filter((value) => Number.isFinite(value));
+  const values = forecast
+    .flatMap((item) => [item.max, item.min])
+    .filter((value) => Number.isFinite(value));
   if (!values.length) {
     return "30,86 250,86";
   }
@@ -1882,7 +2122,9 @@ function buildWeatherPolyline(forecast) {
 }
 
 function buildWeatherAxis(forecast) {
-  const values = forecast.flatMap((item) => [item.max, item.min]).filter((value) => Number.isFinite(value));
+  const values = forecast
+    .flatMap((item) => [item.max, item.min])
+    .filter((value) => Number.isFinite(value));
   if (!values.length) {
     return { max: "--", mid: "--", min: "--" };
   }
@@ -1942,7 +2184,9 @@ function sparklinePoints(trend) {
 }
 
 function getTaskName(taskId) {
-  return state.data.taskTypes.find((item) => item.id === taskId)?.name || taskId;
+  return (
+    state.data.taskTypes.find((item) => item.id === taskId)?.name || taskId
+  );
 }
 
 function handleTopTabClick(event) {
@@ -1979,7 +2223,9 @@ async function handleCalendarClick(event) {
   state.selectedDate = button.dataset.calendarDate;
   syncWeekToDate();
   ensureRecord(state.selectedDate);
-  setSaveStatus(`正在加载 ${formatDisplayDate(parseLocalDate(state.selectedDate))} 的记录...`);
+  setSaveStatus(
+    `正在加载 ${formatDisplayDate(parseLocalDate(state.selectedDate))} 的记录...`,
+  );
   try {
     await syncSelectedDateRecord({ silent: true });
     await syncSelectedWeekReview({ silent: true });
@@ -1987,7 +2233,9 @@ async function handleCalendarClick(event) {
     console.warn("Failed to load remote data for selected date.", error);
   }
   render();
-  setSaveStatus(`已切换到 ${formatDisplayDate(parseLocalDate(state.selectedDate))}`);
+  setSaveStatus(
+    `已切换到 ${formatDisplayDate(parseLocalDate(state.selectedDate))}`,
+  );
 }
 
 function handleTaskListClick(event) {
@@ -1999,6 +2247,13 @@ function handleTaskListClick(event) {
 
   if (action === "toggle-task") {
     void updateTaskCompletion(taskId);
+  }
+  if (action === "set-task-color") {
+    void updateTaskColor(taskId, actionTarget.dataset.color);
+  }
+  if (action === "set-new-task-color") {
+    state.newTaskColor = actionTarget.dataset.color;
+    renderTaskList();
   }
   if (action === "delete-task") {
     void deleteTask(taskId);
@@ -2077,9 +2332,15 @@ function handleAuthSubmit(event) {
 }
 
 function bindEvents() {
-  document.querySelector(".top-tabs").addEventListener("click", handleTopTabClick);
-  document.querySelector(".center-tabs").addEventListener("click", handleCenterTabClick);
-  document.querySelector(".theme-switcher").addEventListener("click", handleThemeClick);
+  document
+    .querySelector(".top-tabs")
+    .addEventListener("click", handleTopTabClick);
+  document
+    .querySelector(".center-tabs")
+    .addEventListener("click", handleCenterTabClick);
+  document
+    .querySelector(".theme-switcher")
+    .addEventListener("click", handleThemeClick);
   elements.authAction.addEventListener("click", handleAuthAction);
   elements.calendarGrid.addEventListener("click", handleCalendarClick);
   elements.taskList.addEventListener("click", handleTaskListClick);
@@ -2088,7 +2349,9 @@ function bindEvents() {
   document.querySelectorAll("[data-app-tab-target]").forEach((button) => {
     button.addEventListener("click", handleShowMoreClick);
   });
-  document.querySelector(".right-rail").addEventListener("click", handleWidgetClick);
+  document
+    .querySelector(".right-rail")
+    .addEventListener("click", handleWidgetClick);
   elements.settingsModal.addEventListener("click", handleModalClick);
   elements.settingsForm.addEventListener("submit", handleModalSubmit);
   elements.authGateForm.addEventListener("submit", handleAuthSubmit);
@@ -2191,8 +2454,7 @@ function formatTime(date) {
 }
 
 function getFallbackColor(index) {
-  const palette = ["var(--job)", "var(--fitness)", "var(--guitar)", "var(--arbitration)", "var(--accent)"];
-  return palette[index % palette.length];
+  return TASK_COLOR_PALETTES[index % TASK_COLOR_PALETTES.length].value;
 }
 
 function escapeHtml(value) {

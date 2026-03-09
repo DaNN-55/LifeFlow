@@ -1,10 +1,10 @@
 const { formatDateKey } = require("../lib/date");
 
 const defaultTasks = [
-  { id: "job", name: "找工作", color: "var(--job)", display_order: 1 },
-  { id: "fitness", name: "健身", color: "var(--fitness)", display_order: 2 },
-  { id: "guitar", name: "吉他", color: "var(--guitar)", display_order: 3 },
-  { id: "arbitration", name: "仲裁", color: "var(--arbitration)", display_order: 4 },
+  { id: "task1", name: "任务1", color: "#4f46e5", display_order: 1 },
+  { id: "task2", name: "任务2", color: "#0f766e", display_order: 2 },
+  { id: "task3", name: "任务3", color: "#ca8a04", display_order: 3 },
+  { id: "task4", name: "任务4", color: "#dc2626", display_order: 4 },
 ];
 
 class MemoryStore {
@@ -40,6 +40,17 @@ class MemoryStore {
     const { tasks } = this.ensureUserScope(scope.userId);
     tasks.set(task.id, task);
     return task;
+  }
+
+  async updateTask(scope = {}, taskId, patch) {
+    const { tasks } = this.ensureUserScope(scope.userId);
+    const existing = tasks.get(taskId);
+    if (!existing) {
+      return null;
+    }
+    const next = { ...existing, ...patch };
+    tasks.set(taskId, next);
+    return next;
   }
 
   async deleteTask(scope = {}, taskId) {
