@@ -1,0 +1,21 @@
+{
+  "name": "lifeflow-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lightweight backend for LifeFlow dashboard with optional Supabase storage.",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "zod": "^3.24.2"
+  }
+}
