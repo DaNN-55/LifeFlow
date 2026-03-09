@@ -85,7 +85,8 @@ const state = {
   activeAppTab: "home",
   activeCenterTab: "daily",
   noteDrafts: {},
-  newTaskColor: defaultTasks[0].color,
+  newTaskColor: "",
+  activePaletteTaskId: null,
   modal: { widget: null },
   remote: {
     status: "idle",
@@ -240,12 +241,15 @@ function sanitizeTaskTypes(taskTypes) {
       (task) =>
         task && typeof task.id === "string" && typeof task.name === "string",
     )
-    .map((task, index) => ({
-      id: task.id,
-      name: task.name,
-      order: Number(task.order) || index + 1,
-      color: task.color || getFallbackColor(index),
-    }))
+    .map((task, index) => {
+      const normalizedIdentity = normalizeTaskIdentity(task.id, index);
+      return {
+        id: normalizedIdentity.id,
+        name: normalizedIdentity.name,
+        order: Number(task.order) || normalizedIdentity.order,
+        color: task.color || getFallbackColor(normalizedIdentity.order - 1),
+      };
+    })
     .sort((a, b) => a.order - b.order);
 }
 
@@ -258,9 +262,10 @@ function migrateDailyRecords(dailyRecords, taskTypes) {
 
   Object.entries(dailyRecords).forEach(([date, record]) => {
     const nextRecord = createEmptyDailyRecord(date, taskTypes);
+    const normalizedTasks = normalizeLegacyTaskMap(record?.tasks || {});
     if (record?.tasks && typeof record.tasks === "object") {
       taskTypes.forEach((task) => {
-        const existing = record.tasks[task.id];
+        const existing = normalizedTasks[task.id];
         nextRecord.tasks[task.id] = migrateTaskRecord(
           existing,
           record?.updatedAt,
@@ -276,6 +281,47 @@ function migrateDailyRecords(dailyRecords, taskTypes) {
   });
 
   return migrated;
+}
+
+function normalizeTaskIdentity(taskId, index = 0) {
+  const legacyMap = {
+    job: defaultTasks[0],
+    fitness: defaultTasks[1],
+    guitar: defaultTasks[2],
+    arbitration: defaultTasks[3],
+  };
+
+  if (legacyMap[taskId]) {
+    return {
+      id: legacyMap[taskId].id,
+      name: legacyMap[taskId].name,
+      order: legacyMap[taskId].order,
+    };
+  }
+
+  const matchedDefault = defaultTasks.find((task) => task.id === taskId);
+  if (matchedDefault) {
+    return {
+      id: matchedDefault.id,
+      name: matchedDefault.name,
+      order: matchedDefault.order,
+    };
+  }
+
+  return {
+    id: taskId,
+    name: `任务${index + 1}`,
+    order: index + 1,
+  };
+}
+
+function normalizeLegacyTaskMap(taskMap) {
+  const remapped = {};
+  Object.entries(taskMap).forEach(([taskId, value]) => {
+    const normalizedIdentity = normalizeTaskIdentity(taskId);
+    remapped[normalizedIdentity.id] = value;
+  });
+  return remapped;
 }
 
 function migrateTaskRecord(existing, updatedAt, date) {
@@ -618,6 +664,13 @@ function renderTaskList() {
 
       return `
         <article class="task-card ${taskState.completed ? "is-task-completed" : ""}" style="--task-accent: ${task.color};">
+          <button
+            type="button"
+            class="task-accent-trigger"
+            aria-label="${escapeAttribute(task.name)} 颜色设置"
+            data-action="toggle-task-palette"
+            data-task-id="${task.id}"
+          ></button>
           <div class="task-row">
             <div>
               <h3 class="task-title">${task.name}</h3>
@@ -643,9 +696,15 @@ function renderTaskList() {
             </div>
           </div>
 
-          <div class="task-palette" role="group" aria-label="${escapeAttribute(task.name)} 颜色选择">
-            ${renderTaskColorPalette(task.id, task.color)}
-          </div>
+          ${
+            state.activePaletteTaskId === task.id
+              ? `
+                <div class="task-palette-popover" role="group" aria-label="${escapeAttribute(task.name)} 颜色选择">
+                  ${renderTaskColorPalette(task.id, task.color)}
+                </div>
+              `
+              : ""
+          }
 
           <div class="note-compose">
             <textarea
@@ -686,8 +745,11 @@ function renderTaskList() {
           placeholder="输入新任务名称"
           required
         />
-        <div class="task-palette new-task-palette" role="group" aria-label="新任务颜色选择">
-          ${renderNewTaskColorPalette(state.newTaskColor)}
+        <div class="new-task-color-hint">
+          <span>颜色</span>
+          <strong style="${state.newTaskColor ? `color:${state.newTaskColor};` : ""}">
+            ${state.newTaskColor ? "已选颜色" : "随机分配"}
+          </strong>
         </div>
         <button type="submit" class="add-task-submit">创建任务</button>
       </form>
@@ -1072,14 +1134,14 @@ async function addTask(taskName) {
     id,
     name: normalizedName,
     order: state.data.taskTypes.length + 1,
-    color: state.newTaskColor,
+    color: state.newTaskColor || getRandomPaletteColor(),
   };
   state.data.taskTypes = [...state.data.taskTypes, nextTask];
   Object.values(state.data.dailyRecords).forEach((record) => {
     record.tasks[id] = { completed: false, notes: [] };
   });
   ensureRecord(state.selectedDate);
-  state.newTaskColor = getFallbackColor(state.data.taskTypes.length);
+  state.newTaskColor = "";
   persistStateSilently();
   render();
   await syncTaskCreate(nextTask, `已创建任务：${normalizedName}`);
@@ -2248,7 +2310,13 @@ function handleTaskListClick(event) {
   if (action === "toggle-task") {
     void updateTaskCompletion(taskId);
   }
+  if (action === "toggle-task-palette") {
+    state.activePaletteTaskId =
+      state.activePaletteTaskId === taskId ? null : taskId;
+    renderTaskList();
+  }
   if (action === "set-task-color") {
+    state.activePaletteTaskId = null;
     void updateTaskColor(taskId, actionTarget.dataset.color);
   }
   if (action === "set-new-task-color") {
@@ -2455,6 +2523,11 @@ function formatTime(date) {
 
 function getFallbackColor(index) {
   return TASK_COLOR_PALETTES[index % TASK_COLOR_PALETTES.length].value;
+}
+
+function getRandomPaletteColor() {
+  const offset = Math.floor(Math.random() * TASK_COLOR_PALETTES.length);
+  return TASK_COLOR_PALETTES[offset].value;
 }
 
 function escapeHtml(value) {

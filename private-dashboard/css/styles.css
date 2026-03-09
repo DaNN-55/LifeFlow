@@ -305,6 +305,33 @@ body[data-theme="light"] .brand-mark {
   gap: 10px;
 }
 
+.auth-gate-actions .settings-save,
+.auth-gate-actions .auth-button {
+  min-width: 112px;
+  justify-content: center;
+  transition:
+    transform 120ms ease,
+    background-color 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    color 120ms ease;
+}
+
+.auth-gate-actions .settings-save:hover,
+.auth-gate-actions .auth-button:hover {
+  border-color: var(--line-2);
+  background: color-mix(in srgb, var(--accent) 8%, var(--card-2));
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
+  transform: translateY(-1px);
+}
+
+.auth-gate-actions .settings-save:active,
+.auth-gate-actions .auth-button:active {
+  transform: translateY(0);
+  background: color-mix(in srgb, var(--accent) 14%, var(--card-2));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
 .theme-option {
   color: var(--muted);
   min-width: 34px;
@@ -619,6 +646,14 @@ body[data-theme="light"] .brand-mark {
   background: var(--card);
 }
 
+.task-card {
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    filter 140ms ease;
+}
+
 .task-card::before {
   content: "";
   position: absolute;
@@ -628,6 +663,33 @@ body[data-theme="light"] .brand-mark {
   width: 10px;
   border-radius: 4px 0 0 4px;
   background: var(--task-accent, var(--line-2));
+}
+
+.task-accent-trigger {
+  position: absolute;
+  left: 0;
+  top: -1px;
+  bottom: -1px;
+  width: 10px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px 0 0 4px;
+  background: var(--task-accent, var(--line-2));
+  cursor: pointer;
+  z-index: 2;
+}
+
+.task-accent-trigger:hover {
+  filter: brightness(1.08);
+}
+
+.task-card:focus-within {
+  border-color: color-mix(in srgb, var(--task-accent) 26%, var(--line));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--task-accent) 7%, transparent), transparent),
+    color-mix(in srgb, var(--task-accent) 5%, var(--card));
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.08);
+  filter: brightness(1.02);
 }
 
 .task-card.is-task-completed {
@@ -682,11 +744,19 @@ body[data-theme="light"] .brand-mark {
   flex-shrink: 0;
 }
 
-.task-palette {
+.task-palette-popover {
+  position: absolute;
+  left: 24px;
+  top: 50px;
+  z-index: 4;
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel) 96%, transparent);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
 }
 
 .palette-swatch {
@@ -707,8 +777,14 @@ body[data-theme="light"] .brand-mark {
     inset 0 0 0 2px rgba(255, 255, 255, 0.88);
 }
 
-.new-task-palette {
-  padding: 2px 0 0;
+.new-task-color-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 2px;
+  font-size: 0.74rem;
+  color: var(--muted);
 }
 
 .task-toggle,
@@ -1184,4 +1260,10 @@ body[data-theme="light"] button:focus-visible,
 body[data-theme="light"] input:focus-visible,
 body[data-theme="light"] textarea:focus-visible {
   outline: 2px solid rgba(15, 23, 42, 0.18);
+}
+
+.task-card button:focus-visible,
+.task-card input:focus-visible,
+.task-card textarea:focus-visible {
+  outline: none;
 }
