@@ -93,6 +93,7 @@ const state = {
     status: "idle",
     apiBase: "",
     weeklyReview: null,
+    connectedThisSession: false,
   },
   auth: {
     status: "idle",
@@ -116,6 +117,8 @@ const state = {
     stock: { status: "idle", symbols: [], message: "" },
   },
 };
+
+let remoteBootstrapPromise = null;
 
 function createEmptyTaskState(taskTypes) {
   return taskTypes.reduce((accumulator, task) => {
@@ -789,6 +792,16 @@ function renderControls() {
 function renderCloudStatusChip() {
   const chip = elements.cloudStatusChip;
   chip.className = "status-chip";
+
+  if (
+    state.auth.user &&
+    state.remote.connectedThisSession &&
+    state.remote.status !== "offline"
+  ) {
+    chip.classList.add("is-cloud");
+    chip.textContent = "云端已连接";
+    return;
+  }
 
   if (state.remote.status === "ready") {
     chip.classList.add("is-cloud");
@@ -1603,6 +1616,7 @@ async function initAuthClient() {
         state.remote.status = "offline";
         state.remote.apiBase = "";
         state.remote.weeklyReview = null;
+        state.remote.connectedThisSession = false;
         saveApiBase("");
         setSaveStatus("已退出云端账号，当前使用本地保存");
         render();
@@ -1770,10 +1784,16 @@ function enterTrialMode() {
 }
 
 async function bootstrapRemoteData() {
+  if (remoteBootstrapPromise) {
+    return remoteBootstrapPromise;
+  }
+
+  remoteBootstrapPromise = (async () => {
   if (!state.auth.user) {
     state.remote.status = "offline";
     state.remote.apiBase = "";
     state.remote.weeklyReview = null;
+    state.remote.connectedThisSession = false;
     saveApiBase("");
     setSaveStatus("未登录云端账号，当前使用本地保存");
     renderControls();
@@ -1781,11 +1801,14 @@ async function bootstrapRemoteData() {
   }
 
   const localSnapshot = structuredClone(state.data);
-  state.remote.status = "connecting";
-  setSaveStatus("正在检测后端连接...");
-  renderControls();
+  const shouldShowConnecting = !isRemoteReady();
+  if (shouldShowConnecting) {
+    state.remote.status = "connecting";
+    setSaveStatus("正在检测后端连接...");
+    renderControls();
+  }
 
-  const apiBase = await detectApiBase();
+  const apiBase = state.remote.apiBase || (await detectApiBase());
   if (!apiBase) {
     state.remote.status = "offline";
     setSaveStatus("未连接后端，当前使用本地保存");
@@ -1795,6 +1818,7 @@ async function bootstrapRemoteData() {
 
   state.remote.status = "ready";
   state.remote.apiBase = apiBase;
+  state.remote.connectedThisSession = true;
   saveApiBase(apiBase);
 
   try {
@@ -1806,16 +1830,26 @@ async function bootstrapRemoteData() {
     await syncTasksFromRemote();
     await syncSelectedDateRecord({ silent: true });
     await syncSelectedWeekReview({ silent: true });
-    setSaveStatus("后端已连接，当前通过 API 同步数据");
+    if (shouldShowConnecting || state.remote.status !== "ready") {
+      setSaveStatus("后端已连接，当前通过 API 同步数据");
+    }
     render();
   } catch (error) {
     console.warn("Failed to bootstrap remote data.", error);
     state.remote.status = "offline";
     state.remote.apiBase = "";
     state.remote.weeklyReview = null;
+    state.remote.connectedThisSession = false;
     saveApiBase("");
     renderControls();
     setSaveStatus("后端同步失败，已回退为本地保存");
+  }
+  })();
+
+  try {
+    return await remoteBootstrapPromise;
+  } finally {
+    remoteBootstrapPromise = null;
   }
 }
 
