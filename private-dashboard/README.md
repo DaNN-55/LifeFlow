@@ -8,6 +8,8 @@
 - 按日期记录每天的完成情况和备注
 - 自动保存到浏览器 `localStorage`
 - 按周查看完成天数和任务备注聚合
+- 支持显示“云端已连接 / 本地模式”状态
+- 预留 Supabase Auth 登录入口，便于后续多端同步
 - 适配桌面端和手机端
 
 ## 目录结构
@@ -47,6 +49,22 @@ http://localhost:8000/private-dashboard/
 - 存储 key：`lifeflow-private-dashboard-v1`
 
 刷新页面后数据会保留在当前浏览器中。
+
+当后端已连接时：
+
+- 页面会优先通过 API 读写 Render + Supabase
+- 如果后端不可用，会回退到本地保存
+- 顶部会显示当前是“云端已连接”还是“本地模式”
+
+## 云端登录准备
+
+页面已经预留了 Supabase Auth 登录入口。首次使用时，需要在页面里填写：
+
+- `Supabase URL`
+- `Supabase Anon Key`
+- 登录邮箱
+
+完成后会通过邮箱魔法链接登录。登录成功后，前端会自动把 `access_token` 带给后端，为后续按 `user_id` 同步数据做准备。
 
 ## GitHub Pages 部署
 

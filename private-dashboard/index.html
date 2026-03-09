@@ -47,6 +47,13 @@
         </nav>
 
         <div class="theme-switcher" aria-label="主题模式切换">
+          <div class="sync-indicators">
+            <span id="cloud-status-chip" class="status-chip is-local">本地模式</span>
+            <span id="auth-status-chip" class="status-chip">未登录</span>
+          </div>
+          <button type="button" id="auth-action" class="auth-button">
+            云端登录
+          </button>
           <button type="button" class="theme-option" data-theme="light">
             <span class="material-symbols-outlined">light_mode</span>
           </button>
@@ -280,6 +287,52 @@
           </button>
         </div>
         <form id="settings-form" class="settings-form"></form>
+      </div>
+    </div>
+
+    <div id="auth-modal" class="settings-modal" hidden>
+      <div class="settings-backdrop" data-auth-close></div>
+      <div
+        class="settings-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="auth-title"
+      >
+        <div class="settings-header">
+          <div>
+            <p class="panel-kicker">Auth</p>
+            <h2 id="auth-title">云端登录</h2>
+          </div>
+          <button
+            type="button"
+            class="settings-save modal-close"
+            data-auth-close
+          >
+            关闭
+          </button>
+        </div>
+        <form id="auth-form" class="settings-form">
+          <p class="settings-copy">
+            输入 Supabase 项目的 URL、Anon Key 和登录邮箱。URL 与 Anon Key
+            属于前端公开配置，保存后会存到当前浏览器。
+          </p>
+          <label class="settings-field">
+            <span class="widget-label">Supabase URL</span>
+            <input name="supabaseUrl" type="url" placeholder="https://xxx.supabase.co" required />
+          </label>
+          <label class="settings-field">
+            <span class="widget-label">Supabase Anon Key</span>
+            <textarea name="supabaseAnonKey" placeholder="粘贴你的 anon key" required></textarea>
+          </label>
+          <label class="settings-field">
+            <span class="widget-label">登录邮箱</span>
+            <input name="email" type="email" placeholder="you@example.com" required />
+          </label>
+          <p id="auth-feedback" class="settings-copy"></p>
+          <div class="settings-actions">
+            <button type="submit" class="settings-save">发送登录链接</button>
+          </div>
+        </form>
       </div>
     </div>
 

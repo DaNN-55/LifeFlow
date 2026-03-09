@@ -9,53 +9,73 @@ const defaultTasks = [
 
 class MemoryStore {
   constructor() {
-    this.tasks = new Map(defaultTasks.map((task) => [task.id, task]));
-    this.dailyRecords = new Map();
+    this.tasksByUser = new Map();
+    this.dailyRecordsByUser = new Map();
   }
 
   async init() {
     return this;
   }
 
-  async listTasks() {
-    return [...this.tasks.values()].sort((left, right) => left.display_order - right.display_order);
+  ensureUserScope(userId = "public") {
+    if (!this.tasksByUser.has(userId)) {
+      this.tasksByUser.set(userId, new Map(defaultTasks.map((task) => [task.id, { ...task }])));
+    }
+    if (!this.dailyRecordsByUser.has(userId)) {
+      this.dailyRecordsByUser.set(userId, new Map());
+    }
+
+    return {
+      tasks: this.tasksByUser.get(userId),
+      dailyRecords: this.dailyRecordsByUser.get(userId),
+    };
   }
 
-  async createTask(task) {
-    this.tasks.set(task.id, task);
+  async listTasks(scope = {}) {
+    const { tasks } = this.ensureUserScope(scope.userId);
+    return [...tasks.values()].sort((left, right) => left.display_order - right.display_order);
+  }
+
+  async createTask(scope = {}, task) {
+    const { tasks } = this.ensureUserScope(scope.userId);
+    tasks.set(task.id, task);
     return task;
   }
 
-  async deleteTask(taskId) {
-    this.tasks.delete(taskId);
-    for (const [date, record] of this.dailyRecords.entries()) {
+  async deleteTask(scope = {}, taskId) {
+    const { tasks, dailyRecords } = this.ensureUserScope(scope.userId);
+    tasks.delete(taskId);
+    for (const [date, record] of dailyRecords.entries()) {
       if (record.payload?.tasks?.[taskId]) {
         delete record.payload.tasks[taskId];
-        this.dailyRecords.set(date, { ...record, updatedAt: new Date().toISOString() });
+        dailyRecords.set(date, { ...record, updatedAt: new Date().toISOString() });
       }
     }
   }
 
-  async getDailyRecord(date) {
+  async getDailyRecord(scope = {}, date) {
+    const { dailyRecords } = this.ensureUserScope(scope.userId);
     const key = formatDateKey(new Date(date));
-    return this.dailyRecords.get(key) || null;
+    return dailyRecords.get(key) || null;
   }
 
-  async upsertDailyRecord(date, payload) {
+  async upsertDailyRecord(scope = {}, date, payload) {
+    const { dailyRecords } = this.ensureUserScope(scope.userId);
     const key = formatDateKey(new Date(date));
     const record = {
       date: key,
       payload,
       updatedAt: new Date().toISOString(),
     };
-    this.dailyRecords.set(key, record);
+    dailyRecords.set(key, record);
     return record;
   }
 
-  async listDailyRecordsBetween(startDate, endDate) {
+  async listDailyRecordsBetween(scope = {}, startDate, endDate) {
+    const { dailyRecords } = this.ensureUserScope(scope.userId);
     const start = formatDateKey(new Date(startDate));
     const end = formatDateKey(new Date(endDate));
-    return [...this.dailyRecords.values()]
+    return [...dailyRecords.values()]
       .filter((record) => record.date >= start && record.date <= end)
       .sort((left, right) => left.date.localeCompare(right.date));
   }

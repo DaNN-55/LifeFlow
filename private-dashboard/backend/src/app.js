@@ -1,6 +1,7 @@
 const crypto = require("node:crypto");
 const cors = require("cors");
 const express = require("express");
+const { createClient } = require("@supabase/supabase-js");
 const { z } = require("zod");
 const { formatDateKey, getWeekRangeFromWeekValue } = require("./lib/date");
 
@@ -33,6 +34,11 @@ const dailyRecordSchema = z.object({
 
 function createApp({ config, store }) {
   const app = express();
+  const adminClient = config.useSupabase
+    ? createClient(config.supabaseUrl, config.supabaseServiceRoleKey, {
+        auth: { persistSession: false },
+      })
+    : null;
 
   app.use(
     cors({
@@ -46,18 +52,29 @@ function createApp({ config, store }) {
     })
   );
   app.use(express.json({ limit: "1mb" }));
+  app.use(async (request, response, next) => {
+    try {
+      request.userContext = await resolveUserContext(request, adminClient);
+      next();
+    } catch (error) {
+      next(error);
+    }
+  });
 
   app.get("/health", async (request, response) => {
     response.json({
       ok: true,
       storage: config.useSupabase ? "supabase" : "memory",
+      schemaMode: store.schemaMode || "memory",
+      userId: request.userContext?.userId || "public",
+      authenticated: Boolean(request.userContext?.isAuthenticated),
       now: new Date().toISOString(),
     });
   });
 
   app.get("/api/tasks", async (request, response, next) => {
     try {
-      const tasks = await store.listTasks();
+      const tasks = await store.listTasks(request.userContext);
       response.json({ tasks });
     } catch (error) {
       next(error);
@@ -67,14 +84,14 @@ function createApp({ config, store }) {
   app.post("/api/tasks", requireWriteKey(config), async (request, response, next) => {
     try {
       const parsed = taskSchema.parse(request.body);
-      const existingTasks = await store.listTasks();
+      const existingTasks = await store.listTasks(request.userContext);
       const task = {
         id: parsed.id || crypto.randomUUID(),
         name: parsed.name,
         color: parsed.color,
         display_order: parsed.displayOrder || existingTasks.length + 1,
       };
-      const created = await store.createTask(task);
+      const created = await store.createTask(request.userContext, task);
       response.status(201).json({ task: created });
     } catch (error) {
       next(error);
@@ -83,7 +100,7 @@ function createApp({ config, store }) {
 
   app.delete("/api/tasks/:taskId", requireWriteKey(config), async (request, response, next) => {
     try {
-      await store.deleteTask(request.params.taskId);
+      await store.deleteTask(request.userContext, request.params.taskId);
       response.status(204).send();
     } catch (error) {
       next(error);
@@ -93,7 +110,7 @@ function createApp({ config, store }) {
   app.get("/api/daily-records/:date", async (request, response, next) => {
     try {
       const date = normalizeDateParam(request.params.date);
-      const record = await store.getDailyRecord(date);
+      const record = await store.getDailyRecord(request.userContext, date);
       response.json({
         record:
           record || {
@@ -111,7 +128,7 @@ function createApp({ config, store }) {
     try {
       const date = normalizeDateParam(request.params.date);
       const payload = dailyRecordSchema.parse(request.body);
-      const record = await store.upsertDailyRecord(date, payload);
+      const record = await store.upsertDailyRecord(request.userContext, date, payload);
       response.json({ record });
     } catch (error) {
       next(error);
@@ -122,8 +139,9 @@ function createApp({ config, store }) {
     try {
       const week = String(request.params.week);
       const range = getWeekRangeFromWeekValue(week);
-      const tasks = await store.listTasks();
+      const tasks = await store.listTasks(request.userContext);
       const records = await store.listDailyRecordsBetween(
+        request.userContext,
         formatDateKey(range.start),
         formatDateKey(range.end)
       );
@@ -174,6 +192,11 @@ function createApp({ config, store }) {
       return;
     }
 
+    if (error?.statusCode) {
+      response.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+
     if (error?.message?.startsWith("Origin")) {
       response.status(403).json({ error: error.message });
       return;
@@ -200,6 +223,33 @@ function requireWriteKey(config) {
     }
 
     next();
+  };
+}
+
+async function resolveUserContext(request, adminClient) {
+  const authHeader = request.header("authorization") || "";
+  const tokenMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+
+  if (!tokenMatch) {
+    return { userId: "public", isAuthenticated: false, email: "" };
+  }
+
+  if (!adminClient) {
+    return { userId: "public", isAuthenticated: false, email: "" };
+  }
+
+  const accessToken = tokenMatch[1];
+  const { data, error } = await adminClient.auth.getUser(accessToken);
+  if (error || !data?.user) {
+    const authError = new Error("Invalid bearer token");
+    authError.statusCode = 401;
+    throw authError;
+  }
+
+  return {
+    userId: data.user.id,
+    isAuthenticated: true,
+    email: data.user.email || "",
   };
 }
 

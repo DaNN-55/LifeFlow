@@ -61,6 +61,7 @@ npm run dev
 
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_ANON_KEY`
 
 例如：
 
@@ -70,6 +71,7 @@ CORS_ORIGIN=http://localhost:8000
 APP_WRITE_KEY=
 SUPABASE_URL=https://your-project-ref.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+SUPABASE_ANON_KEY=your-anon-key
 ```
 
 配置完成后重启后端：
@@ -98,3 +100,25 @@ http://localhost:8787/health
 - 后端在连接到一个空的 Supabase 数据库时，会自动补齐默认任务
 - 你现有前端的本地数据会在首次连上后端时自动同步过去
 - `SUPABASE_SERVICE_ROLE_KEY` 不要放到前端，只能放在后端 `.env` 中
+
+## 用户隔离迁移
+
+当前后端已经支持两种数据作用域：
+
+- `public`：未登录时使用的公共数据
+- `user_id`：登录 Supabase Auth 后使用的用户私有数据
+
+如果你之前已经按旧版 schema 建过表，需要在 Supabase SQL Editor 中额外执行一次迁移脚本：
+
+[2026-03-09-add-user-scope.sql](/Users/dan/Programs/LifeFlow/private-dashboard/backend/supabase/migrations/2026-03-09-add-user-scope.sql)
+
+执行完成后：
+
+- `tasks` 会变成 `(user_id, id)` 复合主键
+- `daily_records` 会变成 `(user_id, record_date)` 复合主键
+- 旧数据会自动归到 `public` 用户下面
+
+迁移后重新部署 Render 后端，访问 `/health` 时会看到：
+
+- `schemaMode: "user-scoped"`：说明已经按用户隔离
+- `schemaMode: "legacy"`：说明还在旧结构，登录态暂时不会分用户存储

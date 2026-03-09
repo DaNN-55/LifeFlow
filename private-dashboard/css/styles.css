@@ -169,6 +169,7 @@ body[data-theme="light"] .brand-mark {
 .theme-option,
 .center-tab,
 .show-more,
+.auth-button,
 .icon-button,
 .task-toggle,
 .delete-task,
@@ -207,6 +208,54 @@ body[data-theme="light"] .brand-mark {
   border: 1px solid var(--line);
   border-radius: 4px;
   background: var(--card);
+}
+
+.sync-indicators {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 6px;
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.64rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--card);
+}
+
+.status-chip.is-cloud {
+  color: #1f9d68;
+  border-color: color-mix(in srgb, #1f9d68 42%, var(--line));
+  background: color-mix(in srgb, #1f9d68 10%, var(--card));
+}
+
+.status-chip.is-syncing {
+  color: #d7a52f;
+  border-color: color-mix(in srgb, #d7a52f 40%, var(--line));
+  background: color-mix(in srgb, #d7a52f 10%, var(--card));
+}
+
+.status-chip.is-local,
+.status-chip.is-error {
+  color: #d25f5f;
+  border-color: color-mix(in srgb, #d25f5f 34%, var(--line));
+  background: color-mix(in srgb, #d25f5f 10%, var(--card));
+}
+
+.auth-button {
+  color: var(--text);
+  border-color: var(--line);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .theme-option {
@@ -489,6 +538,19 @@ body[data-theme="light"] .brand-mark {
 .save-note {
   margin: 0 0 16px;
   font-size: 0.76rem;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.save-note::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.82;
 }
 
 .task-stack,
@@ -1013,6 +1075,17 @@ body[data-theme="light"] .weather-tooltip {
 .settings-field {
   display: grid;
   gap: 6px;
+}
+
+.settings-field input,
+.settings-field textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--input);
+  color: var(--text);
+  font: inherit;
 }
 
 .settings-field textarea {
