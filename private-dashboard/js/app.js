@@ -197,13 +197,51 @@ function migrateTaskRecord(existing, updatedAt, date) {
   if (Array.isArray(existing.notes)) {
     return {
       completed: Boolean(existing.completed),
-      notes: [],
+      notes: normalizeTaskNotes(existing.notes, updatedAt, date),
     };
   }
 
   return {
     completed: Boolean(existing.completed),
     notes: [],
+  };
+}
+
+function normalizeTaskNotes(notes, updatedAt, date) {
+  return notes
+    .map((note, index) => normalizeSingleTaskNote(note, updatedAt, date, index))
+    .filter(Boolean);
+}
+
+function normalizeSingleTaskNote(note, updatedAt, date, index) {
+  if (typeof note === "string") {
+    const text = note.trim();
+    if (!text) {
+      return null;
+    }
+    return {
+      id: `legacy-note-${date}-${index}`,
+      text,
+      createdAt: updatedAt || new Date(`${date}T00:00:00`).toISOString(),
+    };
+  }
+
+  if (!note || typeof note !== "object") {
+    return null;
+  }
+
+  const text = typeof note.text === "string" ? note.text.trim() : "";
+  if (!text) {
+    return null;
+  }
+
+  return {
+    id: typeof note.id === "string" && note.id ? note.id : `note-${date}-${index}`,
+    text,
+    createdAt:
+      typeof note.createdAt === "string" && note.createdAt
+        ? note.createdAt
+        : updatedAt || new Date(`${date}T00:00:00`).toISOString(),
   };
 }
 
