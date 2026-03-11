@@ -1,12 +1,14 @@
 const crypto = require("node:crypto");
 const cors = require("cors");
 const express = require("express");
+const svgCaptcha = require("svg-captcha");
 const { z } = require("zod");
 const { formatDateKey, getWeekRangeFromWeekValue } = require("./lib/date");
 
 const SESSION_COOKIE_NAME = "lifeflow_session";
 const SESSION_HEADER_NAME = "x-session-id";
 const SESSION_TTL_DAYS = 30;
+const CAPTCHA_TTL_MS = 5 * 60 * 1000;
 
 const taskSchema = z.object({
   id: z.string().min(1).max(64).optional(),
@@ -46,8 +48,14 @@ const credentialsSchema = z.object({
   password: z.string().min(6).max(128),
 });
 
+const authRequestSchema = credentialsSchema.extend({
+  captchaId: z.string().min(1).max(128),
+  captchaText: z.string().min(4).max(16),
+});
+
 function createApp({ config, store }) {
   const app = express();
+  const captchaStore = new Map();
 
   app.use(
     cors({
@@ -82,9 +90,39 @@ function createApp({ config, store }) {
     });
   });
 
+  app.get("/api/auth/captcha", async (request, response) => {
+    cleanupExpiredCaptchas(captchaStore);
+    const captcha = svgCaptcha.create({
+      size: 4,
+      ignoreChars: "0oO1iIl",
+      noise: 2,
+      width: 132,
+      height: 48,
+      fontSize: 40,
+      color: true,
+      background: "#f4f4ef",
+    });
+    const captchaId = crypto.randomUUID();
+    captchaStore.set(captchaId, {
+      text: String(captcha.text || "").toLowerCase(),
+      expiresAt: Date.now() + CAPTCHA_TTL_MS,
+    });
+    response.json({
+      captcha: {
+        id: captchaId,
+        svg: captcha.data,
+        expiresInMs: CAPTCHA_TTL_MS,
+      },
+    });
+  });
+
   app.post("/api/auth/signup", async (request, response, next) => {
     try {
-      const parsed = credentialsSchema.parse(request.body);
+      const parsed = authRequestSchema.parse(request.body);
+      if (!verifyCaptcha(captchaStore, parsed.captchaId, parsed.captchaText)) {
+        response.status(400).json({ error: "验证码错误或已过期" });
+        return;
+      }
       const existing = await store.findUserByUsername(parsed.username);
       if (existing) {
         response.status(409).json({ error: "用户名已存在" });
@@ -114,7 +152,11 @@ function createApp({ config, store }) {
 
   app.post("/api/auth/signin", async (request, response, next) => {
     try {
-      const parsed = credentialsSchema.parse(request.body);
+      const parsed = authRequestSchema.parse(request.body);
+      if (!verifyCaptcha(captchaStore, parsed.captchaId, parsed.captchaText)) {
+        response.status(400).json({ error: "验证码错误或已过期" });
+        return;
+      }
       const user = await store.findUserByUsername(parsed.username);
       if (!user || !(await verifyPassword(parsed.password, user.password_hash))) {
         response.status(401).json({ error: "用户名或密码错误" });
@@ -470,6 +512,25 @@ function resolveCookiePolicy(request) {
     // fall through
   }
   return { sameSite: "Lax", secure: false };
+}
+
+function cleanupExpiredCaptchas(captchaStore) {
+  const now = Date.now();
+  for (const [captchaId, record] of captchaStore.entries()) {
+    if (!record || record.expiresAt <= now) {
+      captchaStore.delete(captchaId);
+    }
+  }
+}
+
+function verifyCaptcha(captchaStore, captchaId, captchaText) {
+  cleanupExpiredCaptchas(captchaStore);
+  const record = captchaStore.get(String(captchaId || ""));
+  if (!record) {
+    return false;
+  }
+  captchaStore.delete(String(captchaId || ""));
+  return String(captchaText || "").trim().toLowerCase() === record.text;
 }
 
 async function hashPassword(password) {

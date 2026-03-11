@@ -192,10 +192,11 @@ function createEmptyDailyRecord(date, taskTypes) {
   };
 }
 
-function createInitialData() {
+function createInitialData(scopeKey = "public") {
+  const isPublicScope = !scopeKey || scopeKey === "public";
   return {
     version: STORAGE_VERSION,
-    taskTypes: defaultTasks,
+    taskTypes: isPublicScope ? defaultTasks : [],
     dailyRecords: {},
     weeklySummaries: {},
     preferences: {
@@ -215,12 +216,12 @@ function loadData(scopeKey = "public") {
     const legacyRaw = scopeKey === "public" ? localStorage.getItem(STORAGE_KEY) : "";
     const raw = scopedRaw || legacyRaw;
     if (!raw) {
-      return createInitialData();
+      return createInitialData(scopeKey);
     }
 
     const parsed = JSON.parse(raw);
     const taskTypes = sanitizeTaskTypes(parsed.taskTypes);
-    const base = createInitialData();
+    const base = createInitialData(scopeKey);
 
     return {
       version: STORAGE_VERSION,
@@ -245,7 +246,7 @@ function loadData(scopeKey = "public") {
     };
   } catch (error) {
     console.warn("Failed to load dashboard data, resetting state.", error);
-    return createInitialData();
+    return createInitialData(scopeKey);
   }
 }
 
@@ -2716,7 +2717,7 @@ async function refreshRemoteForCurrentUser() {
 }
 
 async function seedRemoteFromLocal(snapshot) {
-  if (!snapshot || !isRemoteReady()) {
+  if (!snapshot || !isRemoteReady() || state.auth.user) {
     return;
   }
 

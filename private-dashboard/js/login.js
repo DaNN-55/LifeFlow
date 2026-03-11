@@ -5,10 +5,16 @@ const DEFAULT_API_BASE = "https://lifeflow-backend-mrs1.onrender.com";
 const authElements = {
   form: document.querySelector("#login-form"),
   feedback: document.querySelector("#login-feedback"),
+  captchaImage: document.querySelector("#captcha-image"),
+  captchaRefresh: document.querySelector("#captcha-refresh"),
 };
 
 const SIGNUP_REQUIREMENTS_TEXT =
   "创建账号要求：用户名 3-64 位且不能包含空格；密码 6-128 位。支持邮箱作为用户名。";
+
+const captchaState = {
+  id: "",
+};
 
 function loadAuthConfig() {
   try {
@@ -51,6 +57,9 @@ function setFeedback(message) {
 
 function buildAuthErrorMessage(error, mode) {
   const message = String(error?.message || "").trim();
+  if (message.includes("验证码错误或已过期")) {
+    return "验证码错误或已过期，请重新输入。";
+  }
   if (mode === "signup") {
     if (message.includes("用户名已存在")) {
       return "创建账号失败：该用户名已存在。";
@@ -147,12 +156,36 @@ async function bootstrapExistingSession() {
   }
 }
 
+async function refreshCaptcha() {
+  try {
+    const payload = await fetchApiJson("/api/auth/captcha");
+    captchaState.id = payload?.captcha?.id || "";
+    if (authElements.captchaImage) {
+      authElements.captchaImage.innerHTML = payload?.captcha?.svg || "<span>加载失败</span>";
+    }
+    if (authElements.form?.elements?.captchaText) {
+      authElements.form.elements.captchaText.value = "";
+    }
+  } catch (error) {
+    captchaState.id = "";
+    if (authElements.captchaImage) {
+      authElements.captchaImage.textContent = "加载失败";
+    }
+  }
+}
+
 async function handlePasswordAuth(formData, mode = "signin") {
   const username = String(formData.get("username") || "").trim();
   const password = String(formData.get("password") || "");
+  const captchaText = String(formData.get("captchaText") || "").trim();
 
-  if (!username || !password) {
-    setFeedback("请先填写用户名和密码。");
+  if (!username || !password || !captchaText) {
+    setFeedback("请填写用户名、密码和验证码。");
+    return;
+  }
+
+  if (!captchaState.id) {
+    setFeedback("验证码尚未准备好，请刷新后重试。");
     return;
   }
 
@@ -163,7 +196,7 @@ async function handlePasswordAuth(formData, mode = "signin") {
     await fetchApiJson(`/api/auth/${mode === "signup" ? "signup" : "signin"}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, password, captchaId: captchaState.id, captchaText }),
     }).then((payload) => {
       saveSessionId(payload?.session?.id || "");
       return payload;
@@ -174,6 +207,7 @@ async function handlePasswordAuth(formData, mode = "signin") {
   } catch (error) {
     console.warn("Password auth failed on login page.", error);
     setFeedback(buildAuthErrorMessage(error, mode));
+    await refreshCaptcha();
   }
 }
 
@@ -184,5 +218,16 @@ function handleLoginSubmit(event) {
 }
 
 authElements.form.addEventListener("submit", handleLoginSubmit);
+if (authElements.captchaRefresh) {
+  authElements.captchaRefresh.addEventListener("click", () => {
+    void refreshCaptcha();
+  });
+}
+if (authElements.captchaImage) {
+  authElements.captchaImage.addEventListener("click", () => {
+    void refreshCaptcha();
+  });
+}
 setFeedback(SIGNUP_REQUIREMENTS_TEXT);
+void refreshCaptcha();
 void bootstrapExistingSession();
