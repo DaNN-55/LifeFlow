@@ -144,9 +144,7 @@ const state = {
   },
   auth: {
     status: "idle",
-    client: null,
     user: null,
-    session: null,
     config: loadAuthConfig(),
     feedback: "",
   },
@@ -259,46 +257,18 @@ function migrateWeeklySummaries(weeklySummaries) {
 
 function loadAuthConfig() {
   try {
-    const runtimeConfig =
-      typeof window !== "undefined" && window.LIFEFLOW_AUTH_CONFIG
-        ? {
-            supabaseUrl: String(
-              window.LIFEFLOW_AUTH_CONFIG.supabaseUrl || "",
-            ).trim(),
-            supabaseAnonKey: String(
-              window.LIFEFLOW_AUTH_CONFIG.supabaseAnonKey || "",
-            ).trim(),
-          }
-        : { supabaseUrl: "", supabaseAnonKey: "" };
     const raw = localStorage.getItem(AUTH_CONFIG_STORAGE_KEY);
     if (!raw) {
-      return { ...runtimeConfig, email: "" };
+      return { username: "" };
     }
 
     const parsed = JSON.parse(raw);
     return {
-      supabaseUrl:
-        runtimeConfig.supabaseUrl ||
-        (typeof parsed.supabaseUrl === "string"
-          ? parsed.supabaseUrl.trim()
-          : ""),
-      supabaseAnonKey:
-        runtimeConfig.supabaseAnonKey ||
-        (typeof parsed.supabaseAnonKey === "string"
-          ? parsed.supabaseAnonKey.trim()
-          : ""),
-      email: typeof parsed.email === "string" ? parsed.email.trim() : "",
+      username:
+        typeof parsed.username === "string" ? parsed.username.trim() : "",
     };
   } catch (error) {
-    return {
-      supabaseUrl: String(
-        window.LIFEFLOW_AUTH_CONFIG?.supabaseUrl || "",
-      ).trim(),
-      supabaseAnonKey: String(
-        window.LIFEFLOW_AUTH_CONFIG?.supabaseAnonKey || "",
-      ).trim(),
-      email: "",
-    };
+    return { username: "" };
   }
 }
 
@@ -803,13 +773,11 @@ async function flushPendingSync() {
 
 function saveAuthConfig(config) {
   state.auth.config = {
-    supabaseUrl: (config.supabaseUrl || "").trim(),
-    supabaseAnonKey: (config.supabaseAnonKey || "").trim(),
-    email: (config.email || "").trim(),
+    username: (config.username || "").trim(),
   };
   localStorage.setItem(
     AUTH_CONFIG_STORAGE_KEY,
-    JSON.stringify(state.auth.config),
+    JSON.stringify({ username: state.auth.config.username }),
   );
 }
 
@@ -819,111 +787,6 @@ function getCurrentScopeKey() {
 
 function redirectToLoginPage() {
   window.location.href = "./login.html";
-}
-
-function parseAuthCallbackParams() {
-  const searchParams = new URLSearchParams(window.location.search);
-  const hash = window.location.hash.startsWith("#")
-    ? window.location.hash.slice(1)
-    : window.location.hash;
-  const hashParams = new URLSearchParams(hash);
-
-  const errorCode =
-    hashParams.get("error_code") || searchParams.get("error_code");
-  const errorDescription =
-    hashParams.get("error_description") ||
-    searchParams.get("error_description");
-
-  if (errorCode || errorDescription) {
-    return {
-      mode: "error",
-      errorCode,
-      errorDescription,
-    };
-  }
-
-  const accessToken = hashParams.get("access_token");
-  const refreshToken = hashParams.get("refresh_token");
-  if (accessToken && refreshToken) {
-    return {
-      mode: "hash-session",
-      accessToken,
-      refreshToken,
-    };
-  }
-
-  const code = searchParams.get("code");
-  if (code) {
-    return {
-      mode: "auth-code",
-      code,
-    };
-  }
-
-  const tokenHash = searchParams.get("token_hash");
-  if (tokenHash) {
-    return {
-      mode: "token-hash",
-      tokenHash,
-      verifyType: searchParams.get("type") || "magiclink",
-    };
-  }
-
-  return null;
-}
-
-function clearAuthCallbackParams() {
-  if (!window.location.hash && !window.location.search) {
-    return;
-  }
-  const cleanUrl = `${window.location.origin}${window.location.pathname}`;
-  window.history.replaceState({}, document.title, cleanUrl);
-}
-
-async function consumeAuthHashSession(client) {
-  const parsed = parseAuthCallbackParams();
-  if (!parsed) {
-    return null;
-  }
-
-  if (parsed.mode === "error") {
-    state.auth.feedback = decodeURIComponent(
-      parsed.errorDescription || "云端登录失败，请重试。",
-    );
-    clearAuthCallbackParams();
-    return null;
-  }
-
-  try {
-    let result;
-    if (parsed.mode === "hash-session") {
-      result = await client.auth.setSession({
-        access_token: parsed.accessToken,
-        refresh_token: parsed.refreshToken,
-      });
-    } else if (parsed.mode === "auth-code") {
-      result = await client.auth.exchangeCodeForSession(parsed.code);
-    } else if (parsed.mode === "token-hash") {
-      result = await client.auth.verifyOtp({
-        token_hash: parsed.tokenHash,
-        type: parsed.verifyType,
-      });
-    } else {
-      return null;
-    }
-
-    const { data, error } = result;
-    if (error) {
-      throw error;
-    }
-    clearAuthCallbackParams();
-    return data.session || null;
-  } catch (error) {
-    console.warn("Failed to consume auth hash session.", error);
-    state.auth.feedback = "登录链接已返回，但会话建立失败，请重新发送登录链接。";
-    clearAuthCallbackParams();
-    return null;
-  }
 }
 
 function render() {
@@ -1180,9 +1043,9 @@ function renderAuthStatusChip() {
   const chip = elements.authStatusChip;
   chip.className = "status-chip";
 
-  if (state.auth.status === "ready" && state.auth.user?.email) {
+  if (state.auth.status === "ready" && state.auth.user?.username) {
     chip.classList.add("is-cloud");
-    chip.textContent = trimEmail(state.auth.user.email);
+    chip.textContent = state.auth.user.username;
     elements.authAction.textContent = "退出登录";
     return;
   }
@@ -1208,11 +1071,7 @@ function renderAuthStatusChip() {
     return;
   }
 
-  if (hasAuthConfig()) {
-    chip.textContent = "未登录";
-  } else {
-    chip.textContent = "未配置";
-  }
+  chip.textContent = "未登录";
   elements.authAction.textContent = "云端登录";
 }
 
@@ -1227,7 +1086,7 @@ function renderAuthGate() {
   }
 
   if (elements.authGateForm) {
-    elements.authGateForm.elements.email.value = state.auth.config.email || "";
+    elements.authGateForm.elements.username.value = state.auth.config.username || "";
   }
 
   elements.authGateFeedback.textContent =
@@ -1955,10 +1814,7 @@ function getTaskTimelineEntries(taskId) {
 }
 
 function getAuthGateHint() {
-  if (!hasAuthConfig()) {
-    return "当前前端还未配置 Supabase 登录参数，请先在代码中补齐 URL 与 Anon Key。";
-  }
-  return "使用邮箱和密码登录。首次使用可先创建账号。";
+  return "使用用户名和密码登录。首次使用可先创建账号。";
 }
 
 function renderSettingsForm(widget) {
@@ -2604,242 +2460,95 @@ function saveSettings(formData) {
   }
 }
 
-function hasAuthConfig() {
-  return Boolean(
-    state.auth.config.supabaseUrl && state.auth.config.supabaseAnonKey,
-  );
-}
-
-function trimEmail(email) {
-  const [name, domain] = String(email).split("@");
-  if (!domain) {
-    return email;
-  }
-  return `${name.slice(0, 10)}@${domain}`;
-}
-
-function getAuthAccessToken() {
-  return state.auth.session?.access_token || "";
-}
-
 async function initAuthClient() {
-  if (!hasAuthConfig()) {
-    state.auth.status = "idle";
-    state.auth.client = null;
-    state.auth.session = null;
-    state.auth.user = null;
-    state.auth.feedback = "当前站点尚未配置云端登录。";
-    renderControls();
-    renderAuthGate();
-    return null;
-  }
-
-  if (state.auth.client) {
-    return state.auth.client;
-  }
-
-  try {
-    const { createClient } =
-      await import("https://esm.sh/@supabase/supabase-js@2");
-    const client = createClient(
-      state.auth.config.supabaseUrl,
-      state.auth.config.supabaseAnonKey,
-      {
-        auth: {
-          persistSession: true,
-          autoRefreshToken: true,
-          detectSessionInUrl: true,
-        },
-      },
-    );
-
-    const hashSession = await consumeAuthHashSession(client);
-    const {
-      data: { session },
-    } = await client.auth.getSession();
-    const activeSession = hashSession || session || null;
-    state.auth.client = client;
-    state.auth.session = activeSession;
-    state.auth.user = activeSession?.user || null;
-    state.auth.status = activeSession?.user ? "ready" : "idle";
-    state.auth.feedback = activeSession?.user
-      ? "已连接到你的 Supabase 账号。"
-      : state.auth.feedback;
-    if (activeSession?.user) {
-      // keep current session
-    } else {
-      redirectToLoginPage();
-      return client;
-    }
-
-    client.auth.onAuthStateChange(async (event, sessionValue) => {
-      state.auth.session = sessionValue || null;
-      state.auth.user = sessionValue?.user || null;
-      state.auth.status = sessionValue?.user ? "ready" : "idle";
-      state.auth.feedback =
-        event === "SIGNED_IN"
-          ? `已登录 ${sessionValue?.user?.email || "当前账号"}`
-          : event === "SIGNED_OUT"
-            ? "已退出云端账号。"
-            : event === "TOKEN_REFRESHED"
-              ? "云端会话已续期。"
-              : state.auth.feedback;
-
-      if (event === "SIGNED_IN" && sessionValue?.user) {
-        await bootstrapRemoteData();
-        return;
-      }
-
-      if (event === "SIGNED_OUT") {
-        state.remote.status = "offline";
-        state.remote.apiBase = "";
-        state.remote.weeklyReview = null;
-        state.remote.connectedThisSession = false;
-        saveApiBase("");
-        setSaveStatus("已退出云端账号，当前使用本地保存");
-        render();
-        return;
-      }
-
-      renderControls();
-    });
-
-    renderControls();
-    renderAuthGate();
-    if (activeSession?.user) {
-      await bootstrapRemoteData();
-    }
-    return client;
-  } catch (error) {
-    console.warn("Failed to initialize Supabase auth client.", error);
-    state.auth.status = "error";
-    state.auth.feedback = "Supabase Auth 初始化失败，请检查 URL 与 Anon Key。";
-    renderControls();
-    renderAuthGate();
-    return null;
-  }
-}
-
-async function requestMagicLink(formData) {
-  const config = {
-    supabaseUrl: state.auth.config.supabaseUrl,
-    supabaseAnonKey: state.auth.config.supabaseAnonKey,
-    email: String(formData.get("email") || ""),
-  };
-
-  saveAuthConfig(config);
-  state.auth.feedback = "";
-  state.auth.client = null;
-  state.auth.session = null;
-  state.auth.user = null;
-  state.auth.status = "sending-link";
+  state.auth.status = "authenticating";
   renderControls();
-
-  const client = await initAuthClient();
-  if (!client) {
-    return;
-  }
+  renderAuthGate();
 
   try {
-    const { error } = await client.auth.signInWithOtp({
-      email: config.email,
-      options: {
-        emailRedirectTo: `${window.location.origin}${window.location.pathname}`,
-      },
-    });
+    const payload = await fetchApiJson("/api/auth/me", { requireAuth: false });
+    state.auth.user = payload.user || null;
+    state.auth.status = state.auth.user ? "ready" : "idle";
+    state.auth.feedback = state.auth.user
+      ? `已登录 ${state.auth.user.username}`
+      : "请先登录你的账号。";
 
-    if (error) {
-      throw error;
+    if (!state.auth.user) {
+      redirectToLoginPage();
+      return null;
     }
 
-    state.auth.status = "idle";
-    state.auth.feedback = `登录链接已发送到 ${config.email}，请在邮箱中完成登录。`;
     renderControls();
     renderAuthGate();
+    await bootstrapRemoteData();
+    return state.auth.user;
   } catch (error) {
-    console.warn("Failed to send auth link.", error);
-    state.auth.status = "error";
-    state.auth.feedback = "发送登录链接失败，请检查邮箱和 Supabase 配置。";
+    state.auth.user = null;
+    state.auth.status = "idle";
+    state.auth.feedback = "请先登录你的账号。";
     renderControls();
     renderAuthGate();
+    redirectToLoginPage();
+    return null;
   }
 }
 
 async function authenticateWithPassword(formData, mode = "signin") {
-  const config = {
-    supabaseUrl: state.auth.config.supabaseUrl,
-    supabaseAnonKey: state.auth.config.supabaseAnonKey,
-    email: String(formData.get("email") || "").trim(),
-  };
+  const username = String(formData.get("username") || "").trim();
   const password = String(formData.get("password") || "");
+  if (!username || !password) {
+    state.auth.feedback = "请先填写用户名和密码。";
+    renderAuthGate();
+    return;
+  }
 
-  saveAuthConfig(config);
+  saveAuthConfig({ username });
   state.auth.feedback = "";
-  state.auth.client = null;
-  state.auth.session = null;
   state.auth.user = null;
   state.auth.status = mode === "signup" ? "creating-account" : "authenticating";
   renderControls();
   renderAuthGate();
 
-  const client = await initAuthClient();
-  if (!client) {
-    return;
-  }
-
   try {
-    let result;
-    if (mode === "signup") {
-      result = await client.auth.signUp({
-        email: config.email,
-        password,
-      });
-    } else {
-      result = await client.auth.signInWithPassword({
-        email: config.email,
-        password,
-      });
-    }
-
-    if (result.error) {
-      throw result.error;
-    }
-
-    if (result.data?.session?.user) {
-      state.auth.session = result.data.session;
-      state.auth.user = result.data.session.user;
-      state.auth.status = "ready";
-      state.auth.feedback = `已登录 ${result.data.session.user.email || config.email}`;
-      await bootstrapRemoteData();
-      render();
-      return;
-    }
-
-    state.auth.status = "idle";
-    state.auth.feedback =
-      mode === "signup"
-        ? "账号已创建，请按 Supabase 的安全设置完成邮箱确认后再登录。"
-        : "登录完成，但未返回会话，请检查 Supabase Auth 配置。";
-    renderControls();
-    renderAuthGate();
+    const payload = await fetchApiJson(`/api/auth/${mode === "signup" ? "signup" : "signin"}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+      requireAuth: false,
+    });
+    state.auth.user = payload.user || null;
+    state.auth.status = "ready";
+    state.auth.feedback = `已登录 ${state.auth.user?.username || username}`;
+    await bootstrapRemoteData();
+    render();
   } catch (error) {
     console.warn("Password auth failed.", error);
     state.auth.status = "error";
     state.auth.feedback =
       mode === "signup"
-        ? "创建账号失败，请检查邮箱是否已注册或密码是否符合要求。"
-        : "登录失败，请检查邮箱和密码。";
+        ? "创建账号失败，请检查用户名是否已存在或密码是否符合要求。"
+        : "登录失败，请检查用户名和密码。";
     renderControls();
     renderAuthGate();
   }
 }
 
 async function signOutAuth() {
-  if (!state.auth.client) {
-    window.location.href = "./login.html";
-    return;
+  try {
+    await fetchApiJson("/api/auth/signout", {
+      method: "POST",
+      requireAuth: false,
+    });
+  } catch (error) {
+    console.warn("Failed to sign out.", error);
   }
-  await state.auth.client.auth.signOut();
+  state.auth.user = null;
+  state.auth.status = "idle";
+  state.remote.status = "offline";
+  state.remote.apiBase = "";
+  state.remote.weeklyReview = null;
+  state.remote.connectedThisSession = false;
+  saveApiBase("");
   window.location.href = "./login.html";
 }
 
@@ -2930,7 +2639,7 @@ async function refreshRemoteForCurrentUser() {
   state.remote.weeklyReview = null;
   setSaveStatus(
     state.auth.user
-      ? `正在切换到 ${state.auth.user.email} 的云端数据...`
+      ? `正在切换到 ${state.auth.user.username} 的云端数据...`
       : "正在切换到公共数据...",
   );
   renderControls();
@@ -2945,7 +2654,7 @@ async function refreshRemoteForCurrentUser() {
     state.remote.status = "ready";
     setSaveStatus(
       state.auth.user
-        ? `已连接云端账号：${state.auth.user.email}`
+        ? `已连接云端账号：${state.auth.user.username}`
         : "已切换回公共云端数据",
     );
   } catch (error) {
@@ -3116,14 +2825,21 @@ function isRemoteReady() {
 }
 
 async function fetchApiJson(path, options = {}) {
-  if (!isRemoteReady()) {
-    throw new Error("Remote API unavailable");
+  const requireAuth = options.requireAuth !== false;
+  if (!state.remote.apiBase) {
+    state.remote.apiBase = localStorage.getItem(API_BASE_STORAGE_KEY) || "";
+  }
+  if (!state.remote.apiBase) {
+    state.remote.apiBase = await detectApiBase();
+  }
+  if (!state.remote.apiBase || (!isRemoteReady() && requireAuth)) {
+    if (!requireAuth && state.remote.apiBase) {
+      // allow auth endpoints during initial handshake
+    } else {
+      throw new Error("Remote API unavailable");
+    }
   }
   const headers = new Headers(options.headers || {});
-  const accessToken = getAuthAccessToken();
-  if (accessToken) {
-    headers.set("Authorization", `Bearer ${accessToken}`);
-  }
   return fetchJson(joinApiPath(state.remote.apiBase, path), {
     ...options,
     headers,
@@ -3604,6 +3320,7 @@ async function fetchJson(url, options = {}) {
     : 0;
   const response = await fetch(url, {
     ...options,
+    credentials: "include",
     signal: options.signal || controller.signal,
   }).finally(() => {
     if (timeoutId) {
@@ -4533,5 +4250,4 @@ ensureRecord(state.selectedDate);
 persistStateSilently();
 render();
 void initAuthClient();
-void bootstrapRemoteData();
 refreshExternalData();

@@ -563,15 +563,15 @@
         <p class="panel-kicker">Cloud Sync</p>
         <h1 id="auth-gate-title">登录后同步到云端</h1>
         <p class="auth-gate-copy">
-          登录后你的任务与备注会写入云端。首次使用可先创建账号，之后直接用邮箱和密码登录。
+          登录后你的任务与备注会写入云端。首次使用可先创建账号，之后直接用用户名和密码登录。
         </p>
         <form id="auth-gate-form" class="auth-gate-form">
           <label class="settings-field">
-            <span class="widget-label">登录邮箱</span>
-            <input name="email" type="email" placeholder="you@example.com" required />
+            <span class="widget-label">用户名</span>
+            <input name="username" type="text" placeholder="输入用户名" required />
           </label>
           <label class="settings-field">
-            <span class="widget-label">登录密码</span>
+            <span class="widget-label">密码</span>
             <input
               name="password"
               type="password"
@@ -593,13 +593,6 @@
       </section>
     </div>
 
-    <script>
-      window.LIFEFLOW_AUTH_CONFIG = window.LIFEFLOW_AUTH_CONFIG || {
-        supabaseUrl: "https://wosmpydmpecmregvcwpq.supabase.co",
-        supabaseAnonKey:
-          "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Indvc21weWRtcGVjbXJlZ3Zjd3BxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwMzE5OTIsImV4cCI6MjA4ODYwNzk5Mn0.pPkdl9wTmPx0yCnnQXDn9sHkq-bLmpaw86LGMLk0EWk",
-      };
-    </script>
     <script src="./js/vendor/Sortable.min.js" defer></script>
     <script src="./js/app.js" defer></script>
   </body>

@@ -243,6 +243,87 @@ class SupabaseStore {
       updatedAt: data.updated_at,
     };
   }
+
+  async findUserByUsername(username) {
+    const { data, error } = await this.client
+      .from("users")
+      .select("id, username, password_hash, created_at")
+      .eq("username", username)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    return data;
+  }
+
+  async createUser(user) {
+    const { data, error } = await this.client
+      .from("users")
+      .insert(user)
+      .select("id, username, password_hash, created_at")
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    return data;
+  }
+
+  async createSession(session) {
+    const { data, error } = await this.client
+      .from("user_sessions")
+      .insert(session)
+      .select("id, user_id, expires_at, created_at")
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    return data;
+  }
+
+  async getSessionWithUser(sessionId) {
+    const { data, error } = await this.client
+      .from("user_sessions")
+      .select(
+        "id, user_id, expires_at, created_at, users!inner(id, username, password_hash, created_at)",
+      )
+      .eq("id", sessionId)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    if (!data) {
+      return null;
+    }
+
+    return {
+      session: {
+        id: data.id,
+        user_id: data.user_id,
+        expires_at: data.expires_at,
+        created_at: data.created_at,
+      },
+      user: Array.isArray(data.users) ? data.users[0] : data.users,
+    };
+  }
+
+  async deleteSession(sessionId) {
+    const { error } = await this.client
+      .from("user_sessions")
+      .delete()
+      .eq("id", sessionId);
+
+    if (error) {
+      throw error;
+    }
+  }
 }
 
 module.exports = { SupabaseStore };

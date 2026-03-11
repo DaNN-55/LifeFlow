@@ -1,9 +1,11 @@
 const crypto = require("node:crypto");
 const cors = require("cors");
 const express = require("express");
-const { createClient } = require("@supabase/supabase-js");
 const { z } = require("zod");
 const { formatDateKey, getWeekRangeFromWeekValue } = require("./lib/date");
+
+const SESSION_COOKIE_NAME = "lifeflow_session";
+const SESSION_TTL_DAYS = 30;
 
 const taskSchema = z.object({
   id: z.string().min(1).max(64).optional(),
@@ -38,16 +40,17 @@ const weeklySummarySchema = z.object({
   content: z.string().optional().default(""),
 });
 
+const credentialsSchema = z.object({
+  username: z.string().min(3).max(32).regex(/^[a-zA-Z0-9_\-.]+$/),
+  password: z.string().min(6).max(128),
+});
+
 function createApp({ config, store }) {
   const app = express();
-  const adminClient = config.useSupabase
-    ? createClient(config.supabaseUrl, config.supabaseServiceRoleKey, {
-        auth: { persistSession: false },
-      })
-    : null;
 
   app.use(
     cors({
+      credentials: true,
       origin(origin, callback) {
         if (!origin || config.corsOrigins.length === 0 || config.corsOrigins.includes(origin)) {
           callback(null, true);
@@ -60,7 +63,7 @@ function createApp({ config, store }) {
   app.use(express.json({ limit: "1mb" }));
   app.use(async (request, response, next) => {
     try {
-      request.userContext = await resolveUserContext(request, adminClient);
+      request.userContext = await resolveUserContext(request, store);
       next();
     } catch (error) {
       next(error);
@@ -78,7 +81,83 @@ function createApp({ config, store }) {
     });
   });
 
-  app.get("/api/tasks", async (request, response, next) => {
+  app.post("/api/auth/signup", async (request, response, next) => {
+    try {
+      const parsed = credentialsSchema.parse(request.body);
+      const existing = await store.findUserByUsername(parsed.username);
+      if (existing) {
+        response.status(409).json({ error: "用户名已存在" });
+        return;
+      }
+
+      const user = await store.createUser({
+        id: crypto.randomUUID(),
+        username: parsed.username,
+        password_hash: await hashPassword(parsed.password),
+      });
+      const session = await store.createSession(createSessionPayload(user.id));
+      writeSessionCookie(request, response, session.id);
+      response.status(201).json({
+        user: {
+          id: user.id,
+          username: user.username,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/auth/signin", async (request, response, next) => {
+    try {
+      const parsed = credentialsSchema.parse(request.body);
+      const user = await store.findUserByUsername(parsed.username);
+      if (!user || !(await verifyPassword(parsed.password, user.password_hash))) {
+        response.status(401).json({ error: "用户名或密码错误" });
+        return;
+      }
+
+      const session = await store.createSession(createSessionPayload(user.id));
+      writeSessionCookie(request, response, session.id);
+      response.json({
+        user: {
+          id: user.id,
+          username: user.username,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/auth/signout", async (request, response, next) => {
+    try {
+      const sessionId = getSessionIdFromRequest(request);
+      if (sessionId) {
+        await store.deleteSession(sessionId);
+      }
+      clearSessionCookie(request, response);
+      response.status(204).send();
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/auth/me", async (request, response) => {
+    if (!request.userContext?.isAuthenticated) {
+      response.status(401).json({ error: "Authentication required" });
+      return;
+    }
+
+    response.json({
+      user: {
+        id: request.userContext.userId,
+        username: request.userContext.username,
+      },
+    });
+  });
+
+  app.get("/api/tasks", requireAuthenticated(config), async (request, response, next) => {
     try {
       const tasks = await store.listTasks(request.userContext);
       response.json({ tasks });
@@ -87,7 +166,7 @@ function createApp({ config, store }) {
     }
   });
 
-  app.post("/api/tasks", requireAuthenticatedWrite(config), async (request, response, next) => {
+  app.post("/api/tasks", requireAuthenticated(config), async (request, response, next) => {
     try {
       const parsed = taskSchema.parse(request.body);
       const existingTasks = await store.listTasks(request.userContext);
@@ -106,7 +185,7 @@ function createApp({ config, store }) {
     }
   });
 
-  app.patch("/api/tasks/:taskId", requireAuthenticatedWrite(config), async (request, response, next) => {
+  app.patch("/api/tasks/:taskId", requireAuthenticated(config), async (request, response, next) => {
     try {
       const parsed = taskSchema.partial().parse(request.body);
       const updated = await store.updateTask(request.userContext, request.params.taskId, {
@@ -128,7 +207,7 @@ function createApp({ config, store }) {
     }
   });
 
-  app.delete("/api/tasks/:taskId", requireAuthenticatedWrite(config), async (request, response, next) => {
+  app.delete("/api/tasks/:taskId", requireAuthenticated(config), async (request, response, next) => {
     try {
       await store.deleteTask(request.userContext, request.params.taskId);
       response.status(204).send();
@@ -137,7 +216,7 @@ function createApp({ config, store }) {
     }
   });
 
-  app.get("/api/daily-records/:date", async (request, response, next) => {
+  app.get("/api/daily-records/:date", requireAuthenticated(config), async (request, response, next) => {
     try {
       const date = normalizeDateParam(request.params.date);
       const record = await store.getDailyRecord(request.userContext, date);
@@ -154,7 +233,7 @@ function createApp({ config, store }) {
     }
   });
 
-  app.put("/api/daily-records/:date", requireAuthenticatedWrite(config), async (request, response, next) => {
+  app.put("/api/daily-records/:date", requireAuthenticated(config), async (request, response, next) => {
     try {
       const date = normalizeDateParam(request.params.date);
       const payload = dailyRecordSchema.parse(request.body);
@@ -165,7 +244,7 @@ function createApp({ config, store }) {
     }
   });
 
-  app.get("/api/weekly-review/:week", async (request, response, next) => {
+  app.get("/api/weekly-review/:week", requireAuthenticated(config), async (request, response, next) => {
     try {
       const week = String(request.params.week);
       const range = getWeekRangeFromWeekValue(week);
@@ -220,7 +299,7 @@ function createApp({ config, store }) {
     }
   });
 
-  app.get("/api/weekly-summaries/:week", async (request, response, next) => {
+  app.get("/api/weekly-summaries/:week", requireAuthenticated(config), async (request, response, next) => {
     try {
       const week = String(request.params.week);
       const summary = await store.getWeeklySummary(request.userContext, week);
@@ -232,7 +311,7 @@ function createApp({ config, store }) {
     }
   });
 
-  app.put("/api/weekly-summaries/:week", requireAuthenticatedWrite(config), async (request, response, next) => {
+  app.put("/api/weekly-summaries/:week", requireAuthenticated(config), async (request, response, next) => {
     try {
       const week = String(request.params.week);
       const payload = weeklySummarySchema.parse(request.body);
@@ -266,7 +345,7 @@ function createApp({ config, store }) {
   return app;
 }
 
-function requireAuthenticatedWrite(config) {
+function requireAuthenticated(config) {
   return (request, response, next) => {
     if (request.userContext?.isAuthenticated) {
       next();
@@ -288,31 +367,125 @@ function requireAuthenticatedWrite(config) {
   };
 }
 
-async function resolveUserContext(request, adminClient) {
-  const authHeader = request.header("authorization") || "";
-  const tokenMatch = authHeader.match(/^Bearer\s+(.+)$/i);
-
-  if (!tokenMatch) {
-    return { userId: "public", isAuthenticated: false, email: "" };
+async function resolveUserContext(request, store) {
+  const sessionId = getSessionIdFromRequest(request);
+  if (!sessionId) {
+    return { userId: "", isAuthenticated: false, username: "" };
   }
 
-  if (!adminClient) {
-    return { userId: "public", isAuthenticated: false, email: "" };
+  const result = await store.getSessionWithUser(sessionId);
+  if (!result?.session || !result?.user) {
+    return { userId: "", isAuthenticated: false, username: "" };
   }
 
-  const accessToken = tokenMatch[1];
-  const { data, error } = await adminClient.auth.getUser(accessToken);
-  if (error || !data?.user) {
-    const authError = new Error("Invalid bearer token");
-    authError.statusCode = 401;
-    throw authError;
+  const expiresAt = new Date(result.session.expires_at);
+  if (Number.isNaN(expiresAt.getTime()) || expiresAt <= new Date()) {
+    await store.deleteSession(sessionId);
+    return { userId: "", isAuthenticated: false, username: "" };
   }
 
   return {
-    userId: data.user.id,
+    userId: result.user.id,
     isAuthenticated: true,
-    email: data.user.email || "",
+    username: result.user.username || "",
   };
+}
+
+function parseCookieHeader(cookieHeader = "") {
+  return String(cookieHeader)
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .reduce((accumulator, part) => {
+      const separatorIndex = part.indexOf("=");
+      if (separatorIndex === -1) {
+        return accumulator;
+      }
+      const key = part.slice(0, separatorIndex).trim();
+      const value = decodeURIComponent(part.slice(separatorIndex + 1));
+      accumulator[key] = value;
+      return accumulator;
+    }, {});
+}
+
+function getSessionIdFromRequest(request) {
+  const cookies = parseCookieHeader(request.header("cookie") || "");
+  return cookies[SESSION_COOKIE_NAME] || "";
+}
+
+function createSessionPayload(userId) {
+  return {
+    id: crypto.randomUUID(),
+    user_id: userId,
+    expires_at: new Date(
+      Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000,
+    ).toISOString(),
+  };
+}
+
+function writeSessionCookie(request, response, sessionId) {
+  const maxAge = SESSION_TTL_DAYS * 24 * 60 * 60;
+  const { sameSite, secure } = resolveCookiePolicy(request);
+  response.append(
+    "Set-Cookie",
+    `${SESSION_COOKIE_NAME}=${encodeURIComponent(sessionId)}; Path=/; HttpOnly; SameSite=${sameSite}; Max-Age=${maxAge}${secure ? "; Secure" : ""}`,
+  );
+}
+
+function clearSessionCookie(request, response) {
+  const { sameSite, secure } = resolveCookiePolicy(request);
+  response.append(
+    "Set-Cookie",
+    `${SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=${sameSite}; Max-Age=0${secure ? "; Secure" : ""}`,
+  );
+}
+
+function resolveCookiePolicy(request) {
+  const origin = request.header("origin") || "";
+  const host = request.header("host") || "";
+  try {
+    if (origin) {
+      const originUrl = new URL(origin);
+      const requestHost = host.split(":")[0];
+      if (originUrl.hostname && requestHost && originUrl.hostname !== requestHost) {
+        return { sameSite: "None", secure: true };
+      }
+    }
+  } catch (error) {
+    // fall through
+  }
+  return { sameSite: "Lax", secure: false };
+}
+
+async function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const derivedKey = await scryptAsync(password, salt);
+  return `${salt}:${derivedKey.toString("hex")}`;
+}
+
+async function verifyPassword(password, passwordHash) {
+  const [salt, storedHash] = String(passwordHash || "").split(":");
+  if (!salt || !storedHash) {
+    return false;
+  }
+  const derivedKey = await scryptAsync(password, salt);
+  const storedBuffer = Buffer.from(storedHash, "hex");
+  return (
+    storedBuffer.length === derivedKey.length &&
+    crypto.timingSafeEqual(storedBuffer, derivedKey)
+  );
+}
+
+function scryptAsync(password, salt) {
+  return new Promise((resolve, reject) => {
+    crypto.scrypt(password, salt, 64, (error, derivedKey) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve(derivedKey);
+    });
+  });
 }
 
 function normalizeDateParam(dateValue) {

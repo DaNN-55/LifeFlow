@@ -12,6 +12,8 @@ class MemoryStore {
     this.tasksByUser = new Map();
     this.dailyRecordsByUser = new Map();
     this.weeklySummariesByUser = new Map();
+    this.usersByUsername = new Map();
+    this.sessionsById = new Map();
   }
 
   async init() {
@@ -115,6 +117,39 @@ class MemoryStore {
     };
     weeklySummaries.set(week, summary);
     return summary;
+  }
+
+  async findUserByUsername(username) {
+    return this.usersByUsername.get(username) || null;
+  }
+
+  async createUser(user) {
+    this.usersByUsername.set(user.username, user);
+    return user;
+  }
+
+  async createSession(session) {
+    this.sessionsById.set(session.id, session);
+    return session;
+  }
+
+  async getSessionWithUser(sessionId) {
+    const session = this.sessionsById.get(sessionId);
+    if (!session) {
+      return null;
+    }
+    const user = [...this.usersByUsername.values()].find(
+      (entry) => entry.id === session.user_id,
+    );
+    if (!user) {
+      this.sessionsById.delete(sessionId);
+      return null;
+    }
+    return { session, user };
+  }
+
+  async deleteSession(sessionId) {
+    this.sessionsById.delete(sessionId);
   }
 }
 
