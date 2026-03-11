@@ -1,4 +1,5 @@
 const AUTH_CONFIG_STORAGE_KEY = "lifeflow-private-dashboard-auth-config";
+const SESSION_STORAGE_KEY = "lifeflow-private-dashboard-session";
 const DEFAULT_API_BASE = "https://lifeflow-backend-mrs1.onrender.com";
 
 const authElements = {
@@ -27,6 +28,18 @@ function saveAuthConfig(config) {
     AUTH_CONFIG_STORAGE_KEY,
     JSON.stringify({ username: String(config.username || "").trim() }),
   );
+}
+
+function loadSessionId() {
+  return String(localStorage.getItem(SESSION_STORAGE_KEY) || "").trim();
+}
+
+function saveSessionId(sessionId) {
+  if (!sessionId) {
+    localStorage.removeItem(SESSION_STORAGE_KEY);
+    return;
+  }
+  localStorage.setItem(SESSION_STORAGE_KEY, String(sessionId).trim());
 }
 
 function setFeedback(message) {
@@ -69,12 +82,15 @@ async function detectApiBase() {
 
 async function fetchApiJson(path, options = {}) {
   const apiBase = await detectApiBase();
+  const headers = new Headers(options.headers || {});
+  const sessionId = loadSessionId();
+  if (sessionId) {
+    headers.set("x-session-id", sessionId);
+  }
   const response = await fetch(`${apiBase.replace(/\/$/, "")}${path}`, {
     ...options,
     credentials: "include",
-    headers: {
-      ...(options.headers || {}),
-    },
+    headers,
   });
 
   if (!response.ok) {
@@ -98,9 +114,11 @@ async function bootstrapExistingSession() {
   try {
     const payload = await fetchApiJson("/api/auth/me");
     if (payload?.user) {
+      saveSessionId(payload?.session?.id || loadSessionId());
       redirectToDashboard();
     }
   } catch (error) {
+    saveSessionId("");
     // not signed in
   }
 }
@@ -122,6 +140,9 @@ async function handlePasswordAuth(formData, mode = "signin") {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
+    }).then((payload) => {
+      saveSessionId(payload?.session?.id || "");
+      return payload;
     });
     redirectToDashboard();
   } catch (error) {

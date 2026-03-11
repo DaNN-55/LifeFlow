@@ -4,6 +4,7 @@ const API_BASE_STORAGE_KEY = "lifeflow-private-dashboard-api-base";
 const API_SEED_PREFIX = "lifeflow-private-dashboard-seeded:";
 const DEFAULT_REMOTE_API_BASE = "https://lifeflow-backend-mrs1.onrender.com";
 const AUTH_CONFIG_STORAGE_KEY = "lifeflow-private-dashboard-auth-config";
+const SESSION_STORAGE_KEY = "lifeflow-private-dashboard-session";
 const PENDING_SYNC_STORAGE_KEY = "lifeflow-private-dashboard-pending-sync";
 const API_PROBE_TIMEOUT_MS = 1500;
 
@@ -270,6 +271,18 @@ function loadAuthConfig() {
   } catch (error) {
     return { username: "" };
   }
+}
+
+function loadSessionId() {
+  return String(localStorage.getItem(SESSION_STORAGE_KEY) || "").trim();
+}
+
+function saveSessionId(sessionId) {
+  if (!sessionId) {
+    localStorage.removeItem(SESSION_STORAGE_KEY);
+    return;
+  }
+  localStorage.setItem(SESSION_STORAGE_KEY, String(sessionId).trim());
 }
 
 function sanitizeTaskTypes(taskTypes) {
@@ -2468,12 +2481,14 @@ async function initAuthClient() {
   try {
     const payload = await fetchApiJson("/api/auth/me", { requireAuth: false });
     state.auth.user = payload.user || null;
+    saveSessionId(payload?.session?.id || loadSessionId());
     state.auth.status = state.auth.user ? "ready" : "idle";
     state.auth.feedback = state.auth.user
       ? `已登录 ${state.auth.user.username}`
       : "请先登录你的账号。";
 
     if (!state.auth.user) {
+      saveSessionId("");
       redirectToLoginPage();
       return null;
     }
@@ -2486,6 +2501,7 @@ async function initAuthClient() {
     state.auth.user = null;
     state.auth.status = "idle";
     state.auth.feedback = "请先登录你的账号。";
+    saveSessionId("");
     renderControls();
     renderAuthGate();
     redirectToLoginPage();
@@ -2516,6 +2532,7 @@ async function authenticateWithPassword(formData, mode = "signin") {
       body: JSON.stringify({ username, password }),
       requireAuth: false,
     });
+    saveSessionId(payload?.session?.id || "");
     state.auth.user = payload.user || null;
     state.auth.status = "ready";
     state.auth.feedback = `已登录 ${state.auth.user?.username || username}`;
@@ -2549,6 +2566,7 @@ async function signOutAuth() {
   state.remote.weeklyReview = null;
   state.remote.connectedThisSession = false;
   saveApiBase("");
+  saveSessionId("");
   window.location.href = "./login.html";
 }
 
@@ -2840,6 +2858,10 @@ async function fetchApiJson(path, options = {}) {
     }
   }
   const headers = new Headers(options.headers || {});
+  const sessionId = loadSessionId();
+  if (sessionId) {
+    headers.set("x-session-id", sessionId);
+  }
   return fetchJson(joinApiPath(state.remote.apiBase, path), {
     ...options,
     headers,

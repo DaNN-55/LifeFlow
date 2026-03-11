@@ -5,6 +5,7 @@ const { z } = require("zod");
 const { formatDateKey, getWeekRangeFromWeekValue } = require("./lib/date");
 
 const SESSION_COOKIE_NAME = "lifeflow_session";
+const SESSION_HEADER_NAME = "x-session-id";
 const SESSION_TTL_DAYS = 30;
 
 const taskSchema = z.object({
@@ -102,6 +103,9 @@ function createApp({ config, store }) {
           id: user.id,
           username: user.username,
         },
+        session: {
+          id: session.id,
+        },
       });
     } catch (error) {
       next(error);
@@ -123,6 +127,9 @@ function createApp({ config, store }) {
         user: {
           id: user.id,
           username: user.username,
+        },
+        session: {
+          id: session.id,
         },
       });
     } catch (error) {
@@ -153,6 +160,9 @@ function createApp({ config, store }) {
       user: {
         id: request.userContext.userId,
         username: request.userContext.username,
+      },
+      session: {
+        id: request.userContext.sessionId,
       },
     });
   });
@@ -370,24 +380,25 @@ function requireAuthenticated(config) {
 async function resolveUserContext(request, store) {
   const sessionId = getSessionIdFromRequest(request);
   if (!sessionId) {
-    return { userId: "", isAuthenticated: false, username: "" };
+    return { userId: "", isAuthenticated: false, username: "", sessionId: "" };
   }
 
   const result = await store.getSessionWithUser(sessionId);
   if (!result?.session || !result?.user) {
-    return { userId: "", isAuthenticated: false, username: "" };
+    return { userId: "", isAuthenticated: false, username: "", sessionId: "" };
   }
 
   const expiresAt = new Date(result.session.expires_at);
   if (Number.isNaN(expiresAt.getTime()) || expiresAt <= new Date()) {
     await store.deleteSession(sessionId);
-    return { userId: "", isAuthenticated: false, username: "" };
+    return { userId: "", isAuthenticated: false, username: "", sessionId: "" };
   }
 
   return {
     userId: result.user.id,
     isAuthenticated: true,
     username: result.user.username || "",
+    sessionId,
   };
 }
 
@@ -409,6 +420,10 @@ function parseCookieHeader(cookieHeader = "") {
 }
 
 function getSessionIdFromRequest(request) {
+  const headerSessionId = String(request.header(SESSION_HEADER_NAME) || "").trim();
+  if (headerSessionId) {
+    return headerSessionId;
+  }
   const cookies = parseCookieHeader(request.header("cookie") || "");
   return cookies[SESSION_COOKIE_NAME] || "";
 }
