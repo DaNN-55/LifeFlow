@@ -1092,18 +1092,8 @@ function renderAuthGate() {
   if (!elements.authGate || !elements.authGateFeedback) {
     return;
   }
-  const shouldShow = !state.auth.user;
-  elements.authGate.hidden = !shouldShow;
-  if (!shouldShow) {
-    return;
-  }
-
-  if (elements.authGateForm) {
-    elements.authGateForm.elements.username.value = state.auth.config.username || "";
-  }
-
-  elements.authGateFeedback.textContent =
-    state.auth.feedback || getAuthGateHint();
+  elements.authGate.hidden = true;
+  elements.authGateFeedback.textContent = "";
 }
 
 function renderCalendar() {
@@ -2571,7 +2561,7 @@ async function signOutAuth() {
 }
 
 function openAuthGate() {
-  window.location.href = "./login.html";
+  redirectToLoginPage();
 }
 
 async function bootstrapRemoteData() {
@@ -4082,9 +4072,6 @@ function bindEvents() {
   elements.renameTaskInput.addEventListener("input", handleRenameTaskInput);
   if (elements.taskTimelineModal) {
     elements.taskTimelineModal.addEventListener("click", handleModalClick);
-  }
-  if (elements.authGateForm) {
-    elements.authGateForm.addEventListener("submit", handleAuthSubmit);
   }
   window.addEventListener("beforeunload", handleBeforeUnload);
 }
