@@ -167,6 +167,10 @@ let remoteBootstrapPromise = null;
 let taskListSortable = null;
 let undoActionTimer = null;
 
+function setAppVisibility(isVisible) {
+  elements.body.style.visibility = isVisible ? "" : "hidden";
+}
+
 function createEmptyTaskState(taskTypes) {
   return taskTypes.reduce((accumulator, task) => {
     accumulator[task.id] = { completed: false, notes: [] };
@@ -201,9 +205,15 @@ function createInitialData() {
   };
 }
 
-function loadData() {
+function getScopedStorageKey(scopeKey = "public") {
+  return `${STORAGE_KEY}:${scopeKey || "public"}`;
+}
+
+function loadData(scopeKey = "public") {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const scopedRaw = localStorage.getItem(getScopedStorageKey(scopeKey));
+    const legacyRaw = scopeKey === "public" ? localStorage.getItem(STORAGE_KEY) : "";
+    const raw = scopedRaw || legacyRaw;
     if (!raw) {
       return createInitialData();
     }
@@ -237,6 +247,10 @@ function loadData() {
     console.warn("Failed to load dashboard data, resetting state.", error);
     return createInitialData();
   }
+}
+
+function persistScopedData(scopeKey, data) {
+  localStorage.setItem(getScopedStorageKey(scopeKey), JSON.stringify(data));
 }
 
 function migrateWeeklySummaries(weeklySummaries) {
@@ -572,12 +586,12 @@ function permanentlyRemoveTaskFromLocalState(taskId) {
 }
 
 function saveData(message) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.data));
+  persistScopedData(getCurrentScopeKey(), state.data);
   setSaveStatus(message || `已自动保存 ${formatTime(new Date())}`);
 }
 
 function persistStateSilently() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.data));
+  persistScopedData(getCurrentScopeKey(), state.data);
 }
 
 function saveApiBase(baseUrl) {
@@ -796,6 +810,25 @@ function saveAuthConfig(config) {
 
 function getCurrentScopeKey() {
   return state.auth.user?.id || "public";
+}
+
+function resetScopedUiState() {
+  state.noteDrafts = {};
+  state.taskNameDrafts = {};
+  state.recentlyRestoredTaskIds = {};
+  state.weeklySummaryDrafts = {};
+  state.weeklySummaryMode = {};
+  state.deleteDialogTaskId = null;
+  state.archiveDialogTaskId = null;
+  state.renameDialogTaskId = null;
+  state.weeklySummarySaveDialogOpen = false;
+  state.taskTimelineTaskId = null;
+  state.remote.weeklyReview = null;
+}
+
+function switchDataScope(scopeKey) {
+  state.data = loadData(scopeKey);
+  resetScopedUiState();
 }
 
 function redirectToLoginPage() {
@@ -2472,6 +2505,9 @@ async function initAuthClient() {
     const payload = await fetchApiJson("/api/auth/me", { requireAuth: false });
     state.auth.user = payload.user || null;
     saveSessionId(payload?.session?.id || loadSessionId());
+    if (state.auth.user?.id) {
+      switchDataScope(state.auth.user.id);
+    }
     state.auth.status = state.auth.user ? "ready" : "idle";
     state.auth.feedback = state.auth.user
       ? `已登录 ${state.auth.user.username}`
@@ -2486,6 +2522,7 @@ async function initAuthClient() {
     renderControls();
     renderAuthGate();
     await bootstrapRemoteData();
+    setAppVisibility(true);
     return state.auth.user;
   } catch (error) {
     state.auth.user = null;
@@ -2524,6 +2561,9 @@ async function authenticateWithPassword(formData, mode = "signin") {
     });
     saveSessionId(payload?.session?.id || "");
     state.auth.user = payload.user || null;
+    if (state.auth.user?.id) {
+      switchDataScope(state.auth.user.id);
+    }
     state.auth.status = "ready";
     state.auth.feedback = `已登录 ${state.auth.user?.username || username}`;
     await bootstrapRemoteData();
@@ -2557,6 +2597,7 @@ async function signOutAuth() {
   state.remote.connectedThisSession = false;
   saveApiBase("");
   saveSessionId("");
+  switchDataScope("public");
   window.location.href = "./login.html";
 }
 
@@ -4256,9 +4297,15 @@ function escapeAttribute(value) {
   return escapeHtml(value).replaceAll("\n", "&#10;");
 }
 
+setAppVisibility(false);
 bindEvents();
 ensureRecord(state.selectedDate);
 persistStateSilently();
-render();
-void initAuthClient();
-refreshExternalData();
+void initAuthClient().then((user) => {
+  if (user) {
+    render();
+    refreshExternalData();
+    return;
+  }
+  setAppVisibility(true);
+});

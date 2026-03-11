@@ -49,8 +49,26 @@ function setFeedback(message) {
   authElements.feedback.textContent = message || "";
 }
 
+function buildAuthErrorMessage(error, mode) {
+  const message = String(error?.message || "").trim();
+  if (mode === "signup") {
+    if (message.includes("用户名已存在")) {
+      return "创建账号失败：该用户名已存在。";
+    }
+    if (message.includes("Validation failed")) {
+      return `创建账号失败。${SIGNUP_REQUIREMENTS_TEXT}`;
+    }
+    return message ? `创建账号失败：${message}` : `创建账号失败。${SIGNUP_REQUIREMENTS_TEXT}`;
+  }
+  return message ? `登录失败：${message}` : "登录失败，请检查用户名和密码。";
+}
+
 function redirectToDashboard() {
   window.location.href = "./index.html";
+}
+
+function wait(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 async function detectApiBase() {
@@ -98,7 +116,10 @@ async function fetchApiJson(path, options = {}) {
 
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
-    throw new Error(payload.error || `Request failed: ${response.status}`);
+    const error = new Error(payload.error || `Request failed: ${response.status}`);
+    error.payload = payload;
+    error.status = response.status;
+    throw error;
   }
 
   if (response.status === 204) {
@@ -147,14 +168,12 @@ async function handlePasswordAuth(formData, mode = "signin") {
       saveSessionId(payload?.session?.id || "");
       return payload;
     });
+    setFeedback(mode === "signup" ? "创建成功，正在进入 Dashboard..." : "登录成功，正在进入 Dashboard...");
+    await wait(500);
     redirectToDashboard();
   } catch (error) {
     console.warn("Password auth failed on login page.", error);
-    setFeedback(
-      mode === "signup"
-        ? `创建账号失败。${SIGNUP_REQUIREMENTS_TEXT}`
-        : "登录失败，请检查用户名和密码。",
-    );
+    setFeedback(buildAuthErrorMessage(error, mode));
   }
 }
 
