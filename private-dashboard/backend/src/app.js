@@ -41,7 +41,7 @@ const weeklySummarySchema = z.object({
 });
 
 const credentialsSchema = z.object({
-  username: z.string().min(3).max(32).regex(/^[a-zA-Z0-9_\-.]+$/),
+  username: z.string().min(3).max(64).regex(/^[^\s]+$/),
   password: z.string().min(6).max(128),
 });
 
