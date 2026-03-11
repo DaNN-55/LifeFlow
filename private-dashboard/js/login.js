@@ -7,6 +7,9 @@ const authElements = {
   feedback: document.querySelector("#login-feedback"),
 };
 
+const SIGNUP_REQUIREMENTS_TEXT =
+  "创建账号要求：用户名 3-64 位且不能包含空格；密码 6-128 位。支持邮箱作为用户名。";
+
 function loadAuthConfig() {
   try {
     const raw = localStorage.getItem(AUTH_CONFIG_STORAGE_KEY);
@@ -149,7 +152,7 @@ async function handlePasswordAuth(formData, mode = "signin") {
     console.warn("Password auth failed on login page.", error);
     setFeedback(
       mode === "signup"
-        ? "创建账号失败，请检查用户名是否已存在或密码是否符合要求。"
+        ? `创建账号失败。${SIGNUP_REQUIREMENTS_TEXT}`
         : "登录失败，请检查用户名和密码。",
     );
   }
@@ -162,4 +165,5 @@ function handleLoginSubmit(event) {
 }
 
 authElements.form.addEventListener("submit", handleLoginSubmit);
+setFeedback(SIGNUP_REQUIREMENTS_TEXT);
 void bootstrapExistingSession();

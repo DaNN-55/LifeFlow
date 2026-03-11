@@ -3659,7 +3659,9 @@ function handleCenterTabClick(event) {
 }
 
 function handleThemeClick(event) {
-  const button = event.target.closest("[data-theme]");
+  const button = event.currentTarget?.matches?.("[data-theme]")
+    ? event.currentTarget
+    : event.target.closest("[data-theme]");
   if (!button) {
     return;
   }
@@ -4024,9 +4026,9 @@ function bindEvents() {
   document
     .querySelector(".center-tabs")
     .addEventListener("click", handleCenterTabClick);
-  document
-    .querySelector(".theme-switcher")
-    .addEventListener("click", handleThemeClick);
+  elements.themeOptions.forEach((button) => {
+    button.addEventListener("click", handleThemeClick);
+  });
   elements.authAction.addEventListener("click", handleAuthAction);
   elements.exportDataButton.addEventListener("click", handleExportData);
   elements.calendarGrid.addEventListener("click", handleCalendarClick);
