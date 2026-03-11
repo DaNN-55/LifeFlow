@@ -51,6 +51,13 @@
           <div class="settings-field captcha-field">
             <span class="widget-label">验证码</span>
             <div class="captcha-row">
+              <button
+                type="button"
+                id="captcha-image"
+                class="captcha-image"
+                aria-label="点击刷新验证码"
+                title="点击刷新验证码"
+              ></button>
               <input
                 name="captchaText"
                 type="text"
@@ -59,17 +66,7 @@
                 spellcheck="false"
                 required
               />
-              <button type="button" id="captcha-refresh" class="task-cancel-action">
-                刷新
-              </button>
             </div>
-            <button
-              type="button"
-              id="captcha-image"
-              class="captcha-image"
-              aria-label="点击刷新验证码"
-              title="点击刷新验证码"
-            ></button>
           </div>
           <p id="login-feedback" class="settings-copy"></p>
           <div class="auth-gate-actions">

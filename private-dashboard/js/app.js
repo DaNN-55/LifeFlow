@@ -6,7 +6,9 @@ const DEFAULT_REMOTE_API_BASE = "https://lifeflow-backend-mrs1.onrender.com";
 const AUTH_CONFIG_STORAGE_KEY = "lifeflow-private-dashboard-auth-config";
 const SESSION_STORAGE_KEY = "lifeflow-private-dashboard-session";
 const PENDING_SYNC_STORAGE_KEY = "lifeflow-private-dashboard-pending-sync";
+const WEATHER_CACHE_STORAGE_KEY = "lifeflow-private-dashboard-weather-cache";
 const API_PROBE_TIMEOUT_MS = 1500;
+const LOCAL_SCOPE_KEY = "__local__";
 
 const defaultTasks = [
   { id: "task1", name: "任务1", order: 1, color: "#4f46e5" },
@@ -42,6 +44,7 @@ const placeholderFeeds = {
 const defaultWidgets = {
   weather: {
     title: "Weather",
+    locationQuery: "",
   },
   stock: {
     title: "A股概览",
@@ -56,6 +59,7 @@ const elements = {
   themeOptions: document.querySelectorAll(".theme-option"),
   cloudStatusChip: document.querySelector("#cloud-status-chip"),
   authStatusChip: document.querySelector("#auth-status-chip"),
+  accountMenu: document.querySelector("#account-menu"),
   authAction: document.querySelector("#auth-action"),
   todayCompletedCount: document.querySelector("#today-completed-count"),
   weeklyRangePicker: document.querySelector("#weekly-range-picker"),
@@ -103,9 +107,16 @@ const elements = {
   taskTimelineModal: document.querySelector("#task-timeline-modal"),
   taskTimelineTitle: document.querySelector("#task-timeline-title"),
   taskTimelineBody: document.querySelector("#task-timeline-body"),
-  authGate: document.querySelector("#auth-gate"),
-  authGateForm: document.querySelector("#auth-gate-form"),
-  authGateFeedback: document.querySelector("#auth-gate-feedback"),
+  accountProfileModal: document.querySelector("#account-profile-modal"),
+  accountProfileBody: document.querySelector("#account-profile-body"),
+  changePasswordModal: document.querySelector("#change-password-modal"),
+  changePasswordForm: document.querySelector("#change-password-form"),
+  changePasswordFeedback: document.querySelector("#change-password-feedback"),
+  clearAccountDataModal: document.querySelector("#clear-account-data-modal"),
+  clearAccountDataConfirm: document.querySelector("#clear-account-data-confirm"),
+  deleteAccountModal: document.querySelector("#delete-account-modal"),
+  deleteAccountForm: document.querySelector("#delete-account-form"),
+  deleteAccountFeedback: document.querySelector("#delete-account-feedback"),
 };
 
 const state = {
@@ -135,6 +146,16 @@ const state = {
   renameDialogTaskId: null,
   weeklySummarySaveDialogOpen: false,
   taskTimelineTaskId: null,
+  accountMenuOpen: false,
+  accountProfile: null,
+  accountProfileLoading: false,
+  accountProfileModalOpen: false,
+  changePasswordModalOpen: false,
+  clearAccountDataModalOpen: false,
+  deleteAccountModalOpen: false,
+  changePasswordSubmitting: false,
+  clearAccountDataSubmitting: false,
+  deleteAccountSubmitting: false,
   saveStatusTone: "default",
   undoAction: null,
   remote: {
@@ -151,14 +172,7 @@ const state = {
   },
   pendingSync: loadPendingSyncStore(),
   widgetData: {
-    weather: {
-      status: "idle",
-      location: "定位中...",
-      temperature: "--",
-      detail: "",
-      message: "",
-      forecast: [],
-    },
+    weather: loadWeatherCache(),
     stock: { status: "idle", symbols: [], message: "" },
   },
 };
@@ -178,6 +192,47 @@ function createEmptyTaskState(taskTypes) {
   }, {});
 }
 
+function createEmptyWeatherState() {
+  return {
+    status: "idle",
+    location: "位置待获取",
+    temperature: "--",
+    detail: "",
+    message: "",
+    forecast: [],
+    source: "",
+    updatedAt: "",
+    latitude: null,
+    longitude: null,
+  };
+}
+
+function loadWeatherCache() {
+  try {
+    const raw = localStorage.getItem(WEATHER_CACHE_STORAGE_KEY);
+    if (!raw) {
+      return createEmptyWeatherState();
+    }
+    const parsed = JSON.parse(raw);
+    return {
+      ...createEmptyWeatherState(),
+      ...parsed,
+      forecast: Array.isArray(parsed?.forecast) ? parsed.forecast : [],
+    };
+  } catch (error) {
+    return createEmptyWeatherState();
+  }
+}
+
+function saveWeatherCache(weather) {
+  const next = {
+    ...createEmptyWeatherState(),
+    ...weather,
+    forecast: Array.isArray(weather?.forecast) ? weather.forecast : [],
+  };
+  localStorage.setItem(WEATHER_CACHE_STORAGE_KEY, JSON.stringify(next));
+}
+
 function createEmptyDailyRecord(date, taskTypes) {
   const scopedTaskTypes =
     Array.isArray(taskTypes) && taskTypes.length
@@ -192,11 +247,10 @@ function createEmptyDailyRecord(date, taskTypes) {
   };
 }
 
-function createInitialData(scopeKey = "public") {
-  const isPublicScope = !scopeKey || scopeKey === "public";
+function createInitialData() {
   return {
     version: STORAGE_VERSION,
-    taskTypes: isPublicScope ? defaultTasks : [],
+    taskTypes: [],
     dailyRecords: {},
     weeklySummaries: {},
     preferences: {
@@ -206,22 +260,25 @@ function createInitialData(scopeKey = "public") {
   };
 }
 
-function getScopedStorageKey(scopeKey = "public") {
-  return `${STORAGE_KEY}:${scopeKey || "public"}`;
+function getScopedStorageKey(scopeKey = LOCAL_SCOPE_KEY) {
+  return `${STORAGE_KEY}:${scopeKey || LOCAL_SCOPE_KEY}`;
 }
 
-function loadData(scopeKey = "public") {
+function clearScopedStorage(scopeKey = LOCAL_SCOPE_KEY) {
+  localStorage.removeItem(getScopedStorageKey(scopeKey));
+}
+
+function loadData(scopeKey = LOCAL_SCOPE_KEY) {
   try {
     const scopedRaw = localStorage.getItem(getScopedStorageKey(scopeKey));
-    const legacyRaw = scopeKey === "public" ? localStorage.getItem(STORAGE_KEY) : "";
-    const raw = scopedRaw || legacyRaw;
+    const raw = scopedRaw;
     if (!raw) {
-      return createInitialData(scopeKey);
+      return createInitialData();
     }
 
     const parsed = JSON.parse(raw);
     const taskTypes = sanitizeTaskTypes(parsed.taskTypes);
-    const base = createInitialData(scopeKey);
+    const base = createInitialData();
 
     return {
       version: STORAGE_VERSION,
@@ -246,7 +303,7 @@ function loadData(scopeKey = "public") {
     };
   } catch (error) {
     console.warn("Failed to load dashboard data, resetting state.", error);
-    return createInitialData(scopeKey);
+    return createInitialData();
   }
 }
 
@@ -302,7 +359,7 @@ function saveSessionId(sessionId) {
 
 function sanitizeTaskTypes(taskTypes) {
   if (!Array.isArray(taskTypes)) {
-    return defaultTasks;
+    return [];
   }
 
   if (taskTypes.length === 0) {
@@ -810,7 +867,7 @@ function saveAuthConfig(config) {
 }
 
 function getCurrentScopeKey() {
-  return state.auth.user?.id || "public";
+  return state.auth.user?.id || LOCAL_SCOPE_KEY;
 }
 
 function resetScopedUiState() {
@@ -824,6 +881,16 @@ function resetScopedUiState() {
   state.renameDialogTaskId = null;
   state.weeklySummarySaveDialogOpen = false;
   state.taskTimelineTaskId = null;
+  state.accountMenuOpen = false;
+  state.accountProfile = null;
+  state.accountProfileLoading = false;
+  state.accountProfileModalOpen = false;
+  state.changePasswordModalOpen = false;
+  state.clearAccountDataModalOpen = false;
+  state.deleteAccountModalOpen = false;
+  state.changePasswordSubmitting = false;
+  state.clearAccountDataSubmitting = false;
+  state.deleteAccountSubmitting = false;
   state.remote.weeklyReview = null;
 }
 
@@ -852,7 +919,11 @@ function render() {
   renderRenameTaskModal();
   renderWeeklySummarySaveModal();
   renderTaskTimelineModal();
-  renderAuthGate();
+  renderAccountMenu();
+  renderAccountProfileModal();
+  renderChangePasswordModal();
+  renderClearAccountDataModal();
+  renderDeleteAccountModal();
   applyButtonTooltips();
 }
 
@@ -909,6 +980,9 @@ function renderCenterTabs() {
 function renderControls() {
   const record = ensureRecord(state.selectedDate);
   elements.todayCompletedCount.textContent = `${getCompletedCount(record)} / ${getActiveTaskTypes().length}`;
+  document
+    .querySelector(".theme-switcher")
+    ?.setAttribute("data-active-theme", state.data.preferences.theme);
   renderWeeklyRangeOptions();
   renderMonthlyRangeOptions();
   elements.weeklyRangePicker.hidden = state.reviewMode !== "week";
@@ -940,6 +1014,7 @@ function renderControls() {
   });
   renderCloudStatusChip();
   renderAuthStatusChip();
+  renderAccountMenu();
 }
 
 function renderWeeklyFilterOptions() {
@@ -1089,18 +1164,13 @@ function renderCloudStatusChip() {
 function renderAuthStatusChip() {
   const chip = elements.authStatusChip;
   chip.className = "status-chip";
+  chip.disabled = !state.auth.user;
+  chip.setAttribute("aria-expanded", state.accountMenuOpen ? "true" : "false");
 
   if (state.auth.status === "ready" && state.auth.user?.username) {
-    chip.classList.add("is-cloud");
+    chip.classList.add("is-cloud", "account-chip");
     chip.textContent = state.auth.user.username;
     elements.authAction.textContent = "退出登录";
-    return;
-  }
-
-  if (state.auth.status === "sending-link") {
-    chip.classList.add("is-syncing");
-    chip.textContent = "发送中";
-    elements.authAction.textContent = "云端登录";
     return;
   }
 
@@ -1118,18 +1188,119 @@ function renderAuthStatusChip() {
     return;
   }
 
+  chip.classList.add("account-chip");
   chip.textContent = "未登录";
   elements.authAction.textContent = "云端登录";
 }
 
-function renderAuthGate() {
-  if (!elements.authGate || !elements.authGateFeedback) {
+function renderAccountMenu() {
+  if (!elements.accountMenu) {
     return;
   }
-  elements.authGate.hidden = true;
-  elements.authGateFeedback.textContent = "";
+  const shouldShow = Boolean(state.auth.user && state.accountMenuOpen);
+  elements.accountMenu.hidden = !shouldShow;
 }
 
+function renderAccountProfileModal() {
+  const modal = elements.accountProfileModal;
+  if (!modal) {
+    return;
+  }
+  if (!state.accountProfileModalOpen) {
+    modal.hidden = true;
+    return;
+  }
+  modal.hidden = false;
+  if (state.accountProfileLoading) {
+    elements.accountProfileBody.innerHTML =
+      '<div class="delete-task-dialog-copy">正在加载账号资料...</div>';
+    return;
+  }
+  const profile = state.accountProfile;
+  if (!profile?.user) {
+    elements.accountProfileBody.innerHTML =
+      '<div class="delete-task-dialog-copy">暂时无法读取当前账号资料。</div>';
+    return;
+  }
+  const createdAt = profile.user.createdAt
+    ? formatDateTime(profile.user.createdAt)
+    : "--";
+  elements.accountProfileBody.innerHTML = `
+    <div class="account-profile-grid">
+      <div class="account-profile-item">
+        <span class="account-profile-label">用户名</span>
+        <strong>${escapeHtml(profile.user.username || "--")}</strong>
+      </div>
+      <div class="account-profile-item">
+        <span class="account-profile-label">账号 ID</span>
+        <strong class="mono">${escapeHtml(profile.user.id || "--")}</strong>
+      </div>
+      <div class="account-profile-item">
+        <span class="account-profile-label">创建时间</span>
+        <strong>${escapeHtml(createdAt)}</strong>
+      </div>
+    </div>
+    <div class="account-profile-stats">
+      <div class="account-profile-stat">
+        <span>任务数</span>
+        <strong>${Number(profile.counts?.tasks || 0)}</strong>
+      </div>
+      <div class="account-profile-stat">
+        <span>每日记录</span>
+        <strong>${Number(profile.counts?.dailyRecords || 0)}</strong>
+      </div>
+      <div class="account-profile-stat">
+        <span>周总结</span>
+        <strong>${Number(profile.counts?.weeklySummaries || 0)}</strong>
+      </div>
+    </div>
+  `;
+}
+
+function renderChangePasswordModal() {
+  const modal = elements.changePasswordModal;
+  if (!modal) {
+    return;
+  }
+  modal.hidden = !state.changePasswordModalOpen;
+  if (!modal.hidden) {
+    elements.changePasswordFeedback.textContent = state.auth.feedback || "修改后请使用新密码登录。";
+    const submit = document.querySelector("#change-password-submit");
+    if (submit) {
+      submit.disabled = state.changePasswordSubmitting;
+      submit.textContent = state.changePasswordSubmitting ? "保存中..." : "保存密码";
+    }
+  }
+}
+
+function renderClearAccountDataModal() {
+  const modal = elements.clearAccountDataModal;
+  if (!modal) {
+    return;
+  }
+  modal.hidden = !state.clearAccountDataModalOpen;
+  elements.clearAccountDataConfirm.disabled = state.clearAccountDataSubmitting;
+  elements.clearAccountDataConfirm.textContent = state.clearAccountDataSubmitting
+    ? "清空中..."
+    : "确认清空";
+}
+
+function renderDeleteAccountModal() {
+  const modal = elements.deleteAccountModal;
+  if (!modal) {
+    return;
+  }
+  modal.hidden = !state.deleteAccountModalOpen;
+  if (!modal.hidden) {
+    elements.deleteAccountFeedback.textContent =
+      state.auth.feedback || "删除账号前，请先输入当前密码确认。";
+    const submit = document.querySelector("#delete-account-submit");
+    if (submit) {
+      submit.disabled = state.deleteAccountSubmitting;
+      submit.textContent = state.deleteAccountSubmitting ? "删除中..." : "删除账号";
+    }
+  }
+}
 function renderCalendar() {
   const date = parseLocalDate(state.selectedDate);
   const month = date.getMonth();
@@ -1218,7 +1389,7 @@ function renderTaskList() {
               `,
             )
             .join("")
-        : '<div class="task-note-item"><span class="note-time">EMPTY</span><p>暂无备注</p></div>';
+        : "";
 
       return `
         <article
@@ -1309,8 +1480,7 @@ function renderTaskList() {
               提交备注
             </button>
           </div>
-
-          <div class="task-note-list">${notesHtml}</div>
+          ${notesHtml ? `<div class="task-note-list">${notesHtml}</div>` : ""}
         </article>
       `;
     })
@@ -1604,7 +1774,15 @@ function renderWeatherWidget() {
         <h3 class="widget-title">${escapeHtml(weather.location || "位置待获取")}</h3>
         <p class="widget-location">近 7 日气温变化</p>
       </div>
-      <span class="material-symbols-outlined">my_location</span>
+      <button
+        type="button"
+        class="widget-refresh-button"
+        data-weather-refresh
+        title="刷新天气"
+        aria-label="刷新天气"
+      >
+        <span class="material-symbols-outlined">refresh</span>
+      </button>
     </div>
     ${chart}
     <div class="widget-reading-line">
@@ -1804,20 +1982,26 @@ function renderTaskTimelineModal() {
               .map(
                 (entry) => `
                   <article class="task-timeline-item">
-                    <div class="task-timeline-meta">
-                      <strong>${escapeHtml(entry.dateLabel)}</strong>
-                      <span>${entry.completed ? "已完成" : "未完成"}</span>
+                    <div class="task-timeline-rail" aria-hidden="true">
+                      <span class="task-timeline-dot ${entry.completed ? "is-complete" : ""}"></span>
+                      <span class="task-timeline-line"></span>
                     </div>
-                    <div class="task-timeline-notes">
-                      ${
-                        entry.notes.length
-                          ? entry.notes
-                              .map(
-                                (note) => `<div>${escapeHtml(note.text)}</div>`,
-                              )
-                              .join("")
-                          : "<div>无备注</div>"
-                      }
+                    <div class="task-timeline-content">
+                      <div class="task-timeline-meta">
+                        <strong>${escapeHtml(entry.dateLabel)}</strong>
+                        <span class="task-timeline-status">${entry.completed ? "已完成" : "未完成"}</span>
+                      </div>
+                      <div class="task-timeline-notes">
+                        ${
+                          entry.notes.length
+                            ? entry.notes
+                                .map(
+                                  (note) => `<div class="task-timeline-note-item">${escapeHtml(note.text)}</div>`,
+                                )
+                                .join("")
+                            : '<div class="task-timeline-note-item is-empty">无备注</div>'
+                        }
+                      </div>
                     </div>
                   </article>
                 `,
@@ -1827,6 +2011,103 @@ function renderTaskTimelineModal() {
       }
     </div>
   `;
+}
+
+async function loadAccountProfile() {
+  if (!state.auth.user) {
+    return;
+  }
+  state.accountProfileLoading = true;
+  renderAccountProfileModal();
+  try {
+    const payload = await fetchApiJson("/api/account/profile");
+    state.accountProfile = {
+      user: payload.user || null,
+      counts: payload.counts || {},
+    };
+  } catch (error) {
+    console.warn("Failed to load account profile.", error);
+    state.accountProfile = null;
+  } finally {
+    state.accountProfileLoading = false;
+    renderAccountProfileModal();
+  }
+}
+
+function openAccountMenu() {
+  if (!state.auth.user) {
+    return;
+  }
+  state.accountMenuOpen = true;
+  renderControls();
+}
+
+function closeAccountMenu() {
+  state.accountMenuOpen = false;
+  renderControls();
+}
+
+function toggleAccountMenu() {
+  if (!state.auth.user) {
+    return;
+  }
+  state.accountMenuOpen = !state.accountMenuOpen;
+  renderControls();
+}
+
+function openAccountProfileModal() {
+  closeAccountMenu();
+  state.accountProfileModalOpen = true;
+  state.accountProfile = null;
+  renderAccountProfileModal();
+  void loadAccountProfile();
+}
+
+function closeAccountProfileModal() {
+  state.accountProfileModalOpen = false;
+  renderAccountProfileModal();
+}
+
+function openChangePasswordModal() {
+  closeAccountMenu();
+  state.changePasswordModalOpen = true;
+  state.auth.feedback = "";
+  elements.changePasswordForm?.reset();
+  renderChangePasswordModal();
+}
+
+function closeChangePasswordModal() {
+  state.changePasswordModalOpen = false;
+  state.changePasswordSubmitting = false;
+  state.auth.feedback = "";
+  renderChangePasswordModal();
+}
+
+function openClearAccountDataModal() {
+  closeAccountMenu();
+  state.clearAccountDataModalOpen = true;
+  renderClearAccountDataModal();
+}
+
+function closeClearAccountDataModal() {
+  state.clearAccountDataModalOpen = false;
+  state.clearAccountDataSubmitting = false;
+  renderClearAccountDataModal();
+}
+
+function openDeleteAccountModal() {
+  closeAccountMenu();
+  state.deleteAccountModalOpen = true;
+  state.auth.feedback = "";
+  elements.deleteAccountForm?.reset();
+  renderDeleteAccountModal();
+}
+
+function closeDeleteAccountModal() {
+  state.deleteAccountModalOpen = false;
+  state.deleteAccountSubmitting = false;
+  state.auth.feedback = "";
+  renderDeleteAccountModal();
 }
 
 function getTaskTimelineEntries(taskId) {
@@ -1850,16 +2131,17 @@ function getTaskTimelineEntries(taskId) {
     .sort((a, b) => b.dateKey.localeCompare(a.dateKey));
 }
 
-function getAuthGateHint() {
-  return "使用用户名和密码登录。首次使用可先创建账号。";
-}
-
 function renderSettingsForm(widget) {
   if (widget === "weather") {
+    const config = state.data.preferences.widgets.weather;
     return `
-      <p class="settings-copy">天气卡片会在每次打开页面时自动请求浏览器定位，并拉取当地 7 日天气预报。</p>
+      <p class="settings-copy">可填写城市/地区名称来固定天气位置；留空时继续使用自动定位。</p>
+      <label class="settings-field">
+        <span class="widget-label">位置</span>
+        <input name="locationQuery" type="text" placeholder="例如：上海、杭州西湖、Shenzhen" value="${escapeAttribute(config.locationQuery || "")}" />
+      </label>
       <div class="settings-actions">
-        <button type="submit" class="settings-save" data-save-widget="weather">保存设置</button>
+        <button type="submit" class="settings-save">保存设置</button>
       </div>
     `;
   }
@@ -1872,7 +2154,7 @@ function renderSettingsForm(widget) {
       <textarea name="symbols" placeholder="贵州茅台, 宁德时代, 000001">${escapeHtml(config.symbols)}</textarea>
     </label>
     <div class="settings-actions">
-      <button type="submit" class="settings-save" data-save-widget="stock">保存设置</button>
+      <button type="submit" class="settings-save">保存设置</button>
     </div>
   `;
 }
@@ -2475,11 +2757,13 @@ function saveSettings(formData) {
   if (state.modal.widget === "weather") {
     state.data.preferences.widgets.weather = {
       title: "Weather",
+      locationQuery: String(formData.get("locationQuery") || "").trim(),
     };
     saveData("已保存 Weather 设置");
     closeModal();
-    refreshWeather();
-    renderWidgets();
+    void refreshWeather().finally(() => {
+      renderWidgets();
+    });
     return;
   }
 
@@ -2500,7 +2784,6 @@ function saveSettings(formData) {
 async function initAuthClient() {
   state.auth.status = "authenticating";
   renderControls();
-  renderAuthGate();
 
   try {
     const payload = await fetchApiJson("/api/auth/me", { requireAuth: false });
@@ -2521,7 +2804,6 @@ async function initAuthClient() {
     }
 
     renderControls();
-    renderAuthGate();
     await bootstrapRemoteData();
     setAppVisibility(true);
     return state.auth.user;
@@ -2531,53 +2813,8 @@ async function initAuthClient() {
     state.auth.feedback = "请先登录你的账号。";
     saveSessionId("");
     renderControls();
-    renderAuthGate();
     redirectToLoginPage();
     return null;
-  }
-}
-
-async function authenticateWithPassword(formData, mode = "signin") {
-  const username = String(formData.get("username") || "").trim();
-  const password = String(formData.get("password") || "");
-  if (!username || !password) {
-    state.auth.feedback = "请先填写用户名和密码。";
-    renderAuthGate();
-    return;
-  }
-
-  saveAuthConfig({ username });
-  state.auth.feedback = "";
-  state.auth.user = null;
-  state.auth.status = mode === "signup" ? "creating-account" : "authenticating";
-  renderControls();
-  renderAuthGate();
-
-  try {
-    const payload = await fetchApiJson(`/api/auth/${mode === "signup" ? "signup" : "signin"}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
-      requireAuth: false,
-    });
-    saveSessionId(payload?.session?.id || "");
-    state.auth.user = payload.user || null;
-    if (state.auth.user?.id) {
-      switchDataScope(state.auth.user.id);
-    }
-    state.auth.status = "ready";
-    state.auth.feedback = `已登录 ${state.auth.user?.username || username}`;
-    await bootstrapRemoteData();
-    render();
-  } catch (error) {
-    console.warn("Password auth failed.", error);
-    state.auth.status = "error";
-    state.auth.feedback =
-      mode === "signup"
-        ? "创建账号失败，请检查用户名是否已存在或密码是否符合要求。"
-        : "登录失败，请检查用户名和密码。";
-    renderControls();
-    renderAuthGate();
   }
 }
 
@@ -2598,12 +2835,121 @@ async function signOutAuth() {
   state.remote.connectedThisSession = false;
   saveApiBase("");
   saveSessionId("");
-  switchDataScope("public");
+  switchDataScope(LOCAL_SCOPE_KEY);
   window.location.href = "./login.html";
 }
 
-function openAuthGate() {
-  redirectToLoginPage();
+function resetCurrentAccountLocalState(scopeKey = getCurrentScopeKey()) {
+  const preservedPreferences = structuredClone(state.data.preferences);
+  clearScopedStorage(scopeKey);
+  delete state.pendingSync[scopeKey];
+  persistPendingSyncStore();
+  if (state.remote.apiBase) {
+    localStorage.removeItem(`${API_SEED_PREFIX}${state.remote.apiBase}:${scopeKey}`);
+  }
+  state.data = createInitialData(scopeKey);
+  state.data.preferences = preservedPreferences;
+  persistScopedData(scopeKey, state.data);
+  resetScopedUiState();
+}
+
+async function handleChangePasswordSubmit(event) {
+  if (event.target !== elements.changePasswordForm) {
+    return;
+  }
+  event.preventDefault();
+  const formData = new FormData(elements.changePasswordForm);
+  const currentPassword = String(formData.get("currentPassword") || "");
+  const newPassword = String(formData.get("newPassword") || "");
+  const confirmPassword = String(formData.get("confirmPassword") || "");
+  if (!currentPassword || !newPassword || !confirmPassword) {
+    state.auth.feedback = "请完整填写密码信息。";
+    renderChangePasswordModal();
+    return;
+  }
+  if (newPassword !== confirmPassword) {
+    state.auth.feedback = "两次输入的新密码不一致。";
+    renderChangePasswordModal();
+    return;
+  }
+  state.changePasswordSubmitting = true;
+  state.auth.feedback = "正在更新密码...";
+  renderChangePasswordModal();
+  try {
+    await fetchApiJson("/api/account/password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+    setSaveStatus("密码已更新", "success");
+    closeChangePasswordModal();
+  } catch (error) {
+    console.warn("Failed to change password.", error);
+    state.auth.feedback = error?.message || "修改密码失败";
+    state.changePasswordSubmitting = false;
+    renderChangePasswordModal();
+  }
+}
+
+async function clearAccountData() {
+  if (!state.auth.user || state.clearAccountDataSubmitting) {
+    return;
+  }
+  state.clearAccountDataSubmitting = true;
+  renderClearAccountDataModal();
+  try {
+    await fetchApiJson("/api/account/clear-data", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    resetCurrentAccountLocalState(state.auth.user.id);
+    closeClearAccountDataModal();
+    render();
+    setSaveStatus("当前账号数据已清空", "success");
+  } catch (error) {
+    console.warn("Failed to clear account data.", error);
+    state.clearAccountDataSubmitting = false;
+    setSaveStatus(error?.message || "清空账号数据失败");
+    renderClearAccountDataModal();
+  }
+}
+
+async function handleDeleteAccountSubmit(event) {
+  if (event.target !== elements.deleteAccountForm) {
+    return;
+  }
+  event.preventDefault();
+  if (!state.auth.user || state.deleteAccountSubmitting) {
+    return;
+  }
+  const formData = new FormData(elements.deleteAccountForm);
+  const password = String(formData.get("password") || "");
+  if (!password) {
+    state.auth.feedback = "请输入当前密码。";
+    renderDeleteAccountModal();
+    return;
+  }
+  state.deleteAccountSubmitting = true;
+  state.auth.feedback = "正在删除账号...";
+  renderDeleteAccountModal();
+  try {
+    await fetchApiJson("/api/account/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    });
+    const scopeKey = state.auth.user.id;
+    resetCurrentAccountLocalState(scopeKey);
+    saveSessionId("");
+    saveAuthConfig({ username: "" });
+    window.location.href = "./login.html";
+  } catch (error) {
+    console.warn("Failed to delete account.", error);
+    state.auth.feedback = error?.message || "删除账号失败";
+    state.deleteAccountSubmitting = false;
+    renderDeleteAccountModal();
+  }
 }
 
 async function bootstrapRemoteData() {
@@ -3237,69 +3583,67 @@ async function refreshExternalData() {
 }
 
 async function refreshWeather() {
+  const cachedWeather = loadWeatherCache();
   state.widgetData.weather = {
+    ...cachedWeather,
     status: "loading",
-    location: "定位中...",
-    temperature: "--",
-    detail: "正在获取天气信息",
-    message: "",
-    forecast: [],
+    location: cachedWeather.location || "定位中...",
+    temperature: cachedWeather.temperature || "--",
+    detail: cachedWeather.forecast.length ? "正在刷新天气信息" : "正在获取天气信息",
+    message: cachedWeather.forecast.length
+      ? "当前展示最近一次成功结果"
+      : "",
   };
   renderWidgets();
 
   try {
-    const target = await getPreferredWeatherLocation();
+    const manualLocation = String(
+      state.data.preferences.widgets.weather?.locationQuery || "",
+    ).trim();
+    const browserLocation = manualLocation ? null : await getAutoLocation().catch(() => null);
+    const query = manualLocation
+      ? `?query=${encodeURIComponent(manualLocation)}`
+      : browserLocation
+        ? `?latitude=${encodeURIComponent(browserLocation.latitude)}&longitude=${encodeURIComponent(browserLocation.longitude)}`
+        : "";
+    const payload = await fetchApiJson(`/api/widgets/weather${query}`, {
+      requireAuth: false,
+    });
+    const forecast = Array.isArray(payload?.weather?.forecast)
+      ? payload.weather.forecast.map((item) => ({
+          max: item.max,
+          min: item.min,
+          date: item.date,
+          dayLabel: formatWeekday(item.date),
+          axisLabel: formatWeekdayShortEn(item.date),
+          dateLabel: formatMonthDayLabel(item.date),
+        }))
+      : [];
 
-    const [weatherData, locationData] = await Promise.all([
-      fetchJson(
-        `https://api.open-meteo.com/v1/forecast?latitude=${target.latitude}&longitude=${target.longitude}&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min&forecast_days=7&timezone=auto`,
-      ),
-      fetchJson(
-        `https://nominatim.openstreetmap.org/reverse?lat=${target.latitude}&lon=${target.longitude}&format=jsonv2&accept-language=zh-CN`,
-      ).catch(() => ({})),
-    ]);
-
-    const current = weatherData.current;
-    const address = locationData.address || {};
-    const city =
-      address.city ||
-      address.town ||
-      address.state_district ||
-      address.state ||
-      "";
-    const district =
-      address.city_district ||
-      address.suburb ||
-      address.borough ||
-      address.quarter ||
-      address.county ||
-      "";
-    const forecast = (weatherData.daily?.temperature_2m_max || []).map(
-      (max, index) => ({
-        max,
-        min: weatherData.daily.temperature_2m_min[index],
-        date: weatherData.daily.time[index],
-        dayLabel: formatWeekday(weatherData.daily.time[index]),
-        axisLabel: formatWeekdayShortEn(weatherData.daily.time[index]),
-        dateLabel: formatMonthDayLabel(weatherData.daily.time[index]),
-      }),
-    );
     state.widgetData.weather = {
+      ...createEmptyWeatherState(),
+      ...payload.weather,
       status: "ready",
-      location: formatLocationLabel(city, district),
-      temperature: `${Math.round(current.temperature_2m)}°C`,
-      detail: weatherCodeToText(current.weather_code),
-      message: target.source === "browser" ? "浏览器定位" : "IP 定位",
       forecast,
     };
+    saveWeatherCache(state.widgetData.weather);
   } catch (error) {
+    if (cachedWeather.forecast.length) {
+      state.widgetData.weather = {
+        ...cachedWeather,
+        status: "stale",
+        detail: cachedWeather.detail || "已展示最近一次天气结果",
+        message: "定位暂时不可用，当前展示最近一次成功结果",
+      };
+      return;
+    }
     state.widgetData.weather = {
+      ...createEmptyWeatherState(),
       status: "error",
       location: "位置不可用",
       temperature: "--",
       detail: "未能获取天气数据",
-      message: "定位与天气接口均失败",
-      forecast: [],
+      message: "定位与天气接口均失败，请点击刷新重试",
     };
   }
 }
@@ -3374,7 +3718,7 @@ async function fetchJson(url, options = {}) {
     : 0;
   const response = await fetch(url, {
     ...options,
-    credentials: "include",
+    credentials: options.credentials || "include",
     signal: options.signal || controller.signal,
   }).finally(() => {
     if (timeoutId) {
@@ -3407,45 +3751,6 @@ function getAutoLocation() {
       { enableHighAccuracy: true, timeout: 8000, maximumAge: 300000 },
     );
   });
-}
-
-async function getPreferredWeatherLocation() {
-  try {
-    const browserLocation = await getAutoLocation();
-    return { ...browserLocation, source: "browser" };
-  } catch (error) {
-    const ipLocation = await fetchJson("https://ipapi.co/json/");
-    if (
-      !Number.isFinite(ipLocation.latitude) ||
-      !Number.isFinite(ipLocation.longitude)
-    ) {
-      throw error;
-    }
-    return {
-      latitude: Number(ipLocation.latitude),
-      longitude: Number(ipLocation.longitude),
-      source: "ip",
-    };
-  }
-}
-
-function weatherCodeToText(code) {
-  const map = {
-    0: "晴朗",
-    1: "大致晴",
-    2: "局部多云",
-    3: "阴天",
-    45: "有雾",
-    48: "冻雾",
-    51: "小毛雨",
-    61: "小雨",
-    63: "中雨",
-    65: "大雨",
-    71: "小雪",
-    80: "阵雨",
-    95: "雷暴",
-  };
-  return map[code] || `天气代码 ${code}`;
 }
 
 function normalizeSymbols(value) {
@@ -3584,14 +3889,6 @@ async function loadScriptVariable(src, variableName) {
     window[variableName] = undefined;
   }
   return value;
-}
-
-function formatLocationLabel(city, district) {
-  const cityLabel = city || "当前城市";
-  if (!district || district === cityLabel) {
-    return cityLabel;
-  }
-  return `${cityLabel}, ${district}`;
 }
 
 function buildWeatherPolyline(forecast) {
@@ -3906,11 +4203,47 @@ function handleShowMoreClick(event) {
 }
 
 function handleWidgetClick(event) {
+  const weatherRefreshButton = event.target.closest("[data-weather-refresh]");
+  if (weatherRefreshButton) {
+    void refreshWeather().finally(() => {
+      renderWidgets();
+    });
+    return;
+  }
   const button = event.target.closest("[data-widget-toggle]");
   if (!button) {
     return;
   }
   openWidgetSettings(button.dataset.widgetToggle);
+}
+
+function handleAccountChipClick() {
+  if (!state.auth.user) {
+    return;
+  }
+  toggleAccountMenu();
+}
+
+function handleAccountMenuClick(event) {
+  const action = event.target.closest("[data-account-action]")?.dataset.accountAction;
+  if (!action) {
+    return;
+  }
+  if (action === "profile") {
+    openAccountProfileModal();
+    return;
+  }
+  if (action === "password") {
+    openChangePasswordModal();
+    return;
+  }
+  if (action === "clear-data") {
+    openClearAccountDataModal();
+    return;
+  }
+  if (action === "delete-account") {
+    openDeleteAccountModal();
+  }
 }
 
 function handleModalClick(event) {
@@ -3931,6 +4264,18 @@ function handleModalClick(event) {
   }
   if (event.target.closest("[data-task-timeline-modal-close]")) {
     closeTaskTimelineModal();
+  }
+  if (event.target.closest("[data-account-profile-modal-close]")) {
+    closeAccountProfileModal();
+  }
+  if (event.target.closest("[data-change-password-modal-close]")) {
+    closeChangePasswordModal();
+  }
+  if (event.target.closest("[data-clear-account-data-modal-close]")) {
+    closeClearAccountDataModal();
+  }
+  if (event.target.closest("[data-delete-account-modal-close]")) {
+    closeDeleteAccountModal();
   }
 }
 
@@ -4030,21 +4375,21 @@ function handleRenameTaskInput(event) {
 }
 
 function handleAuthAction() {
+  closeAccountMenu();
   if (state.auth.user) {
     void signOutAuth();
     return;
   }
-  openAuthGate();
+  redirectToLoginPage();
 }
 
-function handleAuthSubmit(event) {
-  if (!elements.authGateForm || event.target !== elements.authGateForm) {
-    return;
+function handleGlobalClick(event) {
+  if (
+    state.accountMenuOpen &&
+    !event.target.closest(".account-menu-wrap")
+  ) {
+    closeAccountMenu();
   }
-  event.preventDefault();
-  const submitter = event.submitter;
-  const action = submitter?.dataset.authAction || "signin";
-  void authenticateWithPassword(new FormData(elements.authGateForm), action);
 }
 
 function hasUnsavedWeeklySummaryChanges() {
@@ -4071,6 +4416,8 @@ function bindEvents() {
   elements.themeOptions.forEach((button) => {
     button.addEventListener("click", handleThemeClick);
   });
+  elements.authStatusChip.addEventListener("click", handleAccountChipClick);
+  elements.accountMenu?.addEventListener("click", handleAccountMenuClick);
   elements.authAction.addEventListener("click", handleAuthAction);
   elements.exportDataButton.addEventListener("click", handleExportData);
   elements.calendarGrid.addEventListener("click", handleCalendarClick);
@@ -4117,6 +4464,16 @@ function bindEvents() {
   if (elements.taskTimelineModal) {
     elements.taskTimelineModal.addEventListener("click", handleModalClick);
   }
+  elements.accountProfileModal?.addEventListener("click", handleModalClick);
+  elements.changePasswordModal?.addEventListener("click", handleModalClick);
+  elements.changePasswordForm?.addEventListener("submit", handleChangePasswordSubmit);
+  elements.clearAccountDataModal?.addEventListener("click", handleModalClick);
+  elements.clearAccountDataConfirm?.addEventListener("click", () => {
+    void clearAccountData();
+  });
+  elements.deleteAccountModal?.addEventListener("click", handleModalClick);
+  elements.deleteAccountForm?.addEventListener("submit", handleDeleteAccountSubmit);
+  document.addEventListener("click", handleGlobalClick);
   window.addEventListener("beforeunload", handleBeforeUnload);
 }
 

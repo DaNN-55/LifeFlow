@@ -9,6 +9,7 @@ const SESSION_COOKIE_NAME = "lifeflow_session";
 const SESSION_HEADER_NAME = "x-session-id";
 const SESSION_TTL_DAYS = 30;
 const CAPTCHA_TTL_MS = 5 * 60 * 1000;
+const WEATHER_REQUEST_TIMEOUT_MS = 6000;
 
 const taskSchema = z.object({
   id: z.string().min(1).max(64).optional(),
@@ -53,6 +54,21 @@ const authRequestSchema = credentialsSchema.extend({
   captchaText: z.string().min(4).max(16),
 });
 
+const passwordChangeSchema = z.object({
+  currentPassword: z.string().min(6).max(128),
+  newPassword: z.string().min(6).max(128),
+});
+
+const deleteAccountSchema = z.object({
+  password: z.string().min(6).max(128),
+});
+
+const weatherQuerySchema = z.object({
+  latitude: z.coerce.number().min(-90).max(90).optional(),
+  longitude: z.coerce.number().min(-180).max(180).optional(),
+  query: z.string().min(1).max(120).optional(),
+});
+
 function createApp({ config, store }) {
   const app = express();
   const captchaStore = new Map();
@@ -84,7 +100,7 @@ function createApp({ config, store }) {
       ok: true,
       storage: config.useSupabase ? "supabase" : "memory",
       schemaMode: store.schemaMode || "memory",
-      userId: request.userContext?.userId || "public",
+      userId: request.userContext?.userId || "",
       authenticated: Boolean(request.userContext?.isAuthenticated),
       now: new Date().toISOString(),
     });
@@ -114,6 +130,49 @@ function createApp({ config, store }) {
         expiresInMs: CAPTCHA_TTL_MS,
       },
     });
+  });
+
+  app.get("/api/widgets/weather", async (request, response, next) => {
+    try {
+      const query = weatherQuerySchema.parse(request.query || {});
+      const location = await resolveWeatherLocation(request, query);
+      const weatherData = await fetchJsonWithTimeout(
+        `https://api.open-meteo.com/v1/forecast?latitude=${location.latitude}&longitude=${location.longitude}&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min&forecast_days=7&timezone=auto`,
+        WEATHER_REQUEST_TIMEOUT_MS
+      );
+
+      const current = weatherData.current || {};
+      const dailyTimes = weatherData.daily?.time || [];
+      const dailyMax = weatherData.daily?.temperature_2m_max || [];
+      const dailyMin = weatherData.daily?.temperature_2m_min || [];
+
+      response.json({
+        weather: {
+          location: formatLocationLabel(location.city, location.district),
+          temperature: Number.isFinite(current.temperature_2m)
+            ? `${Math.round(current.temperature_2m)}°C`
+            : "--",
+          detail: weatherCodeToText(current.weather_code),
+          message:
+            location.source === "browser"
+              ? "浏览器定位"
+              : location.source === "header-ip"
+                ? "网络定位"
+                : "默认位置",
+          forecast: dailyTimes.map((date, index) => ({
+            date,
+            max: dailyMax[index],
+            min: dailyMin[index],
+          })),
+          source: location.source,
+          latitude: location.latitude,
+          longitude: location.longitude,
+          updatedAt: new Date().toISOString(),
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
   });
 
   app.post("/api/auth/signup", async (request, response, next) => {
@@ -209,7 +268,75 @@ function createApp({ config, store }) {
     });
   });
 
-  app.get("/api/tasks", requireAuthenticated(config), async (request, response, next) => {
+  app.get("/api/account/profile", requireAuthenticated, async (request, response, next) => {
+    try {
+      const profile = await store.getAccountProfile(request.userContext.userId);
+      if (!profile?.user) {
+        response.status(404).json({ error: "Account not found" });
+        return;
+      }
+      response.json({
+        user: {
+          id: profile.user.id,
+          username: profile.user.username,
+          createdAt: profile.user.created_at || "",
+        },
+        counts: {
+          tasks: Number(profile.counts?.tasks || 0),
+          dailyRecords: Number(profile.counts?.dailyRecords || 0),
+          weeklySummaries: Number(profile.counts?.weeklySummaries || 0),
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/account/password", requireAuthenticated, async (request, response, next) => {
+    try {
+      const parsed = passwordChangeSchema.parse(request.body);
+      const user = await store.getUserById(request.userContext.userId);
+      if (!user || !(await verifyPassword(parsed.currentPassword, user.password_hash))) {
+        response.status(401).json({ error: "当前密码错误" });
+        return;
+      }
+      if (parsed.currentPassword === parsed.newPassword) {
+        response.status(400).json({ error: "新密码不能与当前密码相同" });
+        return;
+      }
+      await store.updateUserPassword(user.id, await hashPassword(parsed.newPassword));
+      response.json({ ok: true });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/account/clear-data", requireAuthenticated, async (request, response, next) => {
+    try {
+      await store.clearUserData(request.userContext.userId);
+      response.json({ ok: true });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/account/delete", requireAuthenticated, async (request, response, next) => {
+    try {
+      const parsed = deleteAccountSchema.parse(request.body);
+      const user = await store.getUserById(request.userContext.userId);
+      if (!user || !(await verifyPassword(parsed.password, user.password_hash))) {
+        response.status(401).json({ error: "密码错误，无法删除账号" });
+        return;
+      }
+      await store.deleteUserAccount(user.id);
+      clearSessionCookie(request, response);
+      response.json({ ok: true });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/tasks", requireAuthenticated, async (request, response, next) => {
     try {
       const tasks = await store.listTasks(request.userContext);
       response.json({ tasks });
@@ -218,7 +345,7 @@ function createApp({ config, store }) {
     }
   });
 
-  app.post("/api/tasks", requireAuthenticated(config), async (request, response, next) => {
+  app.post("/api/tasks", requireAuthenticated, async (request, response, next) => {
     try {
       const parsed = taskSchema.parse(request.body);
       const existingTasks = await store.listTasks(request.userContext);
@@ -237,7 +364,7 @@ function createApp({ config, store }) {
     }
   });
 
-  app.patch("/api/tasks/:taskId", requireAuthenticated(config), async (request, response, next) => {
+  app.patch("/api/tasks/:taskId", requireAuthenticated, async (request, response, next) => {
     try {
       const parsed = taskSchema.partial().parse(request.body);
       const updated = await store.updateTask(request.userContext, request.params.taskId, {
@@ -259,7 +386,7 @@ function createApp({ config, store }) {
     }
   });
 
-  app.delete("/api/tasks/:taskId", requireAuthenticated(config), async (request, response, next) => {
+  app.delete("/api/tasks/:taskId", requireAuthenticated, async (request, response, next) => {
     try {
       await store.deleteTask(request.userContext, request.params.taskId);
       response.status(204).send();
@@ -268,7 +395,7 @@ function createApp({ config, store }) {
     }
   });
 
-  app.get("/api/daily-records/:date", requireAuthenticated(config), async (request, response, next) => {
+  app.get("/api/daily-records/:date", requireAuthenticated, async (request, response, next) => {
     try {
       const date = normalizeDateParam(request.params.date);
       const record = await store.getDailyRecord(request.userContext, date);
@@ -285,7 +412,7 @@ function createApp({ config, store }) {
     }
   });
 
-  app.put("/api/daily-records/:date", requireAuthenticated(config), async (request, response, next) => {
+  app.put("/api/daily-records/:date", requireAuthenticated, async (request, response, next) => {
     try {
       const date = normalizeDateParam(request.params.date);
       const payload = dailyRecordSchema.parse(request.body);
@@ -296,7 +423,7 @@ function createApp({ config, store }) {
     }
   });
 
-  app.get("/api/weekly-review/:week", requireAuthenticated(config), async (request, response, next) => {
+  app.get("/api/weekly-review/:week", requireAuthenticated, async (request, response, next) => {
     try {
       const week = String(request.params.week);
       const range = getWeekRangeFromWeekValue(week);
@@ -351,7 +478,7 @@ function createApp({ config, store }) {
     }
   });
 
-  app.get("/api/weekly-summaries/:week", requireAuthenticated(config), async (request, response, next) => {
+  app.get("/api/weekly-summaries/:week", requireAuthenticated, async (request, response, next) => {
     try {
       const week = String(request.params.week);
       const summary = await store.getWeeklySummary(request.userContext, week);
@@ -363,7 +490,7 @@ function createApp({ config, store }) {
     }
   });
 
-  app.put("/api/weekly-summaries/:week", requireAuthenticated(config), async (request, response, next) => {
+  app.put("/api/weekly-summaries/:week", requireAuthenticated, async (request, response, next) => {
     try {
       const week = String(request.params.week);
       const payload = weeklySummarySchema.parse(request.body);
@@ -397,26 +524,13 @@ function createApp({ config, store }) {
   return app;
 }
 
-function requireAuthenticated(config) {
-  return (request, response, next) => {
-    if (request.userContext?.isAuthenticated) {
-      next();
-      return;
-    }
-
-    if (!config.writeKey) {
-      response.status(401).json({ error: "Authentication required" });
-      return;
-    }
-
-    const candidate = request.header("x-app-key");
-    if (candidate !== config.writeKey) {
-      response.status(401).json({ error: "Invalid x-app-key" });
-      return;
-    }
-
+function requireAuthenticated(request, response, next) {
+  if (request.userContext?.isAuthenticated) {
     next();
-  };
+    return;
+  }
+
+  response.status(401).json({ error: "Authentication required" });
 }
 
 async function resolveUserContext(request, store) {
@@ -531,6 +645,180 @@ function verifyCaptcha(captchaStore, captchaId, captchaText) {
   }
   captchaStore.delete(String(captchaId || ""));
   return String(captchaText || "").trim().toLowerCase() === record.text;
+}
+
+async function resolveWeatherLocation(request, query) {
+  if (query.query) {
+    const searched = await searchWeatherLocation(query.query);
+    if (searched) {
+      return { ...searched, source: "manual" };
+    }
+  }
+
+  if (Number.isFinite(query.latitude) && Number.isFinite(query.longitude)) {
+    const reverse = await reverseGeocode(query.latitude, query.longitude).catch(() => ({}));
+    return {
+      latitude: query.latitude,
+      longitude: query.longitude,
+      city: reverse.city || "",
+      district: reverse.district || "",
+      source: "browser",
+    };
+  }
+
+  const forwardedFor = String(request.header("x-forwarded-for") || "")
+    .split(",")[0]
+    .trim();
+  const candidateIp = isPublicIp(forwardedFor) ? forwardedFor : "";
+  if (candidateIp) {
+    const ipData = await fetchJsonWithTimeout(`https://ipwho.is/${candidateIp}`, WEATHER_REQUEST_TIMEOUT_MS)
+      .catch(() => null);
+    if (ipData?.success && Number.isFinite(Number(ipData.latitude)) && Number.isFinite(Number(ipData.longitude))) {
+      return {
+        latitude: Number(ipData.latitude),
+        longitude: Number(ipData.longitude),
+        city: ipData.city || "",
+        district: ipData.region || "",
+        source: "header-ip",
+      };
+    }
+  }
+
+  return {
+    latitude: 31.2304,
+    longitude: 121.4737,
+    city: "上海",
+    district: "",
+    source: "default",
+  };
+}
+
+async function searchWeatherLocation(query) {
+  const result = await fetchJsonWithTimeout(
+    `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=jsonv2&limit=1&accept-language=zh-CN`,
+    WEATHER_REQUEST_TIMEOUT_MS,
+    {
+      headers: {
+        "User-Agent": "LifeFlow/1.0",
+      },
+    }
+  ).catch(() => []);
+
+  const first = Array.isArray(result) ? result[0] : null;
+  if (!first) {
+    return null;
+  }
+
+  const latitude = Number(first.lat);
+  const longitude = Number(first.lon);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return null;
+  }
+
+  const address = first.address || {};
+  return {
+    latitude,
+    longitude,
+    city:
+      address.city ||
+      address.town ||
+      address.state_district ||
+      address.state ||
+      first.display_name?.split(",")[0] ||
+      "",
+    district:
+      address.city_district ||
+      address.suburb ||
+      address.borough ||
+      address.quarter ||
+      address.county ||
+      "",
+  };
+}
+
+function isPublicIp(ip) {
+  if (!ip) {
+    return false;
+  }
+  if (ip === "::1" || ip === "127.0.0.1") {
+    return false;
+  }
+  if (ip.startsWith("10.") || ip.startsWith("192.168.") || ip.startsWith("172.16.")) {
+    return false;
+  }
+  return true;
+}
+
+async function reverseGeocode(latitude, longitude) {
+  const locationData = await fetchJsonWithTimeout(
+    `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=jsonv2&accept-language=zh-CN`,
+    WEATHER_REQUEST_TIMEOUT_MS,
+    {
+      headers: {
+        "User-Agent": "LifeFlow/1.0",
+      },
+    }
+  ).catch(() => ({}));
+  const address = locationData.address || {};
+  return {
+    city:
+      address.city ||
+      address.town ||
+      address.state_district ||
+      address.state ||
+      "",
+    district:
+      address.city_district ||
+      address.suburb ||
+      address.borough ||
+      address.quarter ||
+      address.county ||
+      "",
+  };
+}
+
+function formatLocationLabel(city, district) {
+  const cityLabel = city || "当前城市";
+  if (!district || district === cityLabel) {
+    return cityLabel;
+  }
+  return `${cityLabel}, ${district}`;
+}
+
+function weatherCodeToText(code) {
+  const map = {
+    0: "晴朗",
+    1: "大致晴",
+    2: "局部多云",
+    3: "阴天",
+    45: "有雾",
+    48: "冻雾",
+    51: "小毛雨",
+    61: "小雨",
+    63: "中雨",
+    65: "大雨",
+    71: "小雪",
+    80: "阵雨",
+    95: "雷暴",
+  };
+  return map[code] || (typeof code === "number" ? `天气代码 ${code}` : "天气状态未知");
+}
+
+async function fetchJsonWithTimeout(url, timeoutMs, options = {}) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`Request failed: ${response.status}`);
+    }
+    return response.json();
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 async function hashPassword(password) {

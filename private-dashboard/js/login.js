@@ -6,7 +6,6 @@ const authElements = {
   form: document.querySelector("#login-form"),
   feedback: document.querySelector("#login-feedback"),
   captchaImage: document.querySelector("#captcha-image"),
-  captchaRefresh: document.querySelector("#captcha-refresh"),
 };
 
 const SIGNUP_REQUIREMENTS_TEXT =
@@ -15,6 +14,7 @@ const SIGNUP_REQUIREMENTS_TEXT =
 const captchaState = {
   id: "",
 };
+let resolvedApiBase = "";
 
 function loadAuthConfig() {
   try {
@@ -81,6 +81,9 @@ function wait(ms) {
 }
 
 async function detectApiBase() {
+  if (resolvedApiBase) {
+    return resolvedApiBase;
+  }
   const runtimeBase =
     typeof window !== "undefined" &&
     typeof window.LIFEFLOW_API_BASE === "string"
@@ -100,14 +103,16 @@ async function detectApiBase() {
         credentials: "include",
       });
       if (response.ok) {
-        return baseUrl;
+        resolvedApiBase = baseUrl;
+        return resolvedApiBase;
       }
     } catch (error) {
       // continue
     }
   }
 
-  throw new Error("Remote API unavailable");
+  resolvedApiBase = DEFAULT_API_BASE;
+  return resolvedApiBase;
 }
 
 async function fetchApiJson(path, options = {}) {
@@ -218,11 +223,6 @@ function handleLoginSubmit(event) {
 }
 
 authElements.form.addEventListener("submit", handleLoginSubmit);
-if (authElements.captchaRefresh) {
-  authElements.captchaRefresh.addEventListener("click", () => {
-    void refreshCaptcha();
-  });
-}
 if (authElements.captchaImage) {
   authElements.captchaImage.addEventListener("click", () => {
     void refreshCaptcha();

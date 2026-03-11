@@ -5,30 +5,19 @@ class SupabaseStore {
     this.client = createClient(supabaseUrl, supabaseServiceRoleKey, {
       auth: { persistSession: false },
     });
-    this.schemaMode = "legacy";
+    this.schemaMode = "user-scoped";
   }
 
   async init() {
-    this.schemaMode = await this.detectSchemaMode();
     return this;
   }
 
-  async detectSchemaMode() {
-    const { error } = await this.client.from("tasks").select("user_id").limit(1);
-    return error ? "legacy" : "user-scoped";
-  }
-
   async listTasks(scope = {}) {
-    let query = this.client
+    const { data, error } = await this.client
       .from("tasks")
       .select("id, name, color, display_order, archived, archived_at, created_at")
+      .eq("user_id", scope.userId || "")
       .order("display_order", { ascending: true });
-
-    if (this.schemaMode === "user-scoped") {
-      query = query.eq("user_id", scope.userId || "public");
-    }
-
-    const { data, error } = await query;
 
     if (error) {
       throw error;
@@ -38,11 +27,9 @@ class SupabaseStore {
   }
 
   async createTask(scope = {}, task) {
-    const payload =
-      this.schemaMode === "user-scoped" ? { ...task, user_id: scope.userId || "public" } : task;
     const { data, error } = await this.client
       .from("tasks")
-      .insert(payload)
+      .insert({ ...task, user_id: scope.userId || "" })
       .select("id, name, color, display_order, archived, archived_at, created_at")
       .single();
 
@@ -71,16 +58,11 @@ class SupabaseStore {
       updatePayload.archived_at = patch.archived_at;
     }
 
-    let query = this.client
+    const { data, error } = await this.client
       .from("tasks")
       .update(updatePayload)
-      .eq("id", taskId);
-
-    if (this.schemaMode === "user-scoped") {
-      query = query.eq("user_id", scope.userId || "public");
-    }
-
-    const { data, error } = await query
+      .eq("user_id", scope.userId || "")
+      .eq("id", taskId)
       .select("id, name, color, display_order, archived, archived_at, created_at")
       .single();
 
@@ -92,27 +74,24 @@ class SupabaseStore {
   }
 
   async deleteTask(scope = {}, taskId) {
-    let query = this.client.from("tasks").delete().eq("id", taskId);
-    if (this.schemaMode === "user-scoped") {
-      query = query.eq("user_id", scope.userId || "public");
-    }
-    const { error } = await query;
+    const { error } = await this.client
+      .from("tasks")
+      .delete()
+      .eq("user_id", scope.userId || "")
+      .eq("id", taskId);
+
     if (error) {
       throw error;
     }
   }
 
   async getDailyRecord(scope = {}, date) {
-    let query = this.client
+    const { data, error } = await this.client
       .from("daily_records")
       .select("record_date, payload, updated_at")
-      .eq("record_date", date);
-
-    if (this.schemaMode === "user-scoped") {
-      query = query.eq("user_id", scope.userId || "public");
-    }
-
-    const { data, error } = await query.maybeSingle();
+      .eq("user_id", scope.userId || "")
+      .eq("record_date", date)
+      .maybeSingle();
 
     if (error) {
       throw error;
@@ -130,25 +109,19 @@ class SupabaseStore {
   }
 
   async upsertDailyRecord(scope = {}, date, payload) {
-    const recordPayload =
-      this.schemaMode === "user-scoped"
-        ? {
-            user_id: scope.userId || "public",
-            record_date: date,
-            payload,
-            updated_at: new Date().toISOString(),
-          }
-        : {
-            record_date: date,
-            payload,
-            updated_at: new Date().toISOString(),
-          };
-
-    const query = this.client.from("daily_records").upsert(recordPayload, {
-      onConflict: this.schemaMode === "user-scoped" ? "user_id,record_date" : "record_date",
-    });
-
-    const { data, error } = await query.select("record_date, payload, updated_at").single();
+    const { data, error } = await this.client
+      .from("daily_records")
+      .upsert(
+        {
+          user_id: scope.userId || "",
+          record_date: date,
+          payload,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "user_id,record_date" }
+      )
+      .select("record_date, payload, updated_at")
+      .single();
 
     if (error) {
       throw error;
@@ -162,18 +135,13 @@ class SupabaseStore {
   }
 
   async listDailyRecordsBetween(scope = {}, startDate, endDate) {
-    let query = this.client
+    const { data, error } = await this.client
       .from("daily_records")
       .select("record_date, payload, updated_at")
+      .eq("user_id", scope.userId || "")
       .gte("record_date", startDate)
       .lte("record_date", endDate)
       .order("record_date", { ascending: true });
-
-    if (this.schemaMode === "user-scoped") {
-      query = query.eq("user_id", scope.userId || "public");
-    }
-
-    const { data, error } = await query;
 
     if (error) {
       throw error;
@@ -187,22 +155,21 @@ class SupabaseStore {
   }
 
   async getWeeklySummary(scope = {}, week) {
-    let query = this.client
+    const { data, error } = await this.client
       .from("weekly_summaries")
       .select("week_key, content, updated_at")
-      .eq("week_key", week);
+      .eq("user_id", scope.userId || "")
+      .eq("week_key", week)
+      .maybeSingle();
 
-    if (this.schemaMode === "user-scoped") {
-      query = query.eq("user_id", scope.userId || "public");
-    }
-
-    const { data, error } = await query.maybeSingle();
     if (error) {
       throw error;
     }
+
     if (!data) {
       return null;
     }
+
     return {
       week: data.week_key,
       content: data.content || "",
@@ -211,25 +178,17 @@ class SupabaseStore {
   }
 
   async upsertWeeklySummary(scope = {}, week, payload) {
-    const summaryPayload =
-      this.schemaMode === "user-scoped"
-        ? {
-            user_id: scope.userId || "public",
-            week_key: week,
-            content: payload.content || "",
-            updated_at: new Date().toISOString(),
-          }
-        : {
-            week_key: week,
-            content: payload.content || "",
-            updated_at: new Date().toISOString(),
-          };
-
     const { data, error } = await this.client
       .from("weekly_summaries")
-      .upsert(summaryPayload, {
-        onConflict: this.schemaMode === "user-scoped" ? "user_id,week_key" : "week_key",
-      })
+      .upsert(
+        {
+          user_id: scope.userId || "",
+          week_key: week,
+          content: payload.content || "",
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "user_id,week_key" }
+      )
       .select("week_key, content, updated_at")
       .single();
 
@@ -258,6 +217,20 @@ class SupabaseStore {
     return data;
   }
 
+  async getUserById(userId) {
+    const { data, error } = await this.client
+      .from("users")
+      .select("id, username, password_hash, created_at")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    return data;
+  }
+
   async createUser(user) {
     const { data, error } = await this.client
       .from("users")
@@ -270,6 +243,61 @@ class SupabaseStore {
     }
 
     return data;
+  }
+
+  async updateUserPassword(userId, passwordHash) {
+    const { data, error } = await this.client
+      .from("users")
+      .update({ password_hash: passwordHash })
+      .eq("id", userId)
+      .select("id, username, password_hash, created_at")
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    return data;
+  }
+
+  async getAccountProfile(userId) {
+    const user = await this.getUserById(userId);
+    if (!user) {
+      return null;
+    }
+
+    const [
+      { count: tasksCount, error: tasksError },
+      { count: dailyCount, error: dailyError },
+      { count: weeklyCount, error: weeklyError },
+    ] = await Promise.all([
+      this.client.from("tasks").select("*", { count: "exact", head: true }).eq("user_id", userId),
+      this.client
+        .from("daily_records")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", userId),
+      this.client
+        .from("weekly_summaries")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", userId),
+    ]);
+
+    if (tasksError || dailyError || weeklyError) {
+      throw tasksError || dailyError || weeklyError;
+    }
+
+    return {
+      user: {
+        id: user.id,
+        username: user.username,
+        created_at: user.created_at,
+      },
+      counts: {
+        tasks: tasksCount || 0,
+        dailyRecords: dailyCount || 0,
+        weeklySummaries: weeklyCount || 0,
+      },
+    };
   }
 
   async createSession(session) {
@@ -289,9 +317,7 @@ class SupabaseStore {
   async getSessionWithUser(sessionId) {
     const { data, error } = await this.client
       .from("user_sessions")
-      .select(
-        "id, user_id, expires_at, created_at, users!inner(id, username, password_hash, created_at)",
-      )
+      .select("id, user_id, expires_at, created_at, users!inner(id, username, password_hash, created_at)")
       .eq("id", sessionId)
       .maybeSingle();
 
@@ -315,11 +341,28 @@ class SupabaseStore {
   }
 
   async deleteSession(sessionId) {
-    const { error } = await this.client
-      .from("user_sessions")
-      .delete()
-      .eq("id", sessionId);
+    const { error } = await this.client.from("user_sessions").delete().eq("id", sessionId);
 
+    if (error) {
+      throw error;
+    }
+  }
+
+  async clearUserData(userId) {
+    const [tasksResult, recordsResult, summariesResult] = await Promise.all([
+      this.client.from("tasks").delete().eq("user_id", userId),
+      this.client.from("daily_records").delete().eq("user_id", userId),
+      this.client.from("weekly_summaries").delete().eq("user_id", userId),
+    ]);
+
+    if (tasksResult.error || recordsResult.error || summariesResult.error) {
+      throw tasksResult.error || recordsResult.error || summariesResult.error;
+    }
+  }
+
+  async deleteUserAccount(userId) {
+    await this.clearUserData(userId);
+    const { error } = await this.client.from("users").delete().eq("id", userId);
     if (error) {
       throw error;
     }

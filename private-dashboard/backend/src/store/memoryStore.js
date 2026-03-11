@@ -1,12 +1,5 @@
 const { formatDateKey } = require("../lib/date");
 
-const defaultTasks = [
-  { id: "task1", name: "任务1", color: "#4f46e5", display_order: 1, archived: false, archived_at: null },
-  { id: "task2", name: "任务2", color: "#0f766e", display_order: 2, archived: false, archived_at: null },
-  { id: "task3", name: "任务3", color: "#ca8a04", display_order: 3, archived: false, archived_at: null },
-  { id: "task4", name: "任务4", color: "#dc2626", display_order: 4, archived: false, archived_at: null },
-];
-
 class MemoryStore {
   constructor() {
     this.tasksByUser = new Map();
@@ -20,7 +13,7 @@ class MemoryStore {
     return this;
   }
 
-  ensureUserScope(userId = "public") {
+  ensureUserScope(userId = "") {
     if (!this.tasksByUser.has(userId)) {
       this.tasksByUser.set(userId, new Map());
     }
@@ -123,9 +116,43 @@ class MemoryStore {
     return this.usersByUsername.get(username) || null;
   }
 
+  async getUserById(userId) {
+    return [...this.usersByUsername.values()].find((entry) => entry.id === userId) || null;
+  }
+
   async createUser(user) {
     this.usersByUsername.set(user.username, user);
     return user;
+  }
+
+  async updateUserPassword(userId, passwordHash) {
+    const user = await this.getUserById(userId);
+    if (!user) {
+      return null;
+    }
+    const next = { ...user, password_hash: passwordHash };
+    this.usersByUsername.set(next.username, next);
+    return next;
+  }
+
+  async getAccountProfile(userId) {
+    const user = await this.getUserById(userId);
+    if (!user) {
+      return null;
+    }
+    const scope = this.ensureUserScope(userId);
+    return {
+      user: {
+        id: user.id,
+        username: user.username,
+        created_at: user.created_at || "",
+      },
+      counts: {
+        tasks: scope.tasks.size,
+        dailyRecords: scope.dailyRecords.size,
+        weeklySummaries: scope.weeklySummaries.size,
+      },
+    };
   }
 
   async createSession(session) {
@@ -151,6 +178,26 @@ class MemoryStore {
   async deleteSession(sessionId) {
     this.sessionsById.delete(sessionId);
   }
+
+  async clearUserData(userId) {
+    this.tasksByUser.set(userId, new Map());
+    this.dailyRecordsByUser.set(userId, new Map());
+    this.weeklySummariesByUser.set(userId, new Map());
+  }
+
+  async deleteUserAccount(userId) {
+    const user = await this.getUserById(userId);
+    if (!user) {
+      return;
+    }
+    await this.clearUserData(userId);
+    this.usersByUsername.delete(user.username);
+    for (const [sessionId, session] of this.sessionsById.entries()) {
+      if (session?.user_id === userId) {
+        this.sessionsById.delete(sessionId);
+      }
+    }
+  }
 }
 
-module.exports = { MemoryStore, defaultTasks };
+module.exports = { MemoryStore };

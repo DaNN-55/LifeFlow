@@ -13,7 +13,7 @@ create table if not exists public.user_sessions (
 );
 
 create table if not exists public.tasks (
-  user_id text not null default 'public',
+  user_id text not null,
   id text not null,
   name text not null,
   color text not null,
@@ -25,7 +25,7 @@ create table if not exists public.tasks (
 );
 
 create table if not exists public.daily_records (
-  user_id text not null default 'public',
+  user_id text not null,
   record_date date not null,
   payload jsonb not null default '{}'::jsonb,
   updated_at timestamptz not null default timezone('utc', now()),
@@ -33,7 +33,7 @@ create table if not exists public.daily_records (
 );
 
 create table if not exists public.weekly_summaries (
-  user_id text not null default 'public',
+  user_id text not null,
   week_key text not null,
   content text not null default '',
   updated_at timestamptz not null default timezone('utc', now()),

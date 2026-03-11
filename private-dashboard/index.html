@@ -48,30 +48,54 @@
           </button>
         </nav>
 
-        <div class="theme-switcher" aria-label="主题模式切换">
+        <div class="nav-actions">
           <div class="sync-indicators">
             <span id="cloud-status-chip" class="status-chip is-local">本地模式</span>
-            <span id="auth-status-chip" class="status-chip">未登录</span>
+            <div class="account-menu-wrap">
+              <button type="button" id="auth-status-chip" class="status-chip account-chip">
+                未登录
+              </button>
+              <div id="account-menu" class="account-menu" hidden>
+                <button type="button" class="account-menu-item" data-account-action="profile">
+                  当前账号资料
+                </button>
+                <button type="button" class="account-menu-item" data-account-action="password">
+                  修改密码
+                </button>
+                <button type="button" class="account-menu-item" data-account-action="clear-data">
+                  清空本账号数据
+                </button>
+                <button
+                  type="button"
+                  class="account-menu-item is-danger"
+                  data-account-action="delete-account"
+                >
+                  删除账号
+                </button>
+              </div>
+            </div>
           </div>
           <button type="button" id="auth-action" class="auth-button">
             云端登录
           </button>
-          <button
-            type="button"
-            class="theme-option"
-            data-theme="light"
-            aria-label="切换到浅色主题"
-          >
-            <span class="material-symbols-outlined">light_mode</span>
-          </button>
-          <button
-            type="button"
-            class="theme-option"
-            data-theme="dark"
-            aria-label="切换到深色主题"
-          >
-            <span class="material-symbols-outlined">dark_mode</span>
-          </button>
+          <div class="theme-switcher" aria-label="主题模式切换" data-active-theme="light">
+            <button
+              type="button"
+              class="theme-option"
+              data-theme="light"
+              aria-label="切换到浅色主题"
+            >
+              Light
+            </button>
+            <button
+              type="button"
+              class="theme-option"
+              data-theme="dark"
+              aria-label="切换到深色主题"
+            >
+              Dark
+            </button>
+          </div>
         </div>
       </header>
 
@@ -337,6 +361,14 @@
           >
             <div class="section-head">
               <h2 id="weather-card-title">Weather</h2>
+              <button
+                type="button"
+                class="icon-button"
+                data-widget-toggle="weather"
+                aria-label="打开天气组件设置"
+              >
+                <span class="material-symbols-outlined">settings</span>
+              </button>
             </div>
             <div id="weather-widget-display" class="widget-display"></div>
           </section>
@@ -557,40 +589,148 @@
       </div>
     </div>
 
-    <div id="auth-gate" class="auth-gate" hidden>
-      <div class="auth-gate-backdrop"></div>
-      <section class="auth-gate-card" aria-labelledby="auth-gate-title">
-        <p class="panel-kicker">Cloud Sync</p>
-        <h1 id="auth-gate-title">登录后同步到云端</h1>
-        <p class="auth-gate-copy">
-          登录后你的任务与备注会写入云端。首次使用可先创建账号，之后直接用用户名和密码登录。
-        </p>
-        <form id="auth-gate-form" class="auth-gate-form">
+    <div id="account-profile-modal" class="settings-modal" hidden>
+      <div class="settings-backdrop" data-account-profile-modal-close></div>
+      <div
+        class="settings-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="account-profile-title"
+      >
+        <div class="settings-header">
+          <div>
+            <p class="panel-kicker">Account</p>
+            <h2 id="account-profile-title">当前账号资料</h2>
+          </div>
+          <button
+            type="button"
+            class="settings-save modal-close"
+            data-account-profile-modal-close
+          >
+            关闭
+          </button>
+        </div>
+        <div id="account-profile-body" class="account-profile-body"></div>
+      </div>
+    </div>
+
+    <div id="change-password-modal" class="settings-modal" hidden>
+      <div class="settings-backdrop" data-change-password-modal-close></div>
+      <div
+        class="settings-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="change-password-title"
+      >
+        <div class="settings-header">
+          <div>
+            <p class="panel-kicker">Security</p>
+            <h2 id="change-password-title">修改密码</h2>
+          </div>
+        </div>
+        <form id="change-password-form" class="settings-form account-form">
           <label class="settings-field">
-            <span class="widget-label">用户名</span>
-            <input name="username" type="text" placeholder="输入用户名" required />
+            <span class="widget-label">当前密码</span>
+            <input name="currentPassword" type="password" minlength="6" maxlength="128" required />
           </label>
           <label class="settings-field">
-            <span class="widget-label">密码</span>
-            <input
-              name="password"
-              type="password"
-              placeholder="输入你的密码"
-              autocomplete="current-password"
-              required
-            />
+            <span class="widget-label">新密码</span>
+            <input name="newPassword" type="password" minlength="6" maxlength="128" required />
           </label>
-          <p id="auth-gate-feedback" class="settings-copy"></p>
-          <div class="auth-gate-actions">
-            <button type="submit" class="settings-save" data-auth-action="signin">
-              登录
+          <label class="settings-field">
+            <span class="widget-label">确认新密码</span>
+            <input name="confirmPassword" type="password" minlength="6" maxlength="128" required />
+          </label>
+          <p id="change-password-feedback" class="delete-task-dialog-copy"></p>
+          <div class="delete-task-dialog-actions">
+            <button
+              type="button"
+              class="task-cancel-action"
+              data-change-password-modal-close
+            >
+              取消
             </button>
-            <button type="submit" class="auth-button" data-auth-action="signup">
-              创建账号
+            <button type="submit" class="settings-save" id="change-password-submit">
+              保存密码
             </button>
           </div>
         </form>
-      </section>
+      </div>
+    </div>
+
+    <div id="clear-account-data-modal" class="settings-modal" hidden>
+      <div class="settings-backdrop" data-clear-account-data-modal-close></div>
+      <div
+        class="settings-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="clear-account-data-title"
+      >
+        <div class="settings-header">
+          <div>
+            <p class="panel-kicker">Account Data</p>
+            <h2 id="clear-account-data-title">确认清空账号数据</h2>
+          </div>
+        </div>
+        <div class="delete-task-dialog-copy">
+          这会清空当前账号的任务、每日记录和周总结，但不会删除账号本身。
+        </div>
+        <div class="delete-task-dialog-actions">
+          <button
+            type="button"
+            class="task-cancel-action"
+            data-clear-account-data-modal-close
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            class="delete-task"
+            id="clear-account-data-confirm"
+          >
+            确认清空
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="delete-account-modal" class="settings-modal" hidden>
+      <div class="settings-backdrop" data-delete-account-modal-close></div>
+      <div
+        class="settings-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-account-title"
+      >
+        <div class="settings-header">
+          <div>
+            <p class="panel-kicker">Delete Account</p>
+            <h2 id="delete-account-title">确认删除账号</h2>
+          </div>
+        </div>
+        <form id="delete-account-form" class="settings-form account-form">
+          <div class="delete-task-dialog-copy">
+            删除账号后，当前账号的任务、记录和周总结将一并删除且无法恢复。请输入当前密码确认操作。
+          </div>
+          <label class="settings-field">
+            <span class="widget-label">当前密码</span>
+            <input name="password" type="password" minlength="6" maxlength="128" required />
+          </label>
+          <p id="delete-account-feedback" class="delete-task-dialog-copy"></p>
+          <div class="delete-task-dialog-actions">
+            <button
+              type="button"
+              class="task-cancel-action"
+              data-delete-account-modal-close
+            >
+              取消
+            </button>
+            <button type="submit" class="delete-task is-danger" id="delete-account-submit">
+              删除账号
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
 
     <script src="./js/vendor/Sortable.min.js" defer></script>
