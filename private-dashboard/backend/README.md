@@ -9,8 +9,10 @@
 
 - 健康检查接口
 - 任务增删改查
+- 任务存档与永久删除
 - 每日记录读写
 - 周复盘聚合
+- 每周总结读写
 - 可选的 `x-app-key` 写入保护
 
 ## 快速开始
@@ -122,3 +124,11 @@ http://localhost:8787/health
 
 - `schemaMode: "user-scoped"`：说明已经按用户隔离
 - `schemaMode: "legacy"`：说明还在旧结构，登录态暂时不会分用户存储
+
+如果你要启用 2026-03-11 新增的任务存档能力，还需要再执行一次：
+
+[2026-03-11-add-task-archive-columns.sql](/Users/dan/Programs/LifeFlow/private-dashboard/backend/supabase/migrations/2026-03-11-add-task-archive-columns.sql)
+
+如果你要启用 Weekly 总结云端同步，还需要执行：
+
+[2026-03-11-add-weekly-summaries.sql](/Users/dan/Programs/LifeFlow/private-dashboard/backend/supabase/migrations/2026-03-11-add-weekly-summaries.sql)

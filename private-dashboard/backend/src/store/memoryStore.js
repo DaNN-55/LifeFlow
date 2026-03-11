@@ -1,16 +1,17 @@
 const { formatDateKey } = require("../lib/date");
 
 const defaultTasks = [
-  { id: "task1", name: "任务1", color: "#4f46e5", display_order: 1 },
-  { id: "task2", name: "任务2", color: "#0f766e", display_order: 2 },
-  { id: "task3", name: "任务3", color: "#ca8a04", display_order: 3 },
-  { id: "task4", name: "任务4", color: "#dc2626", display_order: 4 },
+  { id: "task1", name: "任务1", color: "#4f46e5", display_order: 1, archived: false, archived_at: null },
+  { id: "task2", name: "任务2", color: "#0f766e", display_order: 2, archived: false, archived_at: null },
+  { id: "task3", name: "任务3", color: "#ca8a04", display_order: 3, archived: false, archived_at: null },
+  { id: "task4", name: "任务4", color: "#dc2626", display_order: 4, archived: false, archived_at: null },
 ];
 
 class MemoryStore {
   constructor() {
     this.tasksByUser = new Map();
     this.dailyRecordsByUser = new Map();
+    this.weeklySummariesByUser = new Map();
   }
 
   async init() {
@@ -24,10 +25,14 @@ class MemoryStore {
     if (!this.dailyRecordsByUser.has(userId)) {
       this.dailyRecordsByUser.set(userId, new Map());
     }
+    if (!this.weeklySummariesByUser.has(userId)) {
+      this.weeklySummariesByUser.set(userId, new Map());
+    }
 
     return {
       tasks: this.tasksByUser.get(userId),
       dailyRecords: this.dailyRecordsByUser.get(userId),
+      weeklySummaries: this.weeklySummariesByUser.get(userId),
     };
   }
 
@@ -48,7 +53,12 @@ class MemoryStore {
     if (!existing) {
       return null;
     }
-    const next = { ...existing, ...patch };
+    const next = { ...existing };
+    Object.entries(patch).forEach(([key, value]) => {
+      if (typeof value !== "undefined") {
+        next[key] = value;
+      }
+    });
     tasks.set(taskId, next);
     return next;
   }
@@ -89,6 +99,22 @@ class MemoryStore {
     return [...dailyRecords.values()]
       .filter((record) => record.date >= start && record.date <= end)
       .sort((left, right) => left.date.localeCompare(right.date));
+  }
+
+  async getWeeklySummary(scope = {}, week) {
+    const { weeklySummaries } = this.ensureUserScope(scope.userId);
+    return weeklySummaries.get(week) || null;
+  }
+
+  async upsertWeeklySummary(scope = {}, week, payload) {
+    const { weeklySummaries } = this.ensureUserScope(scope.userId);
+    const summary = {
+      week,
+      content: payload.content || "",
+      updatedAt: new Date().toISOString(),
+    };
+    weeklySummaries.set(week, summary);
+    return summary;
   }
 }
 

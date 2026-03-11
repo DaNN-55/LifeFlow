@@ -11,6 +11,8 @@
       name="description"
       content="个人执行 Dashboard，支持每日打卡、周复盘、主题切换与可扩展信息模块。"
     />
+    <link rel="icon" type="image/png" href="./assets/logo.png" />
+    <link rel="apple-touch-icon" href="./assets/logo.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -54,10 +56,20 @@
           <button type="button" id="auth-action" class="auth-button">
             云端登录
           </button>
-          <button type="button" class="theme-option" data-theme="light">
+          <button
+            type="button"
+            class="theme-option"
+            data-theme="light"
+            aria-label="切换到浅色主题"
+          >
             <span class="material-symbols-outlined">light_mode</span>
           </button>
-          <button type="button" class="theme-option" data-theme="dark">
+          <button
+            type="button"
+            class="theme-option"
+            data-theme="dark"
+            aria-label="切换到深色主题"
+          >
             <span class="material-symbols-outlined">dark_mode</span>
           </button>
         </div>
@@ -161,6 +173,9 @@
                   Weekly
                 </button>
               </div>
+              <button type="button" id="export-data-button" class="settings-save">
+                导出 JSON
+              </button>
             </div>
 
             <section
@@ -181,7 +196,17 @@
                 </div>
               </div>
 
-              <p class="save-note" id="save-status">数据将自动保存到本地</p>
+              <div class="save-note-row">
+                <p class="save-note" id="save-status">数据将自动保存到本地</p>
+                <div class="save-note-actions">
+                  <button type="button" id="save-status-undo" class="task-cancel-action" hidden>
+                    撤销
+                  </button>
+                  <button type="button" id="save-status-retry" class="settings-save" hidden>
+                    重新同步
+                  </button>
+                </div>
+              </div>
               <div id="task-list" class="task-stack" aria-live="polite"></div>
             </section>
 
@@ -195,12 +220,83 @@
                   <p class="panel-kicker">Retrospective</p>
                   <h1 id="weekly-panel-title">Weekly</h1>
                 </div>
-                <div class="panel-tools">
-                  <div class="summary-badge">
-                    <span>周范围</span>
-                    <strong id="current-week-range">-</strong>
+              </div>
+
+              <div
+                class="weekly-tools"
+              >
+                <div class="weekly-review-controls">
+                  <div class="weekly-mode-block">
+                    <span class="weekly-filter-label">复盘范围</span>
+                    <div class="weekly-mode-toggle" aria-label="复盘范围" data-active-mode="week">
+                      <button type="button" id="weekly-mode-week" class="task-cancel-action is-active">
+                        按周
+                      </button>
+                      <button type="button" id="weekly-mode-month" class="task-cancel-action">
+                        按月
+                      </button>
+                    </div>
                   </div>
+
+                  <label class="weekly-filter-field weekly-range-field">
+                    <span id="review-range-label" class="weekly-filter-label">周范围</span>
+                    <select id="weekly-range-picker" class="weekly-range-picker"></select>
+                    <select id="monthly-range-picker" class="weekly-range-picker" hidden></select>
+                  </label>
+
+                  <label class="weekly-filter-field">
+                    <span class="weekly-filter-label">任务</span>
+                    <select id="weekly-task-filter"></select>
+                  </label>
+                  <label class="weekly-filter-field">
+                    <span class="weekly-filter-label">完成状态</span>
+                    <select id="weekly-completion-filter">
+                      <option value="all">全部</option>
+                      <option value="completed">只看已完成</option>
+                      <option value="incomplete">只看未完成</option>
+                    </select>
+                  </label>
+                  <label class="weekly-filter-field">
+                    <span class="weekly-filter-label">备注</span>
+                    <select id="weekly-notes-filter">
+                      <option value="all">全部</option>
+                      <option value="with-notes">只看有备注</option>
+                      <option value="without-notes">只看无备注</option>
+                    </select>
+                  </label>
+                  <label class="weekly-filter-field">
+                    <span class="weekly-filter-label">存档状态</span>
+                    <select id="weekly-archive-filter">
+                      <option value="all">全部</option>
+                      <option value="active">仅未存档</option>
+                      <option value="archived">仅已存档</option>
+                    </select>
+                  </label>
                 </div>
+
+                <section id="weekly-summary-card" class="weekly-summary-card" aria-labelledby="weekly-summary-title">
+                  <div class="section-head">
+                    <div>
+                      <p class="panel-kicker">Weekly wrap-up</p>
+                      <h2 id="weekly-summary-title">周总结</h2>
+                    </div>
+                    <div class="weekly-summary-actions">
+                      <button type="button" id="weekly-summary-edit" class="settings-save" hidden>
+                        修改
+                      </button>
+                      <button type="button" id="weekly-summary-save" class="settings-save">
+                        保存总结
+                      </button>
+                    </div>
+                  </div>
+                  <textarea
+                    id="weekly-summary-input"
+                    class="weekly-summary-input"
+                    placeholder="记录这周的判断、问题、下周重点。"
+                  ></textarea>
+                  <div id="weekly-summary-display" class="weekly-summary-display" hidden></div>
+                  <p id="weekly-summary-meta" class="weekly-summary-meta">尚未保存</p>
+                </section>
               </div>
 
               <div
@@ -255,6 +351,7 @@
                 type="button"
                 class="icon-button"
                 data-widget-toggle="stock"
+                aria-label="打开股票组件设置"
               >
                 <span class="material-symbols-outlined">settings</span>
               </button>
@@ -287,6 +384,176 @@
           </button>
         </div>
         <form id="settings-form" class="settings-form"></form>
+      </div>
+    </div>
+
+    <div id="delete-task-modal" class="settings-modal" hidden>
+      <div class="settings-backdrop" data-delete-modal-close></div>
+      <div
+        class="settings-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-task-title"
+      >
+        <div class="settings-header">
+          <div>
+            <p class="panel-kicker">Delete Task</p>
+            <h2 id="delete-task-title">确认删除</h2>
+          </div>
+        </div>
+        <div class="delete-task-dialog-copy">
+          删除后，该任务及其历史记录将无法找回。你可以取消，或先使用卡片上的存档按钮保留 Weekly 记录。
+        </div>
+        <div class="delete-task-dialog-actions">
+          <button
+            type="button"
+            class="task-cancel-action"
+            data-delete-modal-close
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            class="delete-task is-danger"
+            id="delete-task-confirm"
+          >
+            确认删除
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="archive-task-modal" class="settings-modal" hidden>
+      <div class="settings-backdrop" data-archive-modal-close></div>
+      <div
+        class="settings-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="archive-task-title"
+      >
+        <div class="settings-header">
+          <div>
+            <p class="panel-kicker">Archive Task</p>
+            <h2 id="archive-task-title">确认存档</h2>
+          </div>
+        </div>
+        <div class="delete-task-dialog-copy">
+          存档后，该任务会从 Today 隐藏，但仍会保留在 Weekly 历史记录中。你之后也可以在 Weekly 中恢复它。
+        </div>
+        <div class="delete-task-dialog-actions">
+          <button
+            type="button"
+            class="task-cancel-action"
+            data-archive-modal-close
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            class="task-archive"
+            id="archive-task-confirm"
+          >
+            确认存档
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="rename-task-modal" class="settings-modal" hidden>
+      <div class="settings-backdrop" data-rename-modal-close></div>
+      <div
+        class="settings-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="rename-task-title"
+      >
+        <div class="settings-header">
+          <div>
+            <p class="panel-kicker">Rename Task</p>
+            <h2 id="rename-task-title">确认编辑</h2>
+          </div>
+        </div>
+        <label class="settings-field">
+          <span class="widget-label">任务名称</span>
+          <input id="rename-task-input" type="text" maxlength="20" />
+        </label>
+        <div class="delete-task-dialog-actions">
+          <button
+            type="button"
+            class="task-cancel-action"
+            data-rename-modal-close
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            class="settings-save"
+            id="rename-task-confirm"
+          >
+            保存
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="weekly-summary-save-modal" class="settings-modal" hidden>
+      <div class="settings-backdrop" data-weekly-summary-save-modal-close></div>
+      <div
+        class="settings-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="weekly-summary-save-title"
+      >
+        <div class="settings-header">
+          <div>
+            <p class="panel-kicker">Weekly Summary</p>
+            <h2 id="weekly-summary-save-title">确认保存</h2>
+          </div>
+        </div>
+        <div class="delete-task-dialog-copy">
+          保存后，本周总结会切换为固定展示。后续如需调整，请点击“修改”进入编辑，再次保存即可更新内容。
+        </div>
+        <div class="delete-task-dialog-actions">
+          <button
+            type="button"
+            class="task-cancel-action"
+            data-weekly-summary-save-modal-close
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            class="settings-save"
+            id="weekly-summary-save-confirm"
+          >
+            确认保存
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="task-timeline-modal" class="settings-modal" hidden>
+      <div class="settings-backdrop" data-task-timeline-modal-close></div>
+      <div
+        class="settings-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="task-timeline-title"
+      >
+        <div class="settings-header">
+          <div>
+            <p class="panel-kicker">Task Timeline</p>
+            <h2 id="task-timeline-title">任务时间线</h2>
+          </div>
+          <button
+            type="button"
+            class="settings-save modal-close"
+            data-task-timeline-modal-close
+          >
+            关闭
+          </button>
+        </div>
+        <div id="task-timeline-body" class="task-timeline-body"></div>
       </div>
     </div>
 
@@ -333,6 +600,7 @@
           "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Indvc21weWRtcGVjbXJlZ3Zjd3BxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwMzE5OTIsImV4cCI6MjA4ODYwNzk5Mn0.pPkdl9wTmPx0yCnnQXDn9sHkq-bLmpaw86LGMLk0EWk",
       };
     </script>
+    <script src="./js/vendor/Sortable.min.js" defer></script>
     <script src="./js/app.js" defer></script>
   </body>
 </html>

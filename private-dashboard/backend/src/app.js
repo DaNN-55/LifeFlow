@@ -10,6 +10,8 @@ const taskSchema = z.object({
   name: z.string().min(1).max(40),
   color: z.string().min(1).max(64),
   displayOrder: z.number().int().positive().optional(),
+  archived: z.boolean().optional(),
+  archivedAt: z.string().datetime().nullable().optional(),
 });
 
 const dailyRecordSchema = z.object({
@@ -30,6 +32,10 @@ const dailyRecordSchema = z.object({
   ),
   mood: z.string().optional().default(""),
   dailySummary: z.string().optional().default(""),
+});
+
+const weeklySummarySchema = z.object({
+  content: z.string().optional().default(""),
 });
 
 function createApp({ config, store }) {
@@ -90,6 +96,8 @@ function createApp({ config, store }) {
         name: parsed.name,
         color: parsed.color,
         display_order: parsed.displayOrder || existingTasks.length + 1,
+        archived: Boolean(parsed.archived),
+        archived_at: parsed.archivedAt || null,
       };
       const created = await store.createTask(request.userContext, task);
       response.status(201).json({ task: created });
@@ -105,6 +113,8 @@ function createApp({ config, store }) {
         name: parsed.name,
         color: parsed.color,
         display_order: parsed.displayOrder,
+        archived: parsed.archived,
+        archived_at: parsed.archivedAt,
       });
 
       if (!updated) {
@@ -166,10 +176,12 @@ function createApp({ config, store }) {
         formatDateKey(range.end)
       );
 
+      const presenceCounts = {};
       const completionCounts = {};
       const notesByTask = {};
 
       tasks.forEach((task) => {
+        presenceCounts[task.id] = 0;
         completionCounts[task.id] = 0;
         notesByTask[task.id] = [];
       });
@@ -180,6 +192,7 @@ function createApp({ config, store }) {
           if (!taskState) {
             return;
           }
+          presenceCounts[task.id] += 1;
           if (taskState.completed) {
             completionCounts[task.id] += 1;
           }
@@ -198,9 +211,33 @@ function createApp({ config, store }) {
         start: formatDateKey(range.start),
         end: formatDateKey(range.end),
         tasks,
+        presenceCounts,
         completionCounts,
         notesByTask,
       });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/weekly-summaries/:week", async (request, response, next) => {
+    try {
+      const week = String(request.params.week);
+      const summary = await store.getWeeklySummary(request.userContext, week);
+      response.json({
+        summary: summary || { week, content: "", updatedAt: "" },
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.put("/api/weekly-summaries/:week", requireAuthenticatedWrite(config), async (request, response, next) => {
+    try {
+      const week = String(request.params.week);
+      const payload = weeklySummarySchema.parse(request.body);
+      const summary = await store.upsertWeeklySummary(request.userContext, week, payload);
+      response.json({ summary });
     } catch (error) {
       next(error);
     }

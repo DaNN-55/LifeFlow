@@ -1,10 +1,11 @@
 const STORAGE_KEY = "lifeflow-private-dashboard-v1";
-const STORAGE_VERSION = 4;
+const STORAGE_VERSION = 6;
 const API_BASE_STORAGE_KEY = "lifeflow-private-dashboard-api-base";
 const API_SEED_PREFIX = "lifeflow-private-dashboard-seeded:";
 const DEFAULT_REMOTE_API_BASE = "https://lifeflow-backend-mrs1.onrender.com";
 const AUTH_CONFIG_STORAGE_KEY = "lifeflow-private-dashboard-auth-config";
 const PENDING_SYNC_STORAGE_KEY = "lifeflow-private-dashboard-pending-sync";
+const API_PROBE_TIMEOUT_MS = 1500;
 
 const defaultTasks = [
   { id: "task1", name: "任务1", order: 1, color: "#4f46e5" },
@@ -56,8 +57,25 @@ const elements = {
   authStatusChip: document.querySelector("#auth-status-chip"),
   authAction: document.querySelector("#auth-action"),
   todayCompletedCount: document.querySelector("#today-completed-count"),
-  currentWeekRange: document.querySelector("#current-week-range"),
+  weeklyRangePicker: document.querySelector("#weekly-range-picker"),
+  monthlyRangePicker: document.querySelector("#monthly-range-picker"),
+  weeklyModeWeek: document.querySelector("#weekly-mode-week"),
+  weeklyModeMonth: document.querySelector("#weekly-mode-month"),
+  reviewRangeLabel: document.querySelector("#review-range-label"),
+  weeklySummaryCard: document.querySelector("#weekly-summary-card"),
+  weeklySummaryInput: document.querySelector("#weekly-summary-input"),
+  weeklySummaryDisplay: document.querySelector("#weekly-summary-display"),
+  weeklySummaryEdit: document.querySelector("#weekly-summary-edit"),
+  weeklySummarySave: document.querySelector("#weekly-summary-save"),
+  weeklySummaryMeta: document.querySelector("#weekly-summary-meta"),
+  weeklyTaskFilter: document.querySelector("#weekly-task-filter"),
+  weeklyCompletionFilter: document.querySelector("#weekly-completion-filter"),
+  weeklyNotesFilter: document.querySelector("#weekly-notes-filter"),
+  weeklyArchiveFilter: document.querySelector("#weekly-archive-filter"),
+  exportDataButton: document.querySelector("#export-data-button"),
   saveStatus: document.querySelector("#save-status"),
+  saveStatusUndo: document.querySelector("#save-status-undo"),
+  saveStatusRetry: document.querySelector("#save-status-retry"),
   calendarMonthLabel: document.querySelector("#calendar-month-label"),
   calendarGrid: document.querySelector("#calendar-grid"),
   financeFeed: document.querySelector("#finance-feed"),
@@ -72,6 +90,18 @@ const elements = {
   settingsModal: document.querySelector("#settings-modal"),
   settingsForm: document.querySelector("#settings-form"),
   settingsTitle: document.querySelector("#settings-title"),
+  deleteTaskModal: document.querySelector("#delete-task-modal"),
+  deleteTaskConfirm: document.querySelector("#delete-task-confirm"),
+  archiveTaskModal: document.querySelector("#archive-task-modal"),
+  archiveTaskConfirm: document.querySelector("#archive-task-confirm"),
+  renameTaskModal: document.querySelector("#rename-task-modal"),
+  renameTaskInput: document.querySelector("#rename-task-input"),
+  renameTaskConfirm: document.querySelector("#rename-task-confirm"),
+  weeklySummarySaveModal: document.querySelector("#weekly-summary-save-modal"),
+  weeklySummarySaveConfirm: document.querySelector("#weekly-summary-save-confirm"),
+  taskTimelineModal: document.querySelector("#task-timeline-modal"),
+  taskTimelineTitle: document.querySelector("#task-timeline-title"),
+  taskTimelineBody: document.querySelector("#task-timeline-body"),
   authGate: document.querySelector("#auth-gate"),
   authGateForm: document.querySelector("#auth-gate-form"),
   authGateFeedback: document.querySelector("#auth-gate-feedback"),
@@ -81,12 +111,31 @@ const state = {
   data: loadData(),
   selectedDate: getTodayDateString(),
   selectedWeek: formatWeekInputValue(new Date()),
+  selectedMonth: formatMonthValue(new Date()),
   activeAppTab: "home",
   activeCenterTab: "daily",
+  reviewMode: "week",
   noteDrafts: {},
+  taskNameDrafts: {},
+  recentlyRestoredTaskIds: {},
+  weeklyFilters: {
+    taskId: "all",
+    completion: "all",
+    notes: "all",
+    archive: "all",
+  },
+  weeklySummaryDrafts: {},
+  weeklySummaryMode: {},
   newTaskColor: "",
   activePaletteTaskId: null,
   modal: { widget: null },
+  deleteDialogTaskId: null,
+  archiveDialogTaskId: null,
+  renameDialogTaskId: null,
+  weeklySummarySaveDialogOpen: false,
+  taskTimelineTaskId: null,
+  saveStatusTone: "default",
+  undoAction: null,
   remote: {
     status: "idle",
     apiBase: "",
@@ -116,6 +165,8 @@ const state = {
 };
 
 let remoteBootstrapPromise = null;
+let taskListSortable = null;
+let undoActionTimer = null;
 
 function createEmptyTaskState(taskTypes) {
   return taskTypes.reduce((accumulator, task) => {
@@ -125,9 +176,13 @@ function createEmptyTaskState(taskTypes) {
 }
 
 function createEmptyDailyRecord(date, taskTypes) {
+  const scopedTaskTypes =
+    Array.isArray(taskTypes) && taskTypes.length
+      ? taskTypes
+      : getTaskTypesForDate(date);
   return {
     date,
-    tasks: createEmptyTaskState(taskTypes),
+    tasks: createEmptyTaskState(scopedTaskTypes),
     mood: "",
     dailySummary: "",
     updatedAt: "",
@@ -139,6 +194,7 @@ function createInitialData() {
     version: STORAGE_VERSION,
     taskTypes: defaultTasks,
     dailyRecords: {},
+    weeklySummaries: {},
     preferences: {
       theme: "light",
       widgets: structuredClone(defaultWidgets),
@@ -161,6 +217,7 @@ function loadData() {
       version: STORAGE_VERSION,
       taskTypes,
       dailyRecords: migrateDailyRecords(parsed.dailyRecords, taskTypes),
+      weeklySummaries: migrateWeeklySummaries(parsed.weeklySummaries),
       preferences: {
         theme: normalizeThemePreference(
           parsed.preferences?.theme || base.preferences.theme,
@@ -181,6 +238,23 @@ function loadData() {
     console.warn("Failed to load dashboard data, resetting state.", error);
     return createInitialData();
   }
+}
+
+function migrateWeeklySummaries(weeklySummaries) {
+  if (!weeklySummaries || typeof weeklySummaries !== "object") {
+    return {};
+  }
+
+  return Object.entries(weeklySummaries).reduce((accumulator, [week, summary]) => {
+    if (!summary || typeof summary !== "object") {
+      return accumulator;
+    }
+    accumulator[week] = {
+      content: typeof summary.content === "string" ? summary.content : "",
+      updatedAt: typeof summary.updatedAt === "string" ? summary.updatedAt : "",
+    };
+    return accumulator;
+  }, {});
 }
 
 function loadAuthConfig() {
@@ -253,9 +327,66 @@ function sanitizeTaskTypes(taskTypes) {
         name: normalizedIdentity.name,
         order: Number(task.order) || normalizedIdentity.order,
         color: task.color || getFallbackColor(normalizedIdentity.order - 1),
+        archived: Boolean(task.archived),
+        archivedAt:
+          typeof task.archivedAt === "string" && task.archivedAt
+            ? task.archivedAt
+            : "",
       };
     })
     .sort((a, b) => a.order - b.order);
+}
+
+function isTaskArchived(task) {
+  return Boolean(task?.archived);
+}
+
+function getActiveTaskTypes() {
+  return state.data.taskTypes.filter((task) => !isTaskArchived(task));
+}
+
+function getArchiveDateKey(task) {
+  if (!task?.archivedAt) {
+    return "";
+  }
+  const archiveDate = parseIsoDate(task.archivedAt);
+  return archiveDate ? formatDateKey(archiveDate) : "";
+}
+
+function shouldTaskExistOnDate(task, date) {
+  if (!isTaskArchived(task)) {
+    return true;
+  }
+  const archiveDateKey = getArchiveDateKey(task);
+  if (!archiveDateKey) {
+    return false;
+  }
+  return date <= archiveDateKey;
+}
+
+function getTaskTypesForDate(date) {
+  return state.data.taskTypes.filter((task) => shouldTaskExistOnDate(task, date));
+}
+
+function hasWeeklyTaskHistory(aggregation, taskId) {
+  return (
+    Number(aggregation?.presenceCounts?.[taskId] || 0) > 0 ||
+    Number(aggregation?.completionCounts?.[taskId] || 0) > 0 ||
+    (Array.isArray(aggregation?.notesByTask?.[taskId]) &&
+      aggregation.notesByTask[taskId].length > 0)
+  );
+}
+
+function getWeeklyVisibleTasks(aggregation) {
+  return state.data.taskTypes.filter((task) => {
+    if (state.recentlyRestoredTaskIds[task.id]) {
+      return false;
+    }
+    if (isTaskArchived(task)) {
+      return hasWeeklyTaskHistory(aggregation, task.id);
+    }
+    return hasWeeklyTaskHistory(aggregation, task.id);
+  });
 }
 
 function migrateDailyRecords(dailyRecords, taskTypes) {
@@ -350,6 +481,17 @@ function migrateTaskRecord(existing, updatedAt, date) {
   };
 }
 
+function isMeaningfulTaskState(taskState) {
+  if (!taskState || typeof taskState !== "object") {
+    return false;
+  }
+
+  return (
+    Boolean(taskState.completed) ||
+    (Array.isArray(taskState.notes) && taskState.notes.length > 0)
+  );
+}
+
 function normalizeTaskNotes(notes, updatedAt, date) {
   return notes
     .map((note, index) => normalizeSingleTaskNote(note, updatedAt, date, index))
@@ -395,12 +537,12 @@ function ensureRecord(date) {
   if (!state.data.dailyRecords[date]) {
     state.data.dailyRecords[date] = createEmptyDailyRecord(
       date,
-      state.data.taskTypes,
+      getTaskTypesForDate(date),
     );
   }
 
   const record = state.data.dailyRecords[date];
-  state.data.taskTypes.forEach((task) => {
+  getTaskTypesForDate(date).forEach((task) => {
     if (!record.tasks[task.id]) {
       record.tasks[task.id] = { completed: false, notes: [] };
     }
@@ -413,7 +555,37 @@ function ensureRecord(date) {
     }
   });
 
+  Object.keys(record.tasks).forEach((taskId) => {
+    const task = state.data.taskTypes.find((item) => item.id === taskId);
+    if (!task) {
+      return;
+    }
+    if (shouldTaskExistOnDate(task, date)) {
+      return;
+    }
+    if (!isMeaningfulTaskState(record.tasks[taskId])) {
+      delete record.tasks[taskId];
+    }
+  });
+
   return record;
+}
+
+function permanentlyRemoveTaskFromLocalState(taskId) {
+  state.data.taskTypes = state.data.taskTypes.filter((item) => item.id !== taskId);
+  Object.values(state.data.dailyRecords).forEach((record) => {
+    delete record.tasks[taskId];
+  });
+  delete state.noteDrafts[taskId];
+  if (state.deleteDialogTaskId === taskId) {
+    state.deleteDialogTaskId = null;
+  }
+  if (state.archiveDialogTaskId === taskId) {
+    state.archiveDialogTaskId = null;
+  }
+  if (state.renameDialogTaskId === taskId) {
+    state.renameDialogTaskId = null;
+  }
 }
 
 function saveData(message) {
@@ -468,6 +640,7 @@ function getPendingBucket(create = false) {
       taskUpserts: {},
       taskDeletes: {},
       dirtyRecords: {},
+      weeklySummaryUpserts: {},
     };
   }
 
@@ -482,7 +655,8 @@ function hasPendingSync() {
   return (
     Object.keys(bucket.taskUpserts || {}).length > 0 ||
     Object.keys(bucket.taskDeletes || {}).length > 0 ||
-    Object.keys(bucket.dirtyRecords || {}).length > 0
+    Object.keys(bucket.dirtyRecords || {}).length > 0 ||
+    Object.keys(bucket.weeklySummaryUpserts || {}).length > 0
   );
 }
 
@@ -496,6 +670,8 @@ function markTaskUpsertPending(task) {
     name: task.name,
     color: task.color,
     displayOrder: task.order,
+    archived: Boolean(task.archived),
+    archivedAt: task.archivedAt || null,
   };
   delete bucket.taskDeletes[task.id];
   persistPendingSyncStore();
@@ -542,6 +718,27 @@ function clearRecordPending(date) {
   persistPendingSyncStore();
 }
 
+function markWeeklySummaryPending(week, summary) {
+  const bucket = getPendingBucket(true);
+  if (!bucket) {
+    return;
+  }
+  bucket.weeklySummaryUpserts[week] = {
+    week,
+    content: summary.content || "",
+  };
+  persistPendingSyncStore();
+}
+
+function clearWeeklySummaryPending(week) {
+  const bucket = getPendingBucket(false);
+  if (!bucket) {
+    return;
+  }
+  delete bucket.weeklySummaryUpserts[week];
+  persistPendingSyncStore();
+}
+
 async function flushPendingSync() {
   if (!isRemoteReady() || !state.auth.user) {
     return;
@@ -560,6 +757,8 @@ async function flushPendingSync() {
         name: task.name,
         color: task.color,
         displayOrder: task.displayOrder,
+        archived: Boolean(task.archived),
+        archivedAt: task.archivedAt || null,
       }),
     }).catch(async (error) => {
       if (String(error.message || "").includes("404")) {
@@ -589,6 +788,16 @@ async function flushPendingSync() {
       body: JSON.stringify(payload),
     });
     clearRecordPending(date);
+  }
+
+  for (const week of Object.keys(bucket.weeklySummaryUpserts || {})) {
+    const summary = bucket.weeklySummaryUpserts[week];
+    await fetchApiJson(`/api/weekly-summaries/${week}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: summary.content || "" }),
+    });
+    clearWeeklySummaryPending(week);
   }
 }
 
@@ -719,7 +928,6 @@ async function consumeAuthHashSession(client) {
 
 function render() {
   applyTheme(state.data.preferences.theme);
-  syncWeekToDate();
   renderTopTabs();
   renderCenterTabs();
   renderControls();
@@ -729,7 +937,32 @@ function render() {
   renderWeeklyReview();
   renderWidgets();
   renderModal();
+  renderDeleteTaskModal();
+  renderArchiveTaskModal();
+  renderRenameTaskModal();
+  renderWeeklySummarySaveModal();
+  renderTaskTimelineModal();
   renderAuthGate();
+  applyButtonTooltips();
+}
+
+function applyButtonTooltips() {
+  document.querySelectorAll("button").forEach((button) => {
+    const explicitTooltip = button.dataset.tooltip || "";
+    const ariaLabel = button.getAttribute("aria-label") || "";
+    const buttonText = button.textContent
+      .replace(/\b[a-z]+_[a-z_]+\b/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    const tooltip =
+      explicitTooltip ||
+      ariaLabel ||
+      (buttonText && buttonText !== "settings" ? buttonText : "");
+
+    if (tooltip) {
+      button.title = tooltip;
+    }
+  });
 }
 
 function renderTopTabs() {
@@ -745,6 +978,10 @@ function renderTopTabs() {
 }
 
 function renderCenterTabs() {
+  const centerTabs = document.querySelector(".center-tabs");
+  if (centerTabs) {
+    centerTabs.dataset.activeTab = state.activeCenterTab;
+  }
   elements.centerTabs.forEach((button) => {
     button.classList.toggle(
       "is-active",
@@ -761,10 +998,29 @@ function renderCenterTabs() {
 
 function renderControls() {
   const record = ensureRecord(state.selectedDate);
-  elements.todayCompletedCount.textContent = `${getCompletedCount(record)} / ${state.data.taskTypes.length}`;
-  elements.currentWeekRange.textContent = formatWeekRangeText(
-    state.selectedWeek,
-  );
+  elements.todayCompletedCount.textContent = `${getCompletedCount(record)} / ${getActiveTaskTypes().length}`;
+  renderWeeklyRangeOptions();
+  renderMonthlyRangeOptions();
+  elements.weeklyRangePicker.hidden = state.reviewMode !== "week";
+  elements.monthlyRangePicker.hidden = state.reviewMode !== "month";
+  elements.reviewRangeLabel.textContent =
+    state.reviewMode === "month" ? "月范围" : "周范围";
+  elements.weeklyRangePicker.value = state.selectedWeek;
+  elements.monthlyRangePicker.value = state.selectedMonth;
+  elements.weeklyModeWeek.classList.toggle("is-active", state.reviewMode === "week");
+  elements.weeklyModeMonth.classList.toggle("is-active", state.reviewMode === "month");
+  document
+    .querySelector(".weekly-mode-toggle")
+    ?.setAttribute("data-active-mode", state.reviewMode);
+  renderWeeklyFilterOptions();
+  elements.weeklyTaskFilter.value = state.weeklyFilters.taskId;
+  elements.weeklyCompletionFilter.value = state.weeklyFilters.completion;
+  elements.weeklyNotesFilter.value = state.weeklyFilters.notes;
+  elements.weeklyArchiveFilter.value = state.weeklyFilters.archive;
+  elements.weeklySummaryInput.value = getWeeklySummaryDraft(state.selectedWeek);
+  renderWeeklySummaryContent();
+  renderWeeklySummaryMeta();
+  renderSaveStatusState();
 
   elements.themeOptions.forEach((button) => {
     button.classList.toggle(
@@ -774,6 +1030,114 @@ function renderControls() {
   });
   renderCloudStatusChip();
   renderAuthStatusChip();
+}
+
+function renderWeeklyFilterOptions() {
+  elements.weeklyTaskFilter.innerHTML = [
+    '<option value="all">全部任务</option>',
+    ...state.data.taskTypes.map(
+      (task) =>
+        `<option value="${escapeAttribute(task.id)}">${escapeHtml(task.name)}</option>`,
+    ),
+  ].join("");
+}
+
+function getWeeklySummaryDraft(week) {
+  if (typeof state.weeklySummaryDrafts[week] === "string") {
+    return state.weeklySummaryDrafts[week];
+  }
+  return state.data.weeklySummaries[week]?.content || "";
+}
+
+function getWeeklySummaryMode(week) {
+  if (typeof state.weeklySummaryMode[week] === "string") {
+    return state.weeklySummaryMode[week];
+  }
+  return state.data.weeklySummaries[week]?.content ? "view" : "edit";
+}
+
+function setWeeklySummaryMode(week, mode) {
+  if (!week) {
+    return;
+  }
+  state.weeklySummaryMode[week] = mode;
+}
+
+function renderWeeklySummaryContent() {
+  const savedContent = state.data.weeklySummaries[state.selectedWeek]?.content || "";
+  const hasSavedContent = Boolean(savedContent);
+  const isViewMode =
+    hasSavedContent && getWeeklySummaryMode(state.selectedWeek) === "view";
+
+  elements.weeklySummaryInput.hidden = isViewMode;
+  elements.weeklySummaryDisplay.hidden = !isViewMode;
+  elements.weeklySummaryDisplay.textContent = savedContent;
+  elements.weeklySummaryEdit.hidden = !hasSavedContent || !isViewMode;
+  elements.weeklySummarySave.hidden = isViewMode;
+  elements.weeklySummarySave.textContent = "保存总结";
+
+  elements.weeklySummaryCard.classList.toggle("is-empty", !hasSavedContent);
+  elements.weeklySummaryCard.classList.toggle(
+    "is-editing",
+    hasSavedContent && !isViewMode,
+  );
+  elements.weeklySummaryCard.classList.toggle("is-saved", isViewMode);
+}
+
+function renderWeeklySummaryMeta() {
+  if (!elements.weeklySummaryMeta) {
+    return;
+  }
+
+  const savedSummary = state.data.weeklySummaries[state.selectedWeek];
+  const savedContent = savedSummary?.content || "";
+  const draftContent = getWeeklySummaryDraft(state.selectedWeek);
+  const hasUnsavedChanges = draftContent !== savedContent;
+
+  let metaText = `当前周：${formatWeekRangeText(state.selectedWeek)}`;
+  if (savedSummary?.updatedAt) {
+    metaText += ` · 已保存 ${formatDateTime(savedSummary.updatedAt)}`;
+  } else {
+    metaText += " · 尚未保存";
+  }
+  if (hasUnsavedChanges) {
+    metaText += " · 有未保存修改";
+  }
+
+  elements.weeklySummaryMeta.textContent = metaText;
+  elements.weeklySummaryMeta.classList.toggle("is-dirty", hasUnsavedChanges);
+}
+
+function renderWeeklyRangeOptions() {
+  const options = getWeeklyRangeOptions();
+  const fallbackWeek = options[options.length - 1]?.value || state.selectedWeek;
+  if (!options.some((option) => option.value === state.selectedWeek)) {
+    state.selectedWeek = fallbackWeek;
+  }
+
+  elements.weeklyRangePicker.innerHTML = options
+    .map(
+      (option) => `
+        <option value="${option.value}">${escapeHtml(option.label)}</option>
+      `,
+    )
+    .join("");
+}
+
+function renderMonthlyRangeOptions() {
+  const options = getMonthlyRangeOptions();
+  const fallbackMonth = options[options.length - 1]?.value || state.selectedMonth;
+  if (!options.some((option) => option.value === state.selectedMonth)) {
+    state.selectedMonth = fallbackMonth;
+  }
+
+  elements.monthlyRangePicker.innerHTML = options
+    .map(
+      (option) => `
+        <option value="${option.value}">${escapeHtml(option.label)}</option>
+      `,
+    )
+    .join("");
 }
 
 function renderCloudStatusChip() {
@@ -923,7 +1287,7 @@ function renderFeedInto(container, items) {
 
 function renderTaskList() {
   const record = ensureRecord(state.selectedDate);
-  const sortedTasks = [...state.data.taskTypes].sort((left, right) => {
+  const sortedTasks = [...getActiveTaskTypes()].sort((left, right) => {
     const leftCompleted = record.tasks[left.id]?.completed ? 1 : 0;
     const rightCompleted = record.tasks[right.id]?.completed ? 1 : 0;
     if (leftCompleted !== rightCompleted) {
@@ -961,7 +1325,20 @@ function renderTaskList() {
         : '<div class="task-note-item"><span class="note-time">EMPTY</span><p>暂无备注</p></div>';
 
       return `
-        <article class="task-card ${taskState.completed ? "is-task-completed" : ""}" style="--task-accent: ${task.color};">
+        <article
+          class="task-card ${taskState.completed ? "is-task-completed" : ""}"
+          style="--task-accent: ${task.color};"
+          data-task-card="${task.id}"
+        >
+          <button
+            type="button"
+            class="task-drag-handle"
+            aria-label="拖拽排序 ${escapeAttribute(task.name)}"
+            data-drag-handle="${task.id}"
+            data-task-id="${task.id}"
+          >
+            <span class="material-symbols-outlined">drag_indicator</span>
+          </button>
           <button
             type="button"
             class="task-accent-trigger"
@@ -977,6 +1354,14 @@ function renderTaskList() {
             <div class="task-card-actions">
               <button
                 type="button"
+                class="task-cancel-action"
+                data-action="start-task-rename"
+                data-task-id="${task.id}"
+              >
+                编辑
+              </button>
+              <button
+                type="button"
                 class="task-toggle ${taskState.completed ? "is-completed" : ""}"
                 data-action="toggle-task"
                 data-task-id="${task.id}"
@@ -985,8 +1370,16 @@ function renderTaskList() {
               </button>
               <button
                 type="button"
+                class="task-archive"
+                data-action="archive-task"
+                data-task-id="${task.id}"
+              >
+                存档
+              </button>
+              <button
+                type="button"
                 class="delete-task"
-                data-action="delete-task"
+                data-action="request-delete-task"
                 data-task-id="${task.id}"
               >
                 删除
@@ -1053,6 +1446,8 @@ function renderTaskList() {
       </form>
     </article>
   `;
+
+  initTaskListSortable();
 }
 
 function renderTaskColorPalette(taskId, selectedColor) {
@@ -1089,10 +1484,30 @@ function renderNewTaskColorPalette(selectedColor) {
 }
 
 function renderWeeklyReview() {
-  const aggregation = getWeeklyAggregation(state.selectedWeek);
-  elements.weeklyReviewList.innerHTML = state.data.taskTypes
+  const aggregation = getSelectedReviewAggregation();
+  const weeklyTasks = getFilteredWeeklyTasks(aggregation);
+  if (weeklyTasks.length === 0) {
+    elements.weeklyReviewList.innerHTML = `
+      <article class="review-card">
+        <div class="review-card-header">
+          <div>
+            <h3 class="review-title">暂无匹配结果</h3>
+          </div>
+        </div>
+        <div class="review-notes">
+          <div class="review-note-item">
+            <span class="review-note-date">-</span>
+            <span>尝试切换周/月范围，或放宽搜索与筛选条件。</span>
+          </div>
+        </div>
+      </article>
+    `;
+    return;
+  }
+  elements.weeklyReviewList.innerHTML = weeklyTasks
     .map((task) => {
       const notes = aggregation.notesByTask[task.id];
+      const timelineCount = aggregation.eventsByTask[task.id]?.length || 0;
       const noteHtml = notes.length
         ? notes
             .map(
@@ -1113,8 +1528,36 @@ function renderWeeklyReview() {
               <h3 class="review-title">${task.name}</h3>
             </div>
             <div class="review-summary">
-              <span class="review-chip">${aggregation.completionCounts[task.id]} / 7 DAYS</span>
+              ${
+                isTaskArchived(task)
+                  ? '<span class="review-chip is-archived">已存档</span>'
+                  : ""
+              }
+              ${
+                isTaskArchived(task)
+                  ? `
+                    <button
+                      type="button"
+                      class="task-archive review-restore-button"
+                      data-action="restore-task"
+                      data-task-id="${task.id}"
+                    >
+                      恢复
+                    </button>
+                  `
+                  : ""
+              }
+              <button
+                type="button"
+                class="task-cancel-action review-timeline-button"
+                data-action="open-task-timeline"
+                data-task-id="${task.id}"
+              >
+                时间线
+              </button>
+              <span class="review-chip">${aggregation.completionCounts[task.id]} / ${aggregation.totalDays} DAYS</span>
               <span class="review-chip">${notes.length} NOTES</span>
+              <span class="review-chip">${timelineCount} RECORDS</span>
             </div>
           </div>
           <div class="review-notes">${noteHtml}</div>
@@ -1124,18 +1567,75 @@ function renderWeeklyReview() {
     .join("");
 }
 
-function getWeeklyAggregation(weekValue) {
-  if (state.remote.weeklyReview?.week === weekValue) {
-    return normalizeWeeklyAggregation(state.remote.weeklyReview);
+function getFilteredWeeklyTasks(aggregation) {
+  const weeklyTasks = getWeeklyVisibleTasks(aggregation);
+
+  return weeklyTasks.filter((task) => {
+    const notes = aggregation.notesByTask[task.id] || [];
+    const completionCount = aggregation.completionCounts[task.id] || 0;
+
+    if (
+      state.weeklyFilters.taskId !== "all" &&
+      state.weeklyFilters.taskId !== task.id
+    ) {
+      return false;
+    }
+
+    if (
+      state.weeklyFilters.archive === "archived" &&
+      !isTaskArchived(task)
+    ) {
+      return false;
+    }
+    if (
+      state.weeklyFilters.archive === "active" &&
+      isTaskArchived(task)
+    ) {
+      return false;
+    }
+    if (
+      state.weeklyFilters.notes === "with-notes" &&
+      notes.length === 0
+    ) {
+      return false;
+    }
+    if (
+      state.weeklyFilters.notes === "without-notes" &&
+      notes.length > 0
+    ) {
+      return false;
+    }
+    if (
+      state.weeklyFilters.completion === "completed" &&
+      completionCount === 0
+    ) {
+      return false;
+    }
+    if (
+      state.weeklyFilters.completion === "incomplete" &&
+      completionCount > 0
+    ) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function getSelectedReviewAggregation() {
+  if (state.reviewMode === "month") {
+    return aggregateMonth(state.selectedMonth);
   }
-  return aggregateWeek(weekValue);
+  return aggregateWeek(state.selectedWeek);
 }
 
 function normalizeWeeklyAggregation(payload) {
+  const presenceCounts = {};
   const completionCounts = {};
   const notesByTask = {};
+  const eventsByTask = {};
 
   state.data.taskTypes.forEach((task) => {
+    presenceCounts[task.id] = Number(payload?.presenceCounts?.[task.id] || 0);
     completionCounts[task.id] = Number(
       payload?.completionCounts?.[task.id] || 0,
     );
@@ -1145,9 +1645,10 @@ function normalizeWeeklyAggregation(payload) {
           note: item.text,
         }))
       : [];
+    eventsByTask[task.id] = [];
   });
 
-  return { completionCounts, notesByTask };
+  return { presenceCounts, completionCounts, notesByTask, eventsByTask, totalDays: 7 };
 }
 
 function renderWidgets() {
@@ -1272,6 +1773,187 @@ function renderModal() {
   elements.settingsForm.innerHTML = renderSettingsForm(widget);
 }
 
+function openArchiveTaskModal(taskId) {
+  state.archiveDialogTaskId = taskId;
+  renderArchiveTaskModal();
+}
+
+function openRenameTaskModal(taskId) {
+  const task = state.data.taskTypes.find((item) => item.id === taskId);
+  if (!task) {
+    return;
+  }
+  state.renameDialogTaskId = taskId;
+  state.taskNameDrafts[taskId] = task.name;
+  renderRenameTaskModal();
+}
+
+function closeRenameTaskModal() {
+  state.renameDialogTaskId = null;
+  renderRenameTaskModal();
+}
+
+function closeArchiveTaskModal() {
+  state.archiveDialogTaskId = null;
+  renderArchiveTaskModal();
+}
+
+function openDeleteTaskModal(taskId) {
+  state.deleteDialogTaskId = taskId;
+  renderDeleteTaskModal();
+}
+
+function closeDeleteTaskModal() {
+  state.deleteDialogTaskId = null;
+  renderDeleteTaskModal();
+}
+
+function renderDeleteTaskModal() {
+  if (!elements.deleteTaskModal || !elements.deleteTaskConfirm) {
+    return;
+  }
+
+  const task = state.data.taskTypes.find((item) => item.id === state.deleteDialogTaskId);
+  elements.deleteTaskModal.hidden = !task;
+  elements.deleteTaskConfirm.disabled = !task;
+  elements.deleteTaskConfirm.dataset.taskId = task?.id || "";
+  elements.deleteTaskConfirm.title = task
+    ? `确认永久删除 ${task.name}`
+    : "确认删除";
+}
+
+function renderArchiveTaskModal() {
+  if (!elements.archiveTaskModal || !elements.archiveTaskConfirm) {
+    return;
+  }
+
+  const task = state.data.taskTypes.find((item) => item.id === state.archiveDialogTaskId);
+  elements.archiveTaskModal.hidden = !task;
+  elements.archiveTaskConfirm.disabled = !task;
+  elements.archiveTaskConfirm.dataset.taskId = task?.id || "";
+  elements.archiveTaskConfirm.title = task
+    ? `确认存档 ${task.name}`
+    : "确认存档";
+}
+
+function renderRenameTaskModal() {
+  if (!elements.renameTaskModal || !elements.renameTaskInput || !elements.renameTaskConfirm) {
+    return;
+  }
+
+  const task = state.data.taskTypes.find((item) => item.id === state.renameDialogTaskId);
+  elements.renameTaskModal.hidden = !task;
+  elements.renameTaskInput.value = task ? state.taskNameDrafts[task.id] || task.name : "";
+  elements.renameTaskConfirm.disabled = !task;
+  elements.renameTaskConfirm.dataset.taskId = task?.id || "";
+  elements.renameTaskConfirm.title = task ? `确认编辑 ${task.name}` : "确认编辑";
+}
+
+function openWeeklySummarySaveModal() {
+  state.weeklySummarySaveDialogOpen = true;
+  renderWeeklySummarySaveModal();
+}
+
+function closeWeeklySummarySaveModal() {
+  state.weeklySummarySaveDialogOpen = false;
+  renderWeeklySummarySaveModal();
+}
+
+function renderWeeklySummarySaveModal() {
+  if (!elements.weeklySummarySaveModal || !elements.weeklySummarySaveConfirm) {
+    return;
+  }
+
+  const content = getWeeklySummaryDraft(state.selectedWeek).trim();
+  elements.weeklySummarySaveModal.hidden = !state.weeklySummarySaveDialogOpen;
+  elements.weeklySummarySaveConfirm.disabled = !content;
+  elements.weeklySummarySaveConfirm.title = content
+    ? `确认保存 ${formatWeekRangeText(state.selectedWeek)} 的周总结`
+    : "请先填写周总结内容";
+}
+
+function openTaskTimelineModal(taskId) {
+  state.taskTimelineTaskId = taskId;
+  renderTaskTimelineModal();
+}
+
+function closeTaskTimelineModal() {
+  state.taskTimelineTaskId = null;
+  renderTaskTimelineModal();
+}
+
+function renderTaskTimelineModal() {
+  if (!elements.taskTimelineModal || !elements.taskTimelineBody || !elements.taskTimelineTitle) {
+    return;
+  }
+
+  const task = state.data.taskTypes.find((item) => item.id === state.taskTimelineTaskId);
+  elements.taskTimelineModal.hidden = !task;
+  if (!task) {
+    elements.taskTimelineTitle.textContent = "任务时间线";
+    elements.taskTimelineBody.innerHTML = "";
+    return;
+  }
+
+  elements.taskTimelineTitle.textContent = task.name;
+  const events = getTaskTimelineEntries(task.id);
+  elements.taskTimelineBody.innerHTML = `
+    <div class="task-timeline-header">
+      <span>${events.length} 条历史记录</span>
+    </div>
+    <div class="task-timeline-list">
+      ${
+        events.length
+          ? events
+              .map(
+                (entry) => `
+                  <article class="task-timeline-item">
+                    <div class="task-timeline-meta">
+                      <strong>${escapeHtml(entry.dateLabel)}</strong>
+                      <span>${entry.completed ? "已完成" : "未完成"}</span>
+                    </div>
+                    <div class="task-timeline-notes">
+                      ${
+                        entry.notes.length
+                          ? entry.notes
+                              .map(
+                                (note) => `<div>${escapeHtml(note.text)}</div>`,
+                              )
+                              .join("")
+                          : "<div>无备注</div>"
+                      }
+                    </div>
+                  </article>
+                `,
+              )
+              .join("")
+          : '<div class="task-timeline-empty">暂无历史记录</div>'
+      }
+    </div>
+  `;
+}
+
+function getTaskTimelineEntries(taskId) {
+  return Object.entries(state.data.dailyRecords)
+    .map(([dateKey, record]) => {
+      if (!record?.tasks?.[taskId]) {
+        return null;
+      }
+      const taskState = migrateTaskRecord(record.tasks[taskId], record.updatedAt, dateKey);
+      if (!taskState.completed && taskState.notes.length === 0) {
+        return null;
+      }
+      return {
+        dateKey,
+        dateLabel: formatDisplayDate(parseLocalDate(dateKey)),
+        completed: Boolean(taskState.completed),
+        notes: taskState.notes,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.dateKey.localeCompare(a.dateKey));
+}
+
 function getAuthGateHint() {
   if (!hasAuthConfig()) {
     return "当前前端还未配置 Supabase 登录参数，请先在代码中补齐 URL 与 Anon Key。";
@@ -1302,19 +1984,22 @@ function renderSettingsForm(widget) {
   `;
 }
 
-function aggregateWeek(weekValue) {
-  const range = getWeekRangeFromWeekValue(weekValue);
+function aggregateRange(start, end) {
+  const presenceCounts = {};
   const completionCounts = {};
   const notesByTask = {};
+  const eventsByTask = {};
 
   state.data.taskTypes.forEach((task) => {
+    presenceCounts[task.id] = 0;
     completionCounts[task.id] = 0;
     notesByTask[task.id] = [];
+    eventsByTask[task.id] = [];
   });
 
   for (
-    let current = new Date(range.start);
-    current <= range.end;
+    let current = new Date(start);
+    current <= end;
     current = addDays(current, 1)
   ) {
     const dateKey = formatDateKey(current);
@@ -1324,14 +2009,27 @@ function aggregateWeek(weekValue) {
     }
 
     state.data.taskTypes.forEach((task) => {
-      const taskState = migrateTaskRecord(
-        record.tasks[task.id],
-        record.updatedAt,
-        dateKey,
+      const existsInRecord = Object.prototype.hasOwnProperty.call(
+        record.tasks,
+        task.id,
       );
+      const taskState = migrateTaskRecord(record.tasks[task.id], record.updatedAt, dateKey);
+      if (existsInRecord) {
+        presenceCounts[task.id] += 1;
+      }
       if (taskState.completed) {
         completionCounts[task.id] += 1;
       }
+      eventsByTask[task.id].push({
+        dateKey,
+        dateLabel: formatMonthDay(current),
+        completed: Boolean(taskState.completed),
+        notes: taskState.notes.map((note) => ({
+          text: note.text,
+          createdAt: note.createdAt,
+        })),
+        notePreview: taskState.notes.map((note) => note.text).join(" "),
+      });
       taskState.notes.forEach((note) => {
         notesByTask[task.id].push({
           dateLabel: formatMonthDay(parseIsoDate(note.createdAt) || current),
@@ -1341,21 +2039,83 @@ function aggregateWeek(weekValue) {
     });
   }
 
-  return { completionCounts, notesByTask };
+  return {
+    presenceCounts,
+    completionCounts,
+    notesByTask,
+    eventsByTask,
+    totalDays: getDaySpan(start, end),
+  };
+}
+
+function aggregateWeek(weekValue) {
+  const range = getWeekRangeFromWeekValue(weekValue);
+  return aggregateRange(range.start, range.end);
+}
+
+function aggregateMonth(monthValue) {
+  const range = getMonthRange(monthValue);
+  return aggregateRange(range.start, range.end);
 }
 
 function getCompletedCount(record) {
-  return state.data.taskTypes.reduce((count, task) => {
+  return getActiveTaskTypes().reduce((count, task) => {
     return count + (record.tasks[task.id]?.completed ? 1 : 0);
   }, 0);
 }
 
-function setSaveStatus(message) {
-  elements.saveStatus.textContent = message;
+function resolveSaveStatusTone(message, explicitTone) {
+  if (explicitTone) {
+    return explicitTone;
+  }
+
+  if (/(待同步|失败|本地保存|本地缓存|请先)/.test(message)) {
+    return "default";
+  }
+  if (/^(正在|发送中|登录中|创建中)/.test(message)) {
+    return "progress";
+  }
+  if (/(已保存|已同步|已切换|已导出|已连接|已恢复|已追加|已更新|已创建|已重命名|已删除|已存档|已自动保存)/.test(message)) {
+    return "success";
+  }
+  return "default";
 }
 
-function syncWeekToDate() {
-  state.selectedWeek = formatWeekInputValue(parseLocalDate(state.selectedDate));
+function renderSaveStatusState() {
+  elements.saveStatus.textContent = elements.saveStatus.textContent || "数据将自动保存到本地";
+  elements.saveStatus.dataset.tone = state.saveStatusTone;
+  elements.saveStatusUndo.hidden = !state.undoAction;
+  elements.saveStatusRetry.hidden = !(state.remote.status === "sync-error" || hasPendingSync());
+}
+
+function setUndoAction(action) {
+  if (undoActionTimer) {
+    clearTimeout(undoActionTimer);
+    undoActionTimer = null;
+  }
+
+  state.undoAction = action;
+  renderSaveStatusState();
+
+  if (!action) {
+    return;
+  }
+
+  undoActionTimer = window.setTimeout(() => {
+    state.undoAction = null;
+    renderSaveStatusState();
+    undoActionTimer = null;
+  }, 8000);
+}
+
+function clearUndoAction() {
+  setUndoAction(null);
+}
+
+function setSaveStatus(message, tone) {
+  state.saveStatusTone = resolveSaveStatusTone(message, tone);
+  elements.saveStatus.textContent = message;
+  renderSaveStatusState();
 }
 
 function applyTheme(theme) {
@@ -1385,6 +2145,10 @@ async function updateTaskCompletion(taskId) {
 
 function updateNoteDraft(taskId, value) {
   state.noteDrafts[taskId] = value;
+}
+
+function updateTaskNameDraft(taskId, value) {
+  state.taskNameDrafts[taskId] = value;
 }
 
 async function submitTaskNote(taskId) {
@@ -1433,6 +2197,8 @@ async function addTask(taskName) {
     name: normalizedName,
     order: state.data.taskTypes.length + 1,
     color: state.newTaskColor || getRandomPaletteColor(),
+    archived: false,
+    archivedAt: "",
   };
   state.data.taskTypes = [...state.data.taskTypes, nextTask];
   Object.values(state.data.dailyRecords).forEach((record) => {
@@ -1443,6 +2209,176 @@ async function addTask(taskName) {
   persistStateSilently();
   render();
   await syncTaskCreate(nextTask, `已创建任务：${normalizedName}`);
+}
+
+async function renameTask(taskId) {
+  const task = state.data.taskTypes.find((item) => item.id === taskId);
+  const draft = String(state.taskNameDrafts[taskId] || "").trim();
+  if (!task || !draft || draft === task.name) {
+    closeRenameTaskModal();
+    return;
+  }
+
+  task.name = draft;
+  closeRenameTaskModal();
+  persistStateSilently();
+  render();
+  await syncTaskUpdate(task, `已重命名任务：${draft}`);
+}
+
+function cancelTaskRename(taskId) {
+  delete state.taskNameDrafts[taskId];
+  if (state.renameDialogTaskId === taskId) {
+    closeRenameTaskModal();
+  }
+}
+
+function startTaskRename(taskId) {
+  openRenameTaskModal(taskId);
+}
+
+async function moveTask(taskId, direction) {
+  const activeTasks = [...getActiveTaskTypes()].sort((a, b) => a.order - b.order);
+  const currentIndex = activeTasks.findIndex((task) => task.id === taskId);
+  if (currentIndex === -1) {
+    return;
+  }
+
+  const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+  const targetTask = activeTasks[targetIndex];
+  const currentTask = activeTasks[currentIndex];
+  if (!targetTask || !currentTask) {
+    return;
+  }
+
+  const currentOrder = currentTask.order;
+  currentTask.order = targetTask.order;
+  targetTask.order = currentOrder;
+  state.data.taskTypes.sort((a, b) => a.order - b.order);
+  persistStateSilently();
+  render();
+
+  await Promise.all([
+    syncTaskUpdate(currentTask, `已调整 ${currentTask.name} 的顺序`),
+    syncTaskUpdate(targetTask, `已调整 ${targetTask.name} 的顺序`),
+  ]);
+}
+
+async function reorderTasksByDrag(sourceTaskId, targetTaskId) {
+  if (!sourceTaskId || !targetTaskId || sourceTaskId === targetTaskId) {
+    return;
+  }
+
+  const fullSortedTasks = [...state.data.taskTypes].sort((a, b) => a.order - b.order);
+  const activeTasks = fullSortedTasks.filter((task) => !isTaskArchived(task));
+  const sourceIndex = activeTasks.findIndex((task) => task.id === sourceTaskId);
+  const targetIndex = activeTasks.findIndex((task) => task.id === targetTaskId);
+
+  if (sourceIndex === -1 || targetIndex === -1 || sourceIndex === targetIndex) {
+    return;
+  }
+
+  const reorderedActiveTasks = [...activeTasks];
+  const [movedTask] = reorderedActiveTasks.splice(sourceIndex, 1);
+  reorderedActiveTasks.splice(targetIndex, 0, movedTask);
+
+  let activeCursor = 0;
+  const mergedTasks = fullSortedTasks.map((task) => {
+    if (isTaskArchived(task)) {
+      return task;
+    }
+    const nextTask = reorderedActiveTasks[activeCursor];
+    activeCursor += 1;
+    return nextTask;
+  });
+
+  const changedTasks = [];
+  mergedTasks.forEach((task, index) => {
+    const nextOrder = index + 1;
+    if (task.order !== nextOrder) {
+      task.order = nextOrder;
+      changedTasks.push(task);
+    }
+  });
+
+  if (changedTasks.length === 0) {
+    return;
+  }
+
+  state.data.taskTypes = mergedTasks;
+  persistStateSilently();
+  render();
+
+  await Promise.all(
+    changedTasks.map((task) =>
+      syncTaskUpdate(task, `已调整 ${task.name} 的顺序`),
+    ),
+  );
+}
+
+async function reorderTasksToMatchOrder(orderedTaskIds) {
+  const orderMap = new Map(orderedTaskIds.map((taskId, index) => [taskId, index + 1]));
+  const changedTasks = [];
+
+  state.data.taskTypes.forEach((task) => {
+    if (!orderMap.has(task.id)) {
+      return;
+    }
+    const nextOrder = orderMap.get(task.id);
+    if (task.order !== nextOrder) {
+      task.order = nextOrder;
+      changedTasks.push(task);
+    }
+  });
+
+  if (changedTasks.length === 0) {
+    renderTaskList();
+    return;
+  }
+
+  state.data.taskTypes.sort((a, b) => a.order - b.order);
+  persistStateSilently();
+  render();
+
+  await Promise.all(
+    changedTasks.map((task) =>
+      syncTaskUpdate(task, `已调整 ${task.name} 的顺序`),
+    ),
+  );
+}
+
+function initTaskListSortable() {
+  if (!elements.taskList || typeof window.Sortable === "undefined") {
+    return;
+  }
+
+  if (taskListSortable) {
+    taskListSortable.destroy();
+  }
+
+  taskListSortable = window.Sortable.create(elements.taskList, {
+    animation: 220,
+    easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+    draggable: ".task-card:not(.new-task-card)",
+    handle: ".task-drag-handle",
+    ghostClass: "task-card-sort-ghost",
+    chosenClass: "task-card-sort-chosen",
+    dragClass: "task-card-sort-drag",
+    filter: ".new-task-card",
+    preventOnFilter: false,
+    onEnd(event) {
+      const orderedTaskIds = [...elements.taskList.querySelectorAll(".task-card:not(.new-task-card)")]
+        .map((card) => card.dataset.taskCard)
+        .filter(Boolean);
+
+      if (orderedTaskIds.length === 0) {
+        renderTaskList();
+        return;
+      }
+
+      void reorderTasksToMatchOrder(orderedTaskIds);
+    },
+  });
 }
 
 async function updateTaskColor(taskId, color) {
@@ -1462,16 +2398,174 @@ async function deleteTask(taskId) {
   if (!task) {
     return;
   }
-  state.data.taskTypes = state.data.taskTypes.filter(
-    (item) => item.id !== taskId,
+  const deletedTaskSnapshot = structuredClone(task);
+  const deletedTaskRecords = Object.entries(state.data.dailyRecords).reduce(
+    (accumulator, [dateKey, record]) => {
+      if (!record?.tasks?.[taskId]) {
+        return accumulator;
+      }
+      accumulator[dateKey] = structuredClone(record.tasks[taskId]);
+      return accumulator;
+    },
+    {},
   );
-  Object.values(state.data.dailyRecords).forEach((record) => {
-    delete record.tasks[taskId];
-  });
-  delete state.noteDrafts[taskId];
+  closeDeleteTaskModal();
+  permanentlyRemoveTaskFromLocalState(taskId);
   persistStateSilently();
   render();
+  setUndoAction({
+    undo: async () => {
+      state.data.taskTypes.push(deletedTaskSnapshot);
+      state.data.taskTypes.sort((a, b) => a.order - b.order);
+      Object.entries(deletedTaskRecords).forEach(([dateKey, taskState]) => {
+        const record = ensureRecord(dateKey);
+        record.tasks[taskId] = taskState;
+      });
+      persistStateSilently();
+      render();
+      await syncTaskCreate(deletedTaskSnapshot, `已撤销删除：${deletedTaskSnapshot.name}`);
+      await Promise.all(
+        Object.keys(deletedTaskRecords).map((dateKey) => syncRecordByDate(dateKey)),
+      );
+      setSaveStatus(`已撤销删除 ${deletedTaskSnapshot.name}`, "success");
+    },
+  });
   await syncTaskDelete(taskId, `已删除任务：${task.name}`);
+}
+
+async function archiveTask(taskId) {
+  const task = state.data.taskTypes.find((item) => item.id === taskId);
+  if (!task || isTaskArchived(task)) {
+    return;
+  }
+
+  closeArchiveTaskModal();
+  delete state.recentlyRestoredTaskIds[taskId];
+  const previousState = {
+    archived: Boolean(task.archived),
+    archivedAt: task.archivedAt || "",
+  };
+  task.archived = true;
+  task.archivedAt = new Date().toISOString();
+  persistStateSilently();
+  render();
+  setUndoAction({
+    undo: async () => {
+      task.archived = previousState.archived;
+      task.archivedAt = previousState.archivedAt;
+      persistStateSilently();
+      render();
+      await syncTaskUpdate(task, `已撤销存档：${task.name}`);
+    },
+  });
+  await syncTaskUpdate(task, `已存档任务：${task.name}`);
+}
+
+async function restoreTask(taskId) {
+  const task = state.data.taskTypes.find((item) => item.id === taskId);
+  if (!task || !isTaskArchived(task)) {
+    return;
+  }
+
+  task.archived = false;
+  task.archivedAt = "";
+  state.recentlyRestoredTaskIds[taskId] = true;
+  persistStateSilently();
+  render();
+  setUndoAction({
+    undo: async () => {
+      task.archived = true;
+      task.archivedAt = new Date().toISOString();
+      persistStateSilently();
+      render();
+      await syncTaskUpdate(task, `已撤销恢复：${task.name}`);
+    },
+  });
+  await syncTaskUpdate(task, `已恢复任务：${task.name}`);
+}
+
+function updateWeeklySummaryDraft(value) {
+  state.weeklySummaryDrafts[state.selectedWeek] = value;
+  renderWeeklySummaryMeta();
+}
+
+async function saveWeeklySummary() {
+  const currentWeek = state.selectedWeek;
+  const content =
+    elements.weeklySummaryInput && !elements.weeklySummaryInput.hidden
+      ? String(elements.weeklySummaryInput.value || "").trim()
+      : getWeeklySummaryDraft(currentWeek).trim();
+  const summary = {
+    content,
+    updatedAt: new Date().toISOString(),
+  };
+  closeWeeklySummarySaveModal();
+  state.data.weeklySummaries[currentWeek] = summary;
+  state.weeklySummaryDrafts[currentWeek] = content;
+  setWeeklySummaryMode(currentWeek, content ? "view" : "edit");
+  persistStateSilently();
+  renderControls();
+
+  if (state.auth.user) {
+    markWeeklySummaryPending(currentWeek, summary);
+  }
+
+  if (!isRemoteReady()) {
+    setSaveStatus(state.auth.user ? "周总结已保存，已标记为待同步" : "周总结已保存");
+    return;
+  }
+
+  if (state.selectedWeek === currentWeek) {
+    elements.weeklySummarySave.disabled = true;
+    elements.weeklySummarySave.textContent = "保存中...";
+  }
+
+  try {
+    await fetchApiJson(`/api/weekly-summaries/${currentWeek}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
+    });
+    clearWeeklySummaryPending(currentWeek);
+    setSaveStatus(`已保存 ${formatWeekRangeText(currentWeek)} 的周总结`);
+  } catch (error) {
+    console.warn("Failed to sync weekly summary.", error);
+    setSaveStatus("周总结已保存在本地，云端同步稍后重试");
+  } finally {
+    if (state.selectedWeek === currentWeek) {
+      elements.weeklySummarySave.disabled = false;
+    }
+    renderControls();
+  }
+}
+
+function editWeeklySummary() {
+  setWeeklySummaryMode(state.selectedWeek, "edit");
+  renderControls();
+  elements.weeklySummaryInput.focus();
+  elements.weeklySummaryInput.setSelectionRange(
+    elements.weeklySummaryInput.value.length,
+    elements.weeklySummaryInput.value.length,
+  );
+}
+
+function exportDashboardData() {
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    data: state.data,
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `lifeflow-dashboard-${formatDateKey(new Date())}.json`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  setSaveStatus("已导出当前 Dashboard 数据");
 }
 
 function openWidgetSettings(widget) {
@@ -1798,8 +2892,11 @@ async function bootstrapRemoteData() {
       await seedRemoteFromLocal(localSnapshot);
     }
     await syncTasksFromRemote();
-    await syncSelectedDateRecord({ silent: true });
-    await syncSelectedWeekReview({ silent: true });
+    await Promise.all([
+      syncSelectedDateRecord({ silent: true }),
+      syncSelectedWeekReview({ silent: true }),
+      syncSelectedWeekSummary({ silent: true }),
+    ]);
     if (shouldShowConnecting || state.remote.status !== "ready") {
       setSaveStatus("后端已连接，当前通过 API 同步数据");
     }
@@ -1840,8 +2937,11 @@ async function refreshRemoteForCurrentUser() {
 
   try {
     await syncTasksFromRemote();
-    await syncSelectedDateRecord({ silent: true });
-    await syncSelectedWeekReview({ silent: true });
+    await Promise.all([
+      syncSelectedDateRecord({ silent: true }),
+      syncSelectedWeekReview({ silent: true }),
+      syncSelectedWeekSummary({ silent: true }),
+    ]);
     state.remote.status = "ready";
     setSaveStatus(
       state.auth.user
@@ -1873,33 +2973,51 @@ async function seedRemoteFromLocal(snapshot) {
   );
   const localTasks = sanitizeTaskTypes(snapshot.taskTypes);
 
-  for (const task of localTasks) {
-    if (remoteTaskIds.has(task.id)) {
-      continue;
-    }
-    await fetchApiJson("/api/tasks", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: task.id,
-        name: task.name,
-        color: task.color,
-        displayOrder: task.order,
-      }),
-    });
-  }
+  await Promise.all(
+    localTasks
+      .filter((task) => !remoteTaskIds.has(task.id))
+      .map((task) =>
+        fetchApiJson("/api/tasks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: task.id,
+            name: task.name,
+            color: task.color,
+            displayOrder: task.order,
+            archived: Boolean(task.archived),
+            archivedAt: task.archivedAt || null,
+          }),
+        }),
+      ),
+  );
 
   const entries = Object.entries(snapshot.dailyRecords || {}).filter(
     ([, record]) => hasMeaningfulRecord(record),
   );
 
-  for (const [date, record] of entries) {
-    await fetchApiJson(`/api/daily-records/${date}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(buildRemoteDailyPayload(record)),
-    });
-  }
+  await Promise.all(
+    entries.map(([date, record]) =>
+      fetchApiJson(`/api/daily-records/${date}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildRemoteDailyPayload(record)),
+      }),
+    ),
+  );
+
+  const weeklySummaryEntries = Object.entries(snapshot.weeklySummaries || {}).filter(
+    ([, summary]) => summary && typeof summary.content === "string" && summary.content.trim(),
+  );
+  await Promise.all(
+    weeklySummaryEntries.map(([week, summary]) =>
+      fetchApiJson(`/api/weekly-summaries/${week}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: summary.content || "" }),
+      }),
+    ),
+  );
 
   localStorage.setItem(seedKey, "done");
 }
@@ -1919,15 +3037,39 @@ function hasMeaningfulRecord(record) {
 
 async function detectApiBase() {
   const candidates = getApiBaseCandidates();
-  for (const baseUrl of candidates) {
+  const [preferred, ...fallbacks] = candidates;
+
+  if (preferred) {
     try {
-      const health = await fetchJson(joinApiPath(baseUrl, "/health"));
+      const health = await fetchJson(joinApiPath(preferred, "/health"), {
+        timeoutMs: API_PROBE_TIMEOUT_MS,
+      });
       if (health?.ok) {
-        return baseUrl;
+        return preferred;
       }
     } catch (error) {
-      // Ignore probe failures and continue with the next candidate.
+      // Ignore probe failures and continue with the fallback candidates.
     }
+  }
+
+  if (fallbacks.length === 0) {
+    return "";
+  }
+
+  try {
+    return await Promise.any(
+      fallbacks.map(async (baseUrl) => {
+        const health = await fetchJson(joinApiPath(baseUrl, "/health"), {
+          timeoutMs: API_PROBE_TIMEOUT_MS,
+        });
+        if (!health?.ok) {
+          throw new Error("Healthcheck failed");
+        }
+        return baseUrl;
+      }),
+    );
+  } catch (error) {
+    // Ignore probe failures and fall back to local mode.
   }
   return "";
 }
@@ -1996,16 +3138,25 @@ async function syncTasksFromRemote() {
       name: task.name,
       order: Number(task.display_order) || index + 1,
       color: task.color || getFallbackColor(index),
+      archived: Boolean(task.archived),
+      archivedAt: task.archived_at || "",
     })),
   );
   state.data.taskTypes = remoteTasks;
-  Object.values(state.data.dailyRecords).forEach((record) => {
-    const nextTasks = createEmptyTaskState(remoteTasks);
-    remoteTasks.forEach((task) => {
+  Object.entries(state.data.dailyRecords).forEach(([dateKey, record]) => {
+    const recordDate = record?.date || dateKey;
+    const scopedTaskTypes = getTaskTypesForDate(recordDate);
+    const nextTasks = createEmptyTaskState(scopedTaskTypes);
+    scopedTaskTypes.forEach((task) => {
       if (record.tasks[task.id]) {
-        nextTasks[task.id] = record.tasks[task.id];
+        nextTasks[task.id] = migrateTaskRecord(
+          record.tasks[task.id],
+          record.updatedAt,
+          recordDate,
+        );
       }
     });
+    record.date = recordDate;
     record.tasks = nextTasks;
   });
   ensureRecord(state.selectedDate);
@@ -2051,12 +3202,37 @@ async function syncSelectedWeekReview(options = {}) {
   return payload;
 }
 
+async function syncSelectedWeekSummary(options = {}) {
+  if (!isRemoteReady()) {
+    return state.data.weeklySummaries[state.selectedWeek] || null;
+  }
+
+  const payload = await fetchApiJson(`/api/weekly-summaries/${state.selectedWeek}`);
+  state.data.weeklySummaries[state.selectedWeek] = {
+    content: payload.summary?.content || "",
+    updatedAt: payload.summary?.updatedAt || "",
+  };
+  delete state.weeklySummaryDrafts[state.selectedWeek];
+  setWeeklySummaryMode(
+    state.selectedWeek,
+    state.data.weeklySummaries[state.selectedWeek].content ? "view" : "edit",
+  );
+  persistStateSilently();
+
+  if (!options.silent) {
+    setSaveStatus(`已同步 ${formatWeekRangeText(state.selectedWeek)} 的周总结`);
+  }
+
+  return state.data.weeklySummaries[state.selectedWeek];
+}
+
 function normalizeRemoteRecord(record, fallbackDate) {
   const date = record?.date || fallbackDate;
-  const nextRecord = createEmptyDailyRecord(date, state.data.taskTypes);
+  const scopedTaskTypes = getTaskTypesForDate(date);
+  const nextRecord = createEmptyDailyRecord(date, scopedTaskTypes);
   const payloadTasks = record?.payload?.tasks || {};
 
-  state.data.taskTypes.forEach((task) => {
+  scopedTaskTypes.forEach((task) => {
     nextRecord.tasks[task.id] = {
       completed: Boolean(payloadTasks[task.id]?.completed),
       notes: Array.isArray(payloadTasks[task.id]?.notes)
@@ -2081,7 +3257,8 @@ function normalizeRemoteRecord(record, fallbackDate) {
 
 function buildRemoteDailyPayload(record) {
   const tasks = {};
-  state.data.taskTypes.forEach((task) => {
+  const recordDate = record?.date || state.selectedDate;
+  getTaskTypesForDate(recordDate).forEach((task) => {
     const taskState = record.tasks[task.id] || { completed: false, notes: [] };
     tasks[task.id] = {
       completed: Boolean(taskState.completed),
@@ -2146,6 +3323,28 @@ async function syncCurrentRecord(successMessage) {
   }
 }
 
+async function syncRecordByDate(date) {
+  persistStateSilently();
+  if (state.auth.user) {
+    markRecordPending(date);
+  }
+
+  if (!isRemoteReady()) {
+    return;
+  }
+
+  const record = ensureRecord(date);
+  const payload = buildRemoteDailyPayload(record);
+  const response = await fetchApiJson(`/api/daily-records/${date}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  state.data.dailyRecords[date] = normalizeRemoteRecord(response.record, date);
+  clearRecordPending(date);
+  persistStateSilently();
+}
+
 async function syncTaskCreate(task, successMessage) {
   persistStateSilently();
   if (state.auth.user) {
@@ -2170,6 +3369,8 @@ async function syncTaskCreate(task, successMessage) {
         name: task.name,
         color: task.color,
         displayOrder: task.order,
+        archived: Boolean(task.archived),
+        archivedAt: task.archivedAt || null,
       }),
     });
     await syncTasksFromRemote();
@@ -2241,6 +3442,8 @@ async function syncTaskUpdate(task, successMessage) {
         name: task.name,
         color: task.color,
         displayOrder: task.order,
+        archived: Boolean(task.archived),
+        archivedAt: task.archivedAt || null,
       }),
     });
     clearTaskPending(task.id);
@@ -2391,7 +3594,22 @@ async function refreshStocks() {
 }
 
 async function fetchJson(url, options = {}) {
-  const response = await fetch(url, options);
+  const controller = new AbortController();
+  const timeoutMs =
+    Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
+      ? options.timeoutMs
+      : 0;
+  const timeoutId = timeoutMs
+    ? window.setTimeout(() => controller.abort(), timeoutMs)
+    : 0;
+  const response = await fetch(url, {
+    ...options,
+    signal: options.signal || controller.signal,
+  }).finally(() => {
+    if (timeoutId) {
+      window.clearTimeout(timeoutId);
+    }
+  });
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status}`);
   }
@@ -2725,14 +3943,12 @@ async function handleCalendarClick(event) {
     return;
   }
   state.selectedDate = button.dataset.calendarDate;
-  syncWeekToDate();
   ensureRecord(state.selectedDate);
   setSaveStatus(
     `正在加载 ${formatDisplayDate(parseLocalDate(state.selectedDate))} 的记录...`,
   );
   try {
     await syncSelectedDateRecord({ silent: true });
-    await syncSelectedWeekReview({ silent: true });
   } catch (error) {
     console.warn("Failed to load remote data for selected date.", error);
   }
@@ -2740,6 +3956,34 @@ async function handleCalendarClick(event) {
   setSaveStatus(
     `已切换到 ${formatDisplayDate(parseLocalDate(state.selectedDate))}`,
   );
+}
+
+async function handleWeeklyRangeChange(event) {
+  if (event.target !== elements.weeklyRangePicker) {
+    return;
+  }
+
+  const nextWeek = String(elements.weeklyRangePicker.value || "").trim();
+  if (!nextWeek || nextWeek === state.selectedWeek) {
+    renderControls();
+    return;
+  }
+
+  state.selectedWeek = nextWeek;
+  renderControls();
+  renderWeeklyReview();
+  setSaveStatus(`正在加载 ${formatWeekRangeText(state.selectedWeek)} 的周复盘...`);
+
+  try {
+    await syncSelectedWeekReview({ silent: true });
+    await syncSelectedWeekSummary({ silent: true });
+  } catch (error) {
+    console.warn("Failed to load remote weekly review.", error);
+  }
+
+  renderWeeklyReview();
+  renderControls();
+  setSaveStatus(`已切换到 ${formatWeekRangeText(state.selectedWeek)} 的周复盘`);
 }
 
 function handleTaskListClick(event) {
@@ -2765,8 +4009,14 @@ function handleTaskListClick(event) {
     state.newTaskColor = actionTarget.dataset.color;
     renderTaskList();
   }
-  if (action === "delete-task") {
-    void deleteTask(taskId);
+  if (action === "start-task-rename") {
+    startTaskRename(taskId);
+  }
+  if (action === "request-delete-task") {
+    openDeleteTaskModal(taskId);
+  }
+  if (action === "archive-task") {
+    openArchiveTaskModal(taskId);
   }
   if (action === "submit-note") {
     void submitTaskNote(taskId);
@@ -2778,10 +4028,9 @@ function handleTaskListClick(event) {
 
 function handleTaskListInput(event) {
   const input = event.target.closest('[data-action="draft-note"]');
-  if (!input) {
-    return;
+  if (input) {
+    updateNoteDraft(input.dataset.taskId, input.value);
   }
-  updateNoteDraft(input.dataset.taskId, input.value);
 }
 
 function handleTaskListSubmit(event) {
@@ -2792,6 +4041,86 @@ function handleTaskListSubmit(event) {
   event.preventDefault();
   const taskName = new FormData(form).get("taskName");
   void addTask(String(taskName || ""));
+}
+
+function handleWeeklyReviewClick(event) {
+  const actionTarget = event.target.closest("[data-action]");
+  if (!actionTarget) {
+    return;
+  }
+
+  const { action, taskId } = actionTarget.dataset;
+  if (action === "restore-task") {
+    void restoreTask(taskId);
+  }
+  if (action === "open-task-timeline") {
+    openTaskTimelineModal(taskId);
+  }
+}
+
+function handleWeeklySummaryInput(event) {
+  if (event.target !== elements.weeklySummaryInput) {
+    return;
+  }
+  updateWeeklySummaryDraft(elements.weeklySummaryInput.value);
+}
+
+function handleWeeklySummarySave() {
+  if (!getWeeklySummaryDraft(state.selectedWeek).trim()) {
+    setSaveStatus("请先填写周总结内容");
+    return;
+  }
+  openWeeklySummarySaveModal();
+}
+
+function handleWeeklySummaryEdit() {
+  editWeeklySummary();
+}
+
+function handleWeeklyFilterChange(event) {
+  const target = event.target;
+  if (target === elements.weeklyTaskFilter) {
+    state.weeklyFilters.taskId = target.value;
+  }
+  if (target === elements.weeklyCompletionFilter) {
+    state.weeklyFilters.completion = target.value;
+  }
+  if (target === elements.weeklyNotesFilter) {
+    state.weeklyFilters.notes = target.value;
+  }
+  if (target === elements.weeklyArchiveFilter) {
+    state.weeklyFilters.archive = target.value;
+  }
+  renderWeeklyReview();
+}
+
+function handleReviewModeClick(event) {
+  const button = event.target.closest("button");
+  if (!button) {
+    return;
+  }
+  if (button === elements.weeklyModeWeek) {
+    state.reviewMode = "week";
+  }
+  if (button === elements.weeklyModeMonth) {
+    state.reviewMode = "month";
+  }
+  renderControls();
+  renderWeeklyReview();
+}
+
+function handleMonthlyRangeChange(event) {
+  if (event.target !== elements.monthlyRangePicker) {
+    return;
+  }
+  state.selectedMonth = String(elements.monthlyRangePicker.value || state.selectedMonth);
+  renderControls();
+  renderWeeklyReview();
+  setSaveStatus(`已切换到 ${formatMonthRangeText(state.selectedMonth)} 的复盘`, "success");
+}
+
+function handleExportData() {
+  exportDashboardData();
 }
 
 function handleShowMoreClick(event) {
@@ -2815,6 +4144,21 @@ function handleModalClick(event) {
   if (event.target.closest("[data-modal-close]")) {
     closeModal();
   }
+  if (event.target.closest("[data-delete-modal-close]")) {
+    closeDeleteTaskModal();
+  }
+  if (event.target.closest("[data-archive-modal-close]")) {
+    closeArchiveTaskModal();
+  }
+  if (event.target.closest("[data-rename-modal-close]")) {
+    closeRenameTaskModal();
+  }
+  if (event.target.closest("[data-weekly-summary-save-modal-close]")) {
+    closeWeeklySummarySaveModal();
+  }
+  if (event.target.closest("[data-task-timeline-modal-close]")) {
+    closeTaskTimelineModal();
+  }
 }
 
 function handleModalSubmit(event) {
@@ -2823,6 +4167,93 @@ function handleModalSubmit(event) {
   }
   event.preventDefault();
   saveSettings(new FormData(elements.settingsForm));
+}
+
+function handleDeleteTaskConfirmClick(event) {
+  const button = event.target.closest("#delete-task-confirm");
+  if (!button || !button.dataset.taskId) {
+    return;
+  }
+  void deleteTask(button.dataset.taskId);
+}
+
+function handleArchiveTaskConfirmClick(event) {
+  const button = event.target.closest("#archive-task-confirm");
+  if (!button || !button.dataset.taskId) {
+    return;
+  }
+  void archiveTask(button.dataset.taskId);
+}
+
+function handleRenameTaskConfirmClick(event) {
+  const button = event.target.closest("#rename-task-confirm");
+  if (!button || !button.dataset.taskId) {
+    return;
+  }
+  void renameTask(button.dataset.taskId);
+}
+
+function handleWeeklySummarySaveConfirmClick(event) {
+  const button = event.target.closest("#weekly-summary-save-confirm");
+  if (!button || button.disabled) {
+    return;
+  }
+  void saveWeeklySummary();
+}
+
+function handleSaveStatusUndo() {
+  if (!state.undoAction?.undo) {
+    return;
+  }
+  const undo = state.undoAction.undo;
+  clearUndoAction();
+  void undo();
+}
+
+function handleSaveStatusRetry() {
+  if (isRemoteReady() && state.auth.user) {
+    void flushPendingSync()
+      .then(() => {
+        state.remote.status = "ready";
+        setSaveStatus("待同步内容已重新提交", "success");
+        render();
+      })
+      .catch((error) => {
+        console.warn("Retry sync failed.", error);
+        state.remote.status = "sync-error";
+        setSaveStatus("重新同步失败，请稍后再试");
+        renderControls();
+      });
+    return;
+  }
+
+  if (state.auth.user) {
+    void bootstrapRemoteData();
+    return;
+  }
+  setSaveStatus("请先登录云端账号后再尝试同步");
+}
+
+function handleTaskListKeydown(event) {
+  const input = event.target.closest('[data-action="draft-note"]');
+  if (!input) {
+    return;
+  }
+  if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+    event.preventDefault();
+    void submitTaskNote(input.dataset.taskId);
+  }
+}
+
+function handleRenameTaskInput(event) {
+  if (event.target !== elements.renameTaskInput) {
+    return;
+  }
+  const taskId = state.renameDialogTaskId;
+  if (!taskId) {
+    return;
+  }
+  updateTaskNameDraft(taskId, elements.renameTaskInput.value);
 }
 
 function handleAuthAction() {
@@ -2843,6 +4274,20 @@ function handleAuthSubmit(event) {
   void authenticateWithPassword(new FormData(elements.authGateForm), action);
 }
 
+function hasUnsavedWeeklySummaryChanges() {
+  return Object.keys(state.weeklySummaryDrafts).some((week) => {
+    return getWeeklySummaryDraft(week) !== (state.data.weeklySummaries[week]?.content || "");
+  });
+}
+
+function handleBeforeUnload(event) {
+  if (!hasUnsavedWeeklySummaryChanges()) {
+    return;
+  }
+  event.preventDefault();
+  event.returnValue = "你有未保存的周总结修改。";
+}
+
 function bindEvents() {
   document
     .querySelector(".top-tabs")
@@ -2854,10 +4299,33 @@ function bindEvents() {
     .querySelector(".theme-switcher")
     .addEventListener("click", handleThemeClick);
   elements.authAction.addEventListener("click", handleAuthAction);
+  elements.exportDataButton.addEventListener("click", handleExportData);
   elements.calendarGrid.addEventListener("click", handleCalendarClick);
+  elements.weeklyModeWeek.addEventListener("click", handleReviewModeClick);
+  elements.weeklyModeMonth.addEventListener("click", handleReviewModeClick);
+  elements.weeklyRangePicker.addEventListener("change", handleWeeklyRangeChange);
+  elements.monthlyRangePicker.addEventListener("change", handleMonthlyRangeChange);
+  elements.weeklySummaryInput.addEventListener("input", handleWeeklySummaryInput);
+  elements.weeklySummaryEdit.addEventListener("click", handleWeeklySummaryEdit);
+  elements.weeklySummarySave.addEventListener("click", handleWeeklySummarySave);
+  if (elements.weeklySummarySaveModal) {
+    elements.weeklySummarySaveModal.addEventListener("click", handleModalClick);
+    elements.weeklySummarySaveModal.addEventListener(
+      "click",
+      handleWeeklySummarySaveConfirmClick,
+    );
+  }
+  elements.weeklyTaskFilter.addEventListener("change", handleWeeklyFilterChange);
+  elements.weeklyCompletionFilter.addEventListener("change", handleWeeklyFilterChange);
+  elements.weeklyNotesFilter.addEventListener("change", handleWeeklyFilterChange);
+  elements.weeklyArchiveFilter.addEventListener("change", handleWeeklyFilterChange);
+  elements.saveStatusUndo.addEventListener("click", handleSaveStatusUndo);
+  elements.saveStatusRetry.addEventListener("click", handleSaveStatusRetry);
   elements.taskList.addEventListener("click", handleTaskListClick);
   elements.taskList.addEventListener("input", handleTaskListInput);
+  elements.taskList.addEventListener("keydown", handleTaskListKeydown);
   elements.taskList.addEventListener("submit", handleTaskListSubmit);
+  elements.weeklyReviewList.addEventListener("click", handleWeeklyReviewClick);
   document.querySelectorAll("[data-app-tab-target]").forEach((button) => {
     button.addEventListener("click", handleShowMoreClick);
   });
@@ -2866,9 +4334,20 @@ function bindEvents() {
     .addEventListener("click", handleWidgetClick);
   elements.settingsModal.addEventListener("click", handleModalClick);
   elements.settingsForm.addEventListener("submit", handleModalSubmit);
+  elements.deleteTaskModal.addEventListener("click", handleModalClick);
+  elements.deleteTaskConfirm.addEventListener("click", handleDeleteTaskConfirmClick);
+  elements.archiveTaskModal.addEventListener("click", handleModalClick);
+  elements.archiveTaskConfirm.addEventListener("click", handleArchiveTaskConfirmClick);
+  elements.renameTaskModal.addEventListener("click", handleModalClick);
+  elements.renameTaskConfirm.addEventListener("click", handleRenameTaskConfirmClick);
+  elements.renameTaskInput.addEventListener("input", handleRenameTaskInput);
+  if (elements.taskTimelineModal) {
+    elements.taskTimelineModal.addEventListener("click", handleModalClick);
+  }
   if (elements.authGateForm) {
     elements.authGateForm.addEventListener("submit", handleAuthSubmit);
   }
+  window.addEventListener("beforeunload", handleBeforeUnload);
 }
 
 function getTodayDateString() {
@@ -2916,6 +4395,62 @@ function formatWeekInputValue(date) {
   return `${weekDate.getFullYear()}-W${String(weekNumber).padStart(2, "0")}`;
 }
 
+function formatMonthValue(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function getMonthRange(monthValue) {
+  const [year, month] = String(monthValue).split("-").map(Number);
+  const start = new Date(year, month - 1, 1);
+  const end = new Date(year, month, 0);
+  start.setHours(0, 0, 0, 0);
+  end.setHours(0, 0, 0, 0);
+  return { start, end };
+}
+
+function getDaySpan(start, end) {
+  return Math.floor((end - start) / 86400000) + 1;
+}
+
+function getWeeklyRangeOptions() {
+  const now = new Date();
+  const currentWeek = formatWeekInputValue(now);
+  const firstSelectableDate = new Date(now.getFullYear(), 1, 1);
+  let cursor = getStartOfWeek(firstSelectableDate);
+  const currentRange = getWeekRangeFromWeekValue(currentWeek);
+  const options = [];
+
+  while (cursor <= currentRange.start) {
+    const value = formatWeekInputValue(cursor);
+    options.push({
+      value,
+      label: formatWeekRangeText(value),
+    });
+    cursor = addDays(cursor, 7);
+  }
+
+  return options;
+}
+
+function getMonthlyRangeOptions() {
+  const now = new Date();
+  const firstSelectableDate = new Date(now.getFullYear(), 1, 1);
+  const options = [];
+  const cursor = new Date(firstSelectableDate.getFullYear(), firstSelectableDate.getMonth(), 1);
+  const end = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  while (cursor <= end) {
+    const value = formatMonthValue(cursor);
+    options.push({
+      value,
+      label: formatMonthRangeText(value),
+    });
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+
+  return options;
+}
+
 function getWeekRangeFromWeekValue(weekValue) {
   const [yearPart, weekPart] = weekValue.split("-W");
   const year = Number(yearPart);
@@ -2944,6 +4479,11 @@ function formatMonthDay(date) {
 
 function formatWeekRangeText(weekValue) {
   const range = getWeekRangeFromWeekValue(weekValue);
+  return `${formatMonthDay(range.start)} - ${formatMonthDay(range.end)}`;
+}
+
+function formatMonthRangeText(monthValue) {
+  const range = getMonthRange(monthValue);
   return `${formatMonthDay(range.start)} - ${formatMonthDay(range.end)}`;
 }
 

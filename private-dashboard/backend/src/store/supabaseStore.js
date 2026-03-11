@@ -21,7 +21,7 @@ class SupabaseStore {
   async listTasks(scope = {}) {
     let query = this.client
       .from("tasks")
-      .select("id, name, color, display_order, created_at")
+      .select("id, name, color, display_order, archived, archived_at, created_at")
       .order("display_order", { ascending: true });
 
     if (this.schemaMode === "user-scoped") {
@@ -43,7 +43,7 @@ class SupabaseStore {
     const { data, error } = await this.client
       .from("tasks")
       .insert(payload)
-      .select("id, name, color, display_order, created_at")
+      .select("id, name, color, display_order, archived, archived_at, created_at")
       .single();
 
     if (error) {
@@ -54,13 +54,26 @@ class SupabaseStore {
   }
 
   async updateTask(scope = {}, taskId, patch) {
+    const updatePayload = {};
+    if (typeof patch.name !== "undefined") {
+      updatePayload.name = patch.name;
+    }
+    if (typeof patch.color !== "undefined") {
+      updatePayload.color = patch.color;
+    }
+    if (typeof patch.display_order !== "undefined") {
+      updatePayload.display_order = patch.display_order;
+    }
+    if (typeof patch.archived !== "undefined") {
+      updatePayload.archived = patch.archived;
+    }
+    if (typeof patch.archived_at !== "undefined") {
+      updatePayload.archived_at = patch.archived_at;
+    }
+
     let query = this.client
       .from("tasks")
-      .update({
-        name: patch.name,
-        color: patch.color,
-        display_order: patch.display_order,
-      })
+      .update(updatePayload)
       .eq("id", taskId);
 
     if (this.schemaMode === "user-scoped") {
@@ -68,7 +81,7 @@ class SupabaseStore {
     }
 
     const { data, error } = await query
-      .select("id, name, color, display_order, created_at")
+      .select("id, name, color, display_order, archived, archived_at, created_at")
       .single();
 
     if (error) {
@@ -171,6 +184,64 @@ class SupabaseStore {
       payload: record.payload,
       updatedAt: record.updated_at,
     }));
+  }
+
+  async getWeeklySummary(scope = {}, week) {
+    let query = this.client
+      .from("weekly_summaries")
+      .select("week_key, content, updated_at")
+      .eq("week_key", week);
+
+    if (this.schemaMode === "user-scoped") {
+      query = query.eq("user_id", scope.userId || "public");
+    }
+
+    const { data, error } = await query.maybeSingle();
+    if (error) {
+      throw error;
+    }
+    if (!data) {
+      return null;
+    }
+    return {
+      week: data.week_key,
+      content: data.content || "",
+      updatedAt: data.updated_at,
+    };
+  }
+
+  async upsertWeeklySummary(scope = {}, week, payload) {
+    const summaryPayload =
+      this.schemaMode === "user-scoped"
+        ? {
+            user_id: scope.userId || "public",
+            week_key: week,
+            content: payload.content || "",
+            updated_at: new Date().toISOString(),
+          }
+        : {
+            week_key: week,
+            content: payload.content || "",
+            updated_at: new Date().toISOString(),
+          };
+
+    const { data, error } = await this.client
+      .from("weekly_summaries")
+      .upsert(summaryPayload, {
+        onConflict: this.schemaMode === "user-scoped" ? "user_id,week_key" : "week_key",
+      })
+      .select("week_key, content, updated_at")
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    return {
+      week: data.week_key,
+      content: data.content || "",
+      updatedAt: data.updated_at,
+    };
   }
 }
 
