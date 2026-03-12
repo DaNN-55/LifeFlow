@@ -1302,6 +1302,9 @@ function renderMonthlyRangeOptions() {
 
 function renderCloudStatusChip() {
   const chip = elements.cloudStatusChip;
+  if (!chip) {
+    return;
+  }
   chip.className = "status-chip";
 
   if (
@@ -1343,7 +1346,14 @@ function renderAuthStatusChip() {
   chip.setAttribute("aria-expanded", state.accountMenuOpen ? "true" : "false");
 
   if (state.auth.status === "ready" && state.auth.user?.username) {
-    chip.classList.add("is-cloud", "account-chip");
+    chip.classList.add("account-chip");
+    if (state.remote.status === "connecting") {
+      chip.classList.add("is-syncing");
+    } else if (state.remote.status === "ready") {
+      chip.classList.add("is-cloud");
+    } else if (state.remote.status === "sync-error" || state.remote.status === "offline") {
+      chip.classList.add("is-error");
+    }
     chip.textContent = state.auth.user.username;
     elements.authAction.textContent = "退出登录";
     return;
@@ -1746,7 +1756,7 @@ function renderContentChannel(channel) {
   channelElements.grid.innerHTML = contentState.items
     .map(
       (item) => `
-        <article class="content-card" data-content-open="${escapeAttribute(item.id)}">
+        <article class="content-card ${item.is_favorite ? "is-favorited" : ""}" data-content-open="${escapeAttribute(item.id)}">
           <div class="content-card-main">
             <h3>${escapeHtml(item.title)}</h3>
             <p>${escapeHtml(item.summary_zh || "暂无摘要。")}</p>
@@ -1763,7 +1773,7 @@ function renderContentChannel(channel) {
               data-content-favorite="${escapeAttribute(item.id)}"
               aria-label="${item.is_favorite ? "取消收藏" : "收藏资讯"}"
             >
-              ${item.is_favorite ? "已收藏" : "收藏"}
+              ${item.is_favorite ? "取消收藏" : "收藏"}
             </button>
             ${
               Array.isArray(item.tags) && item.tags.length
@@ -1832,7 +1842,7 @@ function renderContentDetailModal() {
       data-content-favorite="${escapeAttribute(item.id)}"
       aria-label="${item.is_favorite ? "取消收藏" : "收藏资讯"}"
     >
-      ${item.is_favorite ? "已收藏" : "收藏"}
+      ${item.is_favorite ? "取消收藏" : "收藏"}
     </button>
   `;
   const fullBody = item.body_zh || item.body_raw || item.summary_raw || item.summary_zh || "暂无内容。";
@@ -4019,10 +4029,11 @@ async function bootstrapRemoteData() {
     return;
   }
 
-  state.remote.status = "ready";
+  state.remote.status = "connecting";
   state.remote.apiBase = apiBase;
   state.remote.connectedThisSession = true;
   saveApiBase(apiBase);
+  renderControls();
 
   try {
     if (hasPendingSync()) {
@@ -4037,6 +4048,7 @@ async function bootstrapRemoteData() {
       syncSelectedWeekReview({ silent: true }),
       syncSelectedWeekSummary({ silent: true }),
     ]);
+    state.remote.status = "ready";
     if (shouldShowConnecting || state.remote.status !== "ready") {
       setSaveStatus("后端已连接，当前通过 API 同步数据");
     }
@@ -4228,6 +4240,8 @@ function getApiBaseCandidates() {
   const isLocalHost = ["localhost", "127.0.0.1"].includes(
     window.location.hostname,
   );
+  const isStoredLocalhost =
+    /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(fromStorage);
   const preferred = isLocalHost
     ? [
         fromStorage,
@@ -4237,7 +4251,7 @@ function getApiBaseCandidates() {
         DEFAULT_REMOTE_API_BASE,
       ]
     : [
-        fromStorage,
+        isStoredLocalhost ? "" : fromStorage,
         runtimeBase,
         DEFAULT_REMOTE_API_BASE,
         localhostBase,

@@ -2421,6 +2421,11 @@ body[data-theme="light"] .weather-tooltip {
     box-shadow 160ms ease;
 }
 
+.content-card.is-favorited {
+  background: color-mix(in srgb, var(--card-2) 92%, var(--panel));
+  border-color: color-mix(in srgb, var(--text) 18%, var(--line));
+}
+
 .content-card:hover,
 .content-card:focus-visible {
   transform: translateY(-2px);
@@ -2489,16 +2494,19 @@ body[data-theme="light"] .weather-tooltip {
 }
 
 .content-favorite-button {
-  min-height: 30px;
-  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  padding: 0 10px;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: transparent;
   color: var(--muted);
-  font: inherit;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+  font-family: "JetBrains Mono", monospace;
 }
 
 .content-favorite-button:hover,
@@ -2509,14 +2517,15 @@ body[data-theme="light"] .weather-tooltip {
 }
 
 .content-favorite-button.is-active {
-  border-color: var(--text);
-  background: var(--text);
-  color: var(--panel);
+  border-color: color-mix(in srgb, var(--text) 26%, var(--line));
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+  color: var(--text);
 }
 
 .content-tag {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   min-height: 26px;
   padding: 0 10px;
   border: 1px solid var(--line);
