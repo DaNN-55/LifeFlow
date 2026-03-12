@@ -9,6 +9,7 @@ const PENDING_SYNC_STORAGE_KEY = "lifeflow-private-dashboard-pending-sync";
 const WEATHER_CACHE_STORAGE_KEY = "lifeflow-private-dashboard-weather-cache";
 const API_PROBE_TIMEOUT_MS = 1500;
 const LOCAL_SCOPE_KEY = "__local__";
+const CONTENT_PAGE_SIZE = 10;
 
 const defaultTasks = [
   { id: "task1", name: "任务1", order: 1, color: "#4f46e5" },
@@ -41,7 +42,38 @@ const placeholderFeeds = {
   ],
 };
 
+const mockContentCatalog = {
+  finance: [
+    ["央行流动性窗口观察", "关注公开市场操作与短端利率变化。", "Macro Desk", "分析"],
+    ["美债收益率短线回落", "风险资产对降息预期重新定价。", "Bond Wire", "快讯"],
+    ["港股互联网板块回暖", "资金回流高流动性龙头资产。", "HK Markets", "日报"],
+    ["原油价格进入震荡区间", "供给预期与美元走势互相对冲。", "Commodities Now", "观察"],
+    ["半导体设备订单改善", "产业链资本开支信号边际修复。", "Chip Pulse", "产业"],
+    ["黄金避险情绪抬头", "地缘风险推动贵金属配置需求。", "Precious Metals", "快讯"],
+    ["消费复苏节奏分化", "高端白酒与可选消费表现不同步。", "CN Consumer", "专题"],
+    ["地产融资边际松动", "信用修复仍取决于销售回款。", "Property Lens", "分析"],
+    ["美元指数冲高回落", "新兴市场汇率压力暂时缓和。", "FX Daily", "外汇"],
+    ["AI 概念再获资金关注", "算力链条估值扩张但波动提升。", "Growth Radar", "专题"],
+  ],
+  science: [
+    ["神经接口材料进展", "柔性导电材料在长期植入中更稳定。", "Nature Briefing", "期刊"],
+    ["常温催化路径新结果", "降低工业反应能耗的思路更加清晰。", "ScienceDaily", "新闻"],
+    ["聚变约束实验刷新数据", "装置参数优化带来更长稳定窗口。", "Physics Wire", "实验"],
+    ["蛋白设计模型再升级", "生成式方法提升候选结构筛选效率。", "BioML Lab", "综述"],
+    ["二维材料传感精度提升", "低功耗检测方案更接近量产。", "Materials Update", "论文"],
+    ["海洋碳汇观测新方法", "多模态遥感提高区域估算准确率。", "Earth Systems", "研究"],
+    ["星系演化样本扩容", "深空数据帮助修正早期形成假设。", "Astro Review", "观测"],
+    ["电池界面副反应机制", "原位表征揭示容量衰减关键阶段。", "Energy Letters", "论文"],
+    ["类器官模型应用拓展", "疾病筛选与药效验证更加可控。", "Cell Notes", "快讯"],
+    ["量子误差校正新策略", "更低冗余开销提升实际部署可行性。", "Quantum Weekly", "分析"],
+  ],
+};
+
 const defaultWidgets = {
+  github: {
+    owner: "DanN-55",
+    profileUrl: "",
+  },
   weather: {
     title: "Weather",
     locationQuery: "",
@@ -51,6 +83,29 @@ const defaultWidgets = {
     symbols: "贵州茅台,宁德时代,000001",
   },
 };
+
+function createInitialContentChannelState(channel) {
+  return {
+    channel,
+    items: [],
+    featured: [],
+    tags: [],
+    sources: [],
+    page: 1,
+    total: 0,
+    pageSize: CONTENT_PAGE_SIZE,
+    search: "",
+    tag: "all",
+    sourceId: "all",
+    sort: "latest",
+    loading: false,
+    loaded: false,
+    refreshing: false,
+    usingMock: false,
+    error: "",
+    meta: "",
+  };
+}
 
 const elements = {
   body: document.body,
@@ -90,7 +145,29 @@ const elements = {
   homeView: document.querySelector("#home-view"),
   financeView: document.querySelector("#finance-view"),
   scienceView: document.querySelector("#science-view"),
+  financeSearch: document.querySelector("#finance-search"),
+  financeTagFilter: document.querySelector("#finance-tag-filter"),
+  financeSourceFilter: document.querySelector("#finance-source-filter"),
+  financeSortFilter: document.querySelector("#finance-sort-filter"),
+  financeContentMeta: document.querySelector("#finance-content-meta"),
+  financeContentGrid: document.querySelector("#finance-content-grid"),
+  financeContentPagination: document.querySelector("#finance-content-pagination"),
+  calendarCard: document.querySelector("#calendar-card"),
+  githubCard: document.querySelector("#github-card"),
+  githubCardLink: document.querySelector("#github-card-link"),
+  financeFeedCard: document.querySelector("#finance-feed-card"),
+  scienceFeedCard: document.querySelector("#science-feed-card"),
+  githubWidgetDisplay: document.querySelector("#github-widget-display"),
+  scienceSearch: document.querySelector("#science-search"),
+  scienceTagFilter: document.querySelector("#science-tag-filter"),
+  scienceSourceFilter: document.querySelector("#science-source-filter"),
+  scienceSortFilter: document.querySelector("#science-sort-filter"),
+  scienceContentMeta: document.querySelector("#science-content-meta"),
+  scienceContentGrid: document.querySelector("#science-content-grid"),
+  scienceContentPagination: document.querySelector("#science-content-pagination"),
+  weatherCard: document.querySelector("#weather-card"),
   weatherWidgetDisplay: document.querySelector("#weather-widget-display"),
+  stockCard: document.querySelector("#stock-card"),
   stockWidgetDisplay: document.querySelector("#stock-widget-display"),
   settingsModal: document.querySelector("#settings-modal"),
   settingsForm: document.querySelector("#settings-form"),
@@ -117,6 +194,15 @@ const elements = {
   deleteAccountModal: document.querySelector("#delete-account-modal"),
   deleteAccountForm: document.querySelector("#delete-account-form"),
   deleteAccountFeedback: document.querySelector("#delete-account-feedback"),
+  contentDetailModal: document.querySelector("#content-detail-modal"),
+  contentDetailKicker: document.querySelector("#content-detail-kicker"),
+  contentDetailTitle: document.querySelector("#content-detail-title"),
+  contentDetailBody: document.querySelector("#content-detail-body"),
+  contentSourceModal: document.querySelector("#content-source-modal"),
+  contentSourceTitle: document.querySelector("#content-source-title"),
+  contentSourceForm: document.querySelector("#content-source-form"),
+  contentSourceList: document.querySelector("#content-source-list"),
+  contentSourceId: document.querySelector("#content-source-id"),
 };
 
 const state = {
@@ -170,8 +256,21 @@ const state = {
     config: loadAuthConfig(),
     feedback: "",
   },
+  content: {
+    finance: createInitialContentChannelState("finance"),
+    science: createInitialContentChannelState("science"),
+    detailItem: null,
+    sourceModalChannel: "",
+    sourceEditingId: "",
+  },
   pendingSync: loadPendingSyncStore(),
   widgetData: {
+    github: {
+      status: "idle",
+      repos: [],
+      url: "",
+      message: "最近活跃仓库",
+    },
     weather: loadWeatherCache(),
     stock: { status: "idle", symbols: [], message: "" },
   },
@@ -180,6 +279,7 @@ const state = {
 let remoteBootstrapPromise = null;
 let taskListSortable = null;
 let undoActionTimer = null;
+let contentSearchDebounceTimer = null;
 
 function setAppVisibility(isVisible) {
   elements.body.style.visibility = isVisible ? "" : "hidden";
@@ -255,7 +355,40 @@ function createInitialData() {
     weeklySummaries: {},
     preferences: {
       theme: "light",
+      sidebar: {
+        calendar: true,
+        github: true,
+        financeFeed: true,
+        scienceFeed: true,
+        weather: true,
+        stock: true,
+      },
       widgets: structuredClone(defaultWidgets),
+    },
+  };
+}
+
+function mergePreferences(preferences = {}) {
+  const base = createInitialData().preferences;
+  return {
+    theme: normalizeThemePreference(preferences?.theme || base.theme),
+    sidebar: {
+      ...base.sidebar,
+      ...(preferences?.sidebar || {}),
+    },
+    widgets: {
+      github: {
+        ...base.widgets.github,
+        ...(preferences?.widgets?.github || {}),
+      },
+      weather: {
+        ...base.widgets.weather,
+        ...(preferences?.widgets?.weather || {}),
+      },
+      stock: {
+        ...base.widgets.stock,
+        ...(preferences?.widgets?.stock || {}),
+      },
     },
   };
 }
@@ -285,21 +418,7 @@ function loadData(scopeKey = LOCAL_SCOPE_KEY) {
       taskTypes,
       dailyRecords: migrateDailyRecords(parsed.dailyRecords, taskTypes),
       weeklySummaries: migrateWeeklySummaries(parsed.weeklySummaries),
-      preferences: {
-        theme: normalizeThemePreference(
-          parsed.preferences?.theme || base.preferences.theme,
-        ),
-        widgets: {
-          weather: {
-            ...base.preferences.widgets.weather,
-            ...(parsed.preferences?.widgets?.weather || {}),
-          },
-          stock: {
-            ...base.preferences.widgets.stock,
-            ...(parsed.preferences?.widgets?.stock || {}),
-          },
-        },
-      },
+      preferences: mergePreferences(parsed.preferences),
     };
   } catch (error) {
     console.warn("Failed to load dashboard data, resetting state.", error);
@@ -652,6 +771,33 @@ function persistStateSilently() {
   persistScopedData(getCurrentScopeKey(), state.data);
 }
 
+function applyAccountPreferences(preferences, options = {}) {
+  if (!preferences || typeof preferences !== "object") {
+    return;
+  }
+  state.data.preferences = mergePreferences(preferences);
+  persistStateSilently();
+  if (options.applyTheme !== false) {
+    applyTheme(state.data.preferences.theme);
+  }
+}
+
+async function saveAccountPreferencesRemote() {
+  if (!state.auth.user) {
+    return state.data.preferences;
+  }
+  const payload = structuredClone(state.data.preferences);
+  const response = await fetchApiJson("/api/account/preferences", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (response?.preferences) {
+    applyAccountPreferences(response.preferences, { applyTheme: true });
+  }
+  return state.data.preferences;
+}
+
 function saveApiBase(baseUrl) {
   if (!baseUrl) {
     localStorage.removeItem(API_BASE_STORAGE_KEY);
@@ -910,9 +1056,11 @@ function render() {
   renderControls();
   renderCalendar();
   renderFeeds();
+  renderContentStreams();
   renderTaskList();
   renderWeeklyReview();
   renderWidgets();
+  renderSidebarCards();
   renderModal();
   renderDeleteTaskModal();
   renderArchiveTaskModal();
@@ -924,6 +1072,8 @@ function render() {
   renderChangePasswordModal();
   renderClearAccountDataModal();
   renderDeleteAccountModal();
+  renderContentDetailModal();
+  renderContentSourceModal();
   applyButtonTooltips();
 }
 
@@ -956,6 +1106,28 @@ function renderTopTabs() {
   elements.homeView.hidden = state.activeAppTab !== "home";
   elements.financeView.hidden = state.activeAppTab !== "finance";
   elements.scienceView.hidden = state.activeAppTab !== "science";
+}
+
+function getContentChannelState(channel) {
+  return channel === "science" ? state.content.science : state.content.finance;
+}
+
+async function ensureContentChannelLoaded(channel, options = {}) {
+  if (!state.auth.user || !["finance", "science"].includes(channel)) {
+    return;
+  }
+  const contentState = getContentChannelState(channel);
+  const jobs = [];
+  if (options.refreshFeatured || !contentState.featured.length) {
+    jobs.push(loadFeaturedContent(channel));
+  }
+  if (options.force || !contentState.loaded) {
+    jobs.push(loadChannelContent(channel));
+  }
+  if (!jobs.length) {
+    return;
+  }
+  await Promise.all(jobs);
 }
 
 function renderCenterTabs() {
@@ -1201,6 +1373,32 @@ function renderAccountMenu() {
   elements.accountMenu.hidden = !shouldShow;
 }
 
+function getSidebarPreferences() {
+  return state.data.preferences?.sidebar || createInitialData().preferences.sidebar;
+}
+
+function renderSidebarCards() {
+  const sidebar = getSidebarPreferences();
+  if (elements.calendarCard) {
+    elements.calendarCard.hidden = !sidebar.calendar;
+  }
+  if (elements.githubCard) {
+    elements.githubCard.hidden = !sidebar.github;
+  }
+  if (elements.financeFeedCard) {
+    elements.financeFeedCard.hidden = !sidebar.financeFeed;
+  }
+  if (elements.scienceFeedCard) {
+    elements.scienceFeedCard.hidden = !sidebar.scienceFeed;
+  }
+  if (elements.weatherCard) {
+    elements.weatherCard.hidden = !sidebar.weather;
+  }
+  if (elements.stockCard) {
+    elements.stockCard.hidden = !sidebar.stock;
+  }
+}
+
 function renderAccountProfileModal() {
   const modal = elements.accountProfileModal;
   if (!modal) {
@@ -1225,15 +1423,13 @@ function renderAccountProfileModal() {
   const createdAt = profile.user.createdAt
     ? formatDateTime(profile.user.createdAt)
     : "--";
+  const sidebar = getSidebarPreferences();
+  const githubProfileUrl = String(state.data.preferences.widgets.github?.profileUrl || "").trim();
   elements.accountProfileBody.innerHTML = `
     <div class="account-profile-grid">
       <div class="account-profile-item">
         <span class="account-profile-label">用户名</span>
         <strong>${escapeHtml(profile.user.username || "--")}</strong>
-      </div>
-      <div class="account-profile-item">
-        <span class="account-profile-label">账号 ID</span>
-        <strong class="mono">${escapeHtml(profile.user.id || "--")}</strong>
       </div>
       <div class="account-profile-item">
         <span class="account-profile-label">创建时间</span>
@@ -1254,6 +1450,22 @@ function renderAccountProfileModal() {
         <strong>${Number(profile.counts?.weeklySummaries || 0)}</strong>
       </div>
     </div>
+    <form id="account-preferences-form" class="account-form account-preferences-form">
+      <div class="account-profile-item">
+        <span class="account-profile-label">面板开关</span>
+        <div class="account-card-toggle-list">
+          <label class="account-card-toggle"><input type="checkbox" name="calendar" ${sidebar.calendar ? "checked" : ""} /> <span>日历</span></label>
+          <label class="account-card-toggle"><input type="checkbox" name="github" ${sidebar.github ? "checked" : ""} /> <span>GitHub</span></label>
+          <label class="account-card-toggle"><input type="checkbox" name="financeFeed" ${sidebar.financeFeed ? "checked" : ""} /> <span>Finance</span></label>
+          <label class="account-card-toggle"><input type="checkbox" name="scienceFeed" ${sidebar.scienceFeed ? "checked" : ""} /> <span>Science</span></label>
+          <label class="account-card-toggle"><input type="checkbox" name="weather" ${sidebar.weather ? "checked" : ""} /> <span>天气</span></label>
+          <label class="account-card-toggle"><input type="checkbox" name="stock" ${sidebar.stock ? "checked" : ""} /> <span>股票</span></label>
+        </div>
+      </div>
+      <div class="delete-task-dialog-actions">
+        <button type="submit" class="settings-save">保存面板设置</button>
+      </div>
+    </form>
   `;
 }
 
@@ -1335,21 +1547,575 @@ function renderCalendar() {
 }
 
 function renderFeeds() {
-  renderFeedInto(elements.financeFeed, placeholderFeeds.finance);
-  renderFeedInto(elements.scienceFeed, placeholderFeeds.science);
+  renderFeedInto(elements.financeFeed, state.content.finance.featured, "finance");
+  renderFeedInto(elements.scienceFeed, state.content.science.featured, "science");
 }
 
-function renderFeedInto(container, items) {
+function renderFeedInto(container, items, channel) {
+  if (!Array.isArray(items) || items.length === 0) {
+    container.innerHTML = placeholderFeeds[channel]
+      .map(
+        (item) => `
+          <article class="feed-item">
+            <p class="feed-meta">${item.meta}</p>
+            <h3>${item.title}</h3>
+          </article>
+        `,
+      )
+      .join("");
+    return;
+  }
   container.innerHTML = items
     .map(
       (item) => `
         <article class="feed-item">
-          <p class="feed-meta">${item.meta}</p>
-          <h3>${item.title}</h3>
+          <h3>
+            <a href="${escapeAttribute(getSafeContentLink(item) || "#")}" target="_blank" rel="noreferrer">
+              ${escapeHtml(item.title)}
+            </a>
+          </h3>
+          <p class="feed-meta">${escapeHtml(formatFeedMeta(item))}</p>
         </article>
       `,
     )
     .join("");
+}
+
+function formatFeedMeta(item) {
+  const parts = [];
+  if (item.source_name) {
+    parts.push(item.source_name);
+  }
+  if (item.published_at) {
+    parts.push(formatDateTime(item.published_at));
+  }
+  return parts.join(" // ");
+}
+
+function getSafeContentLink(item) {
+  const candidates = [item?.canonical_url, item?.source_url];
+  return candidates.find((value) => /^https?:\/\//i.test(String(value || "").trim())) || "";
+}
+
+function buildMockContent(channel) {
+  const base = mockContentCatalog[channel] || [];
+  return base.map((item, index) => {
+    const publishedAt = new Date(Date.now() - index * 6 * 60 * 60 * 1000).toISOString();
+    const externalUrl = `https://example.com/${channel}/${index + 1}`;
+    return {
+      id: `mock-${channel}-${index + 1}`,
+      channel,
+      title: item[0],
+      summary_zh: item[1],
+      summary_raw: `${item[1]} 这是用于前端联调的完整示例内容，后续接入真实 RSS 后，这里会替换成更长的正文摘要、原始描述或正文摘录。`,
+      body_zh: `${item[1]}\n\n这是用于前端联调的完整示例内容，后续接入真实 RSS 后，这里会替换成更长的正文摘录，用于详情页阅读。`,
+      body_raw: `${item[1]} This is a mock long-form body used for frontend integration testing before the real RSS pipeline is fully connected.`,
+      source_name: item[2],
+      source_url: externalUrl,
+      canonical_url: externalUrl,
+      author: channel === "science" ? "编辑部" : "市场编辑",
+      published_at: publishedAt,
+      fetched_at: publishedAt,
+      content_type: item[3],
+      tags: [
+        channel === "science" ? "研究" : "市场",
+        item[3],
+      ],
+      lang: "zh",
+      is_featured: index < 3,
+    };
+  });
+}
+
+function getMockContentPayload(channel, currentState) {
+  let items = buildMockContent(channel);
+  const search = String(currentState.search || "").trim().toLowerCase();
+  if (search) {
+    items = items.filter((item) => {
+      return [item.title, item.summary_zh, item.body_zh, item.source_name]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(search));
+    });
+  }
+  if (currentState.tag !== "all") {
+    items = items.filter((item) => Array.isArray(item.tags) && item.tags.includes(currentState.tag));
+  }
+  if (currentState.sourceId !== "all") {
+    items = items.filter((item) => item.source_name === currentState.sourceId);
+  }
+  if (currentState.sort === "oldest") {
+    items = [...items].reverse();
+  }
+  const total = items.length;
+  const page = Math.max(1, Number(currentState.page || 1));
+  const start = (page - 1) * currentState.pageSize;
+  const pagedItems = items.slice(start, start + currentState.pageSize);
+  return {
+    items: pagedItems,
+    total,
+    page,
+    pageSize: currentState.pageSize,
+    tags: [...new Set(items.flatMap((item) => item.tags || []))],
+    sources: [...new Set(items.map((item) => item.source_name))].map((name) => ({
+      id: name,
+      name,
+    })),
+  };
+}
+
+function getContentElements(channel) {
+  if (channel === "finance") {
+    return {
+      search: elements.financeSearch,
+      tagFilter: elements.financeTagFilter,
+      sourceFilter: elements.financeSourceFilter,
+      sortFilter: elements.financeSortFilter,
+      meta: elements.financeContentMeta,
+      grid: elements.financeContentGrid,
+      pagination: elements.financeContentPagination,
+    };
+  }
+  return {
+    search: elements.scienceSearch,
+    tagFilter: elements.scienceTagFilter,
+    sourceFilter: elements.scienceSourceFilter,
+    sortFilter: elements.scienceSortFilter,
+    meta: elements.scienceContentMeta,
+    grid: elements.scienceContentGrid,
+    pagination: elements.scienceContentPagination,
+  };
+}
+
+function renderContentStreams() {
+  renderContentChannel("finance");
+  renderContentChannel("science");
+}
+
+function renderContentChannel(channel) {
+  const contentState = state.content[channel];
+  const channelElements = getContentElements(channel);
+  if (!channelElements.grid) {
+    return;
+  }
+
+  channelElements.search.value = contentState.search;
+  channelElements.sortFilter.value = contentState.sort;
+  channelElements.tagFilter.innerHTML = [
+    '<option value="all">全部标签</option>',
+    ...contentState.tags.map((tag) => `<option value="${escapeAttribute(tag)}">${escapeHtml(tag)}</option>`),
+  ].join("");
+  channelElements.sourceFilter.innerHTML = [
+    '<option value="all">全部来源</option>',
+    ...contentState.sources.map(
+      (source) => `<option value="${escapeAttribute(source.id)}">${escapeHtml(source.name)}</option>`,
+    ),
+  ].join("");
+  channelElements.tagFilter.value = contentState.tag;
+  channelElements.sourceFilter.value = contentState.sourceId;
+  channelElements.meta.textContent = contentState.meta || getContentMetaText(contentState);
+
+  if (contentState.loading && contentState.items.length === 0) {
+    channelElements.grid.innerHTML = '<div class="content-empty-state">正在加载资讯...</div>';
+    channelElements.pagination.innerHTML = "";
+    return;
+  }
+
+  if (contentState.error && contentState.items.length === 0) {
+    channelElements.grid.innerHTML = `<div class="content-empty-state">${escapeHtml(contentState.error)}</div>`;
+    channelElements.pagination.innerHTML = "";
+    return;
+  }
+
+  if (contentState.items.length === 0) {
+    channelElements.grid.innerHTML = '<div class="content-empty-state">暂无资讯，试试手动刷新或添加信源。</div>';
+    channelElements.pagination.innerHTML = "";
+    return;
+  }
+
+  channelElements.grid.innerHTML = contentState.items
+    .map(
+      (item) => `
+        <article class="content-card" data-content-open="${escapeAttribute(item.id)}">
+          <div class="content-card-main">
+            <h3>${escapeHtml(item.title)}</h3>
+            <p>${escapeHtml(item.summary_zh || "暂无摘要。")}</p>
+            <div class="content-card-footer">
+              <span>${escapeHtml(item.source_name || "未知来源")}</span>
+              <span>${escapeHtml(item.author || "未知作者")}</span>
+              <span>${escapeHtml(formatDateTime(item.published_at || item.fetched_at))}</span>
+            </div>
+          </div>
+          <div class="content-card-side">
+            ${
+              Array.isArray(item.tags) && item.tags.length
+                ? `<div class="content-card-tags">${item.tags
+                    .slice(0, 4)
+                    .map((tag) => `<span class="content-tag">${escapeHtml(tag)}</span>`)
+                    .join("")}</div>`
+                : '<div class="content-card-tags"><span class="content-tag">资讯</span></div>'
+            }
+          </div>
+        </article>
+      `,
+    )
+    .join("");
+
+  const totalPages = Math.max(1, Math.ceil(contentState.total / contentState.pageSize));
+  channelElements.pagination.innerHTML = `
+    <button type="button" class="task-cancel-action" data-content-page="${channel}:${contentState.page - 1}" ${
+      contentState.page <= 1 ? "disabled" : ""
+    }>上一页</button>
+    <span class="content-page-indicator">第 ${contentState.page} / ${totalPages} 页</span>
+    <button type="button" class="task-cancel-action" data-content-page="${channel}:${contentState.page + 1}" ${
+      contentState.page >= totalPages ? "disabled" : ""
+    }>下一页</button>
+  `;
+}
+
+function getContentMetaText(contentState) {
+  if (contentState.loading) {
+    return "正在同步最新资讯...";
+  }
+  if (contentState.usingMock) {
+    return `当前显示 10 条测试资讯，用于前端联调`;
+  }
+  const total = Number(contentState.total || 0);
+  if (!total) {
+    return "当前暂无缓存资讯。";
+  }
+  return `共 ${total} 条资讯 · 每页 ${contentState.pageSize} 条`;
+}
+
+function renderContentDetailModal() {
+  if (!elements.contentDetailModal || !elements.contentDetailBody || !elements.contentDetailTitle) {
+    return;
+  }
+  const item = state.content.detailItem;
+  elements.contentDetailModal.hidden = !item;
+  if (!item) {
+    elements.contentDetailTitle.textContent = "资讯详情";
+    elements.contentDetailKicker.textContent = "Article";
+    elements.contentDetailBody.innerHTML = "";
+    return;
+  }
+  elements.contentDetailKicker.textContent = item.channel === "science" ? "Science insight" : "Finance insight";
+  elements.contentDetailTitle.textContent = item.title;
+  const contentLink = getSafeContentLink(item);
+  const fullBody = item.body_zh || item.body_raw || item.summary_raw || item.summary_zh || "暂无内容。";
+  const leadSummary =
+    item.summary_zh && item.summary_zh !== fullBody ? item.summary_zh : "";
+  elements.contentDetailBody.innerHTML = `
+    <div class="content-detail-meta">
+      <span>${escapeHtml(item.source_name || "未知来源")}</span>
+      <span>${escapeHtml(item.author || "未知作者")}</span>
+      <span>${escapeHtml(item.content_type || "资讯")}</span>
+      <span>${escapeHtml(formatDateTime(item.published_at || item.fetched_at))}</span>
+    </div>
+    ${
+      Array.isArray(item.tags) && item.tags.length
+        ? `<div class="content-card-tags">${item.tags
+            .map((tag) => `<span class="content-tag">${escapeHtml(tag)}</span>`)
+            .join("")}</div>`
+        : ""
+    }
+    <div class="content-detail-summary">
+      <h3>正文内容</h3>
+      ${
+        leadSummary
+          ? `<p class="content-detail-lead">${escapeHtml(leadSummary)}</p>`
+          : ""
+      }
+      <p>${escapeHtml(fullBody)}</p>
+    </div>
+    <div class="content-detail-actions">
+      ${
+        contentLink
+          ? `<button type="button" class="settings-save content-link-button" data-content-open-link="${escapeAttribute(contentLink)}">
+              打开官网原文
+            </button>`
+          : `<button type="button" class="task-cancel-action" disabled>暂无官网原文链接</button>`
+      }
+    </div>
+  `;
+}
+
+function renderContentSourceModal() {
+  if (!elements.contentSourceModal || !elements.contentSourceList || !elements.contentSourceTitle) {
+    return;
+  }
+  const channel = state.content.sourceModalChannel;
+  elements.contentSourceModal.hidden = !channel;
+  if (!channel) {
+    return;
+  }
+  const channelLabel = channel === "science" ? "Science" : "Finance";
+  elements.contentSourceTitle.textContent = `${channelLabel} 信源管理`;
+  const sources = state.content[channel].sources || [];
+  const editingSource = sources.find((source) => source.id === state.content.sourceEditingId) || null;
+  if (elements.contentSourceForm) {
+    elements.contentSourceForm.dataset.channel = channel;
+    elements.contentSourceId.value = editingSource?.id || "";
+    elements.contentSourceForm.elements.name.value = editingSource?.name || "";
+    elements.contentSourceForm.elements.type.value = editingSource?.type || "rss";
+    elements.contentSourceForm.elements.url.value = editingSource?.url || "";
+    elements.contentSourceForm.elements.parserKey.value = editingSource?.parser_key || "";
+    elements.contentSourceForm.elements.enabled.value = String(
+      typeof editingSource?.enabled === "boolean" ? editingSource.enabled : true,
+    );
+  }
+  elements.contentSourceList.innerHTML = sources.length
+    ? sources
+        .map(
+          (source) => `
+            <article class="content-source-item">
+              <div>
+                <strong>${escapeHtml(source.name)}</strong>
+                <p>${escapeHtml(source.url)}</p>
+                <span class="feed-meta">${escapeHtml(source.type)} · ${source.enabled ? "已启用" : "已停用"}</span>
+              </div>
+              <div class="content-source-item-actions">
+                <button type="button" class="task-cancel-action" data-content-source-edit="${escapeAttribute(source.id)}">编辑</button>
+                ${
+                  source.is_default
+                    ? ""
+                    : `<button type="button" class="delete-task" data-content-source-delete="${escapeAttribute(source.id)}">删除</button>`
+                }
+              </div>
+            </article>
+          `,
+        )
+        .join("")
+    : '<div class="content-empty-state">当前没有可用信源。</div>';
+}
+
+async function loadFeaturedContent(channel) {
+  if (!state.auth.user) {
+    return;
+  }
+  try {
+    const payload = await fetchApiJson(`/api/content/featured?channel=${channel}&limit=3`);
+    state.content[channel].featured = Array.isArray(payload?.items) ? payload.items : [];
+    state.content[channel].usingMock = false;
+    renderFeeds();
+  } catch (error) {
+    console.warn(`Failed to load ${channel} featured content.`, error);
+    if (error?.message === "Request failed: 404") {
+      state.content[channel].featured = buildMockContent(channel).slice(0, 3);
+      state.content[channel].usingMock = true;
+      renderFeeds();
+    }
+  }
+}
+
+async function loadChannelContent(channel, options = {}) {
+  if (!state.auth.user) {
+    return;
+  }
+  const contentState = state.content[channel];
+  if (!contentState) {
+    return;
+  }
+  if (typeof options.page === "number") {
+    contentState.page = options.page;
+  }
+  if (typeof options.search === "string") {
+    contentState.search = options.search;
+  }
+  if (typeof options.tag === "string") {
+    contentState.tag = options.tag;
+  }
+  if (typeof options.sourceId === "string") {
+    contentState.sourceId = options.sourceId;
+  }
+  if (typeof options.sort === "string") {
+    contentState.sort = options.sort;
+  }
+  contentState.loading = true;
+  contentState.error = "";
+  contentState.meta = "正在加载资讯...";
+  renderContentChannel(channel);
+
+  try {
+    const params = new URLSearchParams({
+      channel,
+      page: String(contentState.page),
+      pageSize: String(contentState.pageSize),
+      sort: contentState.sort,
+    });
+    if (contentState.search) {
+      params.set("q", contentState.search);
+    }
+    if (contentState.tag !== "all") {
+      params.set("tag", contentState.tag);
+    }
+    if (contentState.sourceId !== "all") {
+      params.set("sourceId", contentState.sourceId);
+    }
+    const payload = await fetchApiJson(`/api/content?${params.toString()}`);
+    contentState.items = Array.isArray(payload?.items) ? payload.items : [];
+    contentState.total = Number(payload?.total || 0);
+    contentState.page = Number(payload?.page || contentState.page);
+    contentState.tags = Array.isArray(payload?.tags) ? payload.tags : [];
+    contentState.sources = Array.isArray(payload?.sources) ? payload.sources : [];
+    contentState.loaded = true;
+    contentState.usingMock = false;
+    contentState.meta = getContentMetaText(contentState);
+  } catch (error) {
+    console.warn(`Failed to load ${channel} content.`, error);
+    if (error?.message === "Request failed: 404") {
+      const mockPayload = getMockContentPayload(channel, contentState);
+      contentState.items = mockPayload.items;
+      contentState.total = mockPayload.total;
+      contentState.page = mockPayload.page;
+      contentState.tags = mockPayload.tags;
+      contentState.sources = mockPayload.sources;
+      contentState.loaded = true;
+      contentState.usingMock = true;
+      contentState.error = "";
+      contentState.meta = getContentMetaText(contentState);
+    } else {
+      contentState.error = error?.message || "资讯加载失败";
+    }
+  } finally {
+    contentState.loading = false;
+    renderContentChannel(channel);
+  }
+}
+
+async function refreshChannelContentManually(channel) {
+  const contentState = state.content[channel];
+  if (!contentState || contentState.refreshing) {
+    return;
+  }
+  contentState.refreshing = true;
+  contentState.meta = "正在刷新资讯...";
+  renderContentChannel(channel);
+  try {
+    await fetchApiJson("/api/content/refresh", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ channel }),
+    });
+    await Promise.all([loadChannelContent(channel), loadFeaturedContent(channel)]);
+    setSaveStatus(`${channel === "science" ? "Science" : "Finance"} 资讯已刷新`, "success");
+  } catch (error) {
+    console.warn(`Failed to refresh ${channel} content.`, error);
+    contentState.error = error?.message || "资讯刷新失败";
+    setSaveStatus(contentState.error);
+    renderContentChannel(channel);
+  } finally {
+    contentState.refreshing = false;
+  }
+}
+
+function queueContentSearch(channel, value) {
+  const nextSearch = String(value || "").trim();
+  window.clearTimeout(contentSearchDebounceTimer);
+  contentSearchDebounceTimer = window.setTimeout(() => {
+    void loadChannelContent(channel, {
+      page: 1,
+      search: nextSearch,
+    });
+  }, 220);
+}
+
+async function openContentDetail(itemId) {
+  if (!itemId) {
+    return;
+  }
+  const localItem = [...state.content.finance.items, ...state.content.finance.featured, ...state.content.science.items, ...state.content.science.featured]
+    .find((item) => item.id === itemId);
+  if (localItem?.id?.startsWith("mock-")) {
+    state.content.detailItem = localItem;
+    renderContentDetailModal();
+    return;
+  }
+  try {
+    const payload = await fetchApiJson(`/api/content/${itemId}`);
+    state.content.detailItem = payload?.item || null;
+    renderContentDetailModal();
+  } catch (error) {
+    console.warn("Failed to load content detail.", error);
+  }
+}
+
+function closeContentDetailModal() {
+  state.content.detailItem = null;
+  renderContentDetailModal();
+}
+
+async function openContentSourceModal(channel) {
+  state.content.sourceModalChannel = channel;
+  state.content.sourceEditingId = "";
+  renderContentSourceModal();
+  try {
+    const payload = await fetchApiJson(`/api/content-sources?channel=${channel}`);
+    state.content[channel].sources = Array.isArray(payload?.sources) ? payload.sources : [];
+  } catch (error) {
+    console.warn(`Failed to load ${channel} sources.`, error);
+    if (error?.message === "Request failed: 404") {
+      state.content[channel].sources = [];
+    }
+  }
+  renderContentSourceModal();
+}
+
+function closeContentSourceModal() {
+  state.content.sourceModalChannel = "";
+  state.content.sourceEditingId = "";
+  renderContentSourceModal();
+}
+
+async function handleContentSourceSubmit(event) {
+  if (event.target !== elements.contentSourceForm) {
+    return;
+  }
+  event.preventDefault();
+  const channel = elements.contentSourceForm.dataset.channel || state.content.sourceModalChannel;
+  if (!channel) {
+    return;
+  }
+  const formData = new FormData(elements.contentSourceForm);
+  const sourceId = String(formData.get("sourceId") || "");
+  const payload = {
+    channel,
+    name: String(formData.get("name") || "").trim(),
+    type: String(formData.get("type") || "rss"),
+    url: String(formData.get("url") || "").trim(),
+    parserKey: String(formData.get("parserKey") || "").trim(),
+    enabled: String(formData.get("enabled") || "true") === "true",
+  };
+  const path = sourceId ? `/api/content-sources/${sourceId}` : "/api/content-sources";
+  const method = sourceId ? "PATCH" : "POST";
+  try {
+    await fetchApiJson(path, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    elements.contentSourceForm.reset();
+    state.content.sourceEditingId = "";
+    await Promise.all([
+      openContentSourceModal(channel),
+      loadChannelContent(channel),
+      loadFeaturedContent(channel),
+    ]);
+    setSaveStatus("信源已保存", "success");
+  } catch (error) {
+    console.warn("Failed to save content source.", error);
+    setSaveStatus(error?.message || "保存信源失败");
+  }
+}
+
+async function deleteContentSource(channel, sourceId) {
+  try {
+    await fetchApiJson(`/api/content-sources/${sourceId}`, { method: "DELETE" });
+    await Promise.all([openContentSourceModal(channel), loadChannelContent(channel), loadFeaturedContent(channel)]);
+    setSaveStatus("信源已删除", "success");
+  } catch (error) {
+    console.warn("Failed to delete content source.", error);
+    setSaveStatus(error?.message || "删除信源失败");
+  }
 }
 
 function renderTaskList() {
@@ -1716,8 +2482,99 @@ function normalizeWeeklyAggregation(payload) {
 }
 
 function renderWidgets() {
+  if (elements.githubWidgetDisplay) {
+    elements.githubWidgetDisplay.innerHTML = renderGitHubWidget();
+  }
   elements.weatherWidgetDisplay.innerHTML = renderWeatherWidget();
   elements.stockWidgetDisplay.innerHTML = renderStockWidget();
+}
+
+function renderGitHubWidget() {
+  const repo = state.widgetData.github;
+  const profileUrl = String(state.data.preferences.widgets.github?.profileUrl || "").trim();
+  if (elements.githubCardLink) {
+    elements.githubCardLink.href = profileUrl || "#";
+    elements.githubCardLink.setAttribute("aria-disabled", profileUrl ? "false" : "true");
+    elements.githubCardLink.tabIndex = profileUrl ? 0 : -1;
+  }
+  const items = Array.isArray(repo.repos) ? repo.repos.slice(0, 3) : [];
+  if (!profileUrl) {
+    return `
+      <form class="github-profile-form" id="github-profile-form">
+        <label class="settings-field">
+          <span class="widget-label">GitHub 主页网址</span>
+          <input name="githubProfileUrl" type="url" placeholder="https://github.com/your-name" />
+        </label>
+        <p class="settings-copy">启用 GitHub 卡片后，填写主页网址才会同步最近活跃仓库。</p>
+        <div class="settings-actions">
+          <button type="submit" class="settings-save">保存网址</button>
+        </div>
+      </form>
+    `;
+  }
+  const list = items.length
+    ? items
+        .map(
+          (item) => `
+            <article class="github-repo-item">
+              <div class="github-repo-copy">
+                <h3>${escapeHtml(item.name)}</h3>
+                <p>${escapeHtml(item.description || "暂无仓库简介。")}</p>
+              </div>
+              <div class="github-repo-meta">
+                <span class="feed-meta">${escapeHtml(item.updatedAt ? `Updated ${formatDateTime(item.updatedAt)}` : "Recently active")}</span>
+          <a class="show-more github-inline-link" href="${escapeAttribute(item.url)}" target="_blank" rel="noreferrer">
+                  <span>${escapeHtml(item.shortUrl || "Open Repo")}</span>
+                  <span class="material-symbols-outlined">arrow_outward</span>
+                </a>
+              </div>
+            </article>
+          `,
+        )
+        .join("")
+    : `
+      <article class="github-repo-item">
+        <div class="github-repo-copy">
+          <h3>DanN-55 / life-flow</h3>
+          <p>Dashboard preview for personal execution, market notes and research reading.</p>
+        </div>
+        <div class="github-repo-meta">
+          <span class="feed-meta">GitHub 预览暂时不可用</span>
+          <a class="show-more github-inline-link" href="${escapeAttribute(repo.url)}" target="_blank" rel="noreferrer">
+            <span>Open GitHub</span>
+            <span class="material-symbols-outlined">arrow_outward</span>
+          </a>
+        </div>
+      </article>
+    `;
+  return `
+    <div class="github-stream">
+      ${list}
+    </div>
+  `;
+}
+
+async function handleGitHubProfileSubmit(event) {
+  const form = event.target.closest("#github-profile-form");
+  if (!form) {
+    return;
+  }
+  event.preventDefault();
+  const profileUrl = String(new FormData(form).get("githubProfileUrl") || "").trim();
+  state.data.preferences.widgets.github.profileUrl = profileUrl;
+  persistStateSilently();
+  if (state.auth.user) {
+    try {
+      await saveAccountPreferencesRemote();
+    } catch (error) {
+      console.warn("Failed to save GitHub profile URL remotely.", error);
+      setSaveStatus("GitHub 主页网址已保存在本地，云端同步稍后重试");
+    }
+  }
+  renderWidgets();
+  await refreshGitHubRepo();
+  renderWidgets();
+  setSaveStatus(profileUrl ? "已保存 GitHub 主页网址" : "已清空 GitHub 主页网址", "success");
 }
 
 function renderWeatherWidget() {
@@ -2019,6 +2876,9 @@ async function loadAccountProfile() {
   renderAccountProfileModal();
   try {
     const payload = await fetchApiJson("/api/account/profile");
+    if (payload?.user?.preferences) {
+      applyAccountPreferences(payload.user.preferences, { applyTheme: true });
+    }
     state.accountProfile = {
       user: payload.user || null,
       counts: payload.counts || {},
@@ -2064,6 +2924,39 @@ function openAccountProfileModal() {
 function closeAccountProfileModal() {
   state.accountProfileModalOpen = false;
   renderAccountProfileModal();
+}
+
+async function handleAccountProfilePreferencesSubmit(event) {
+  const form = event.target.closest("#account-preferences-form");
+  if (!form) {
+    return;
+  }
+  event.preventDefault();
+  const formData = new FormData(form);
+  state.data.preferences.sidebar = {
+    calendar: formData.has("calendar"),
+    github: formData.has("github"),
+    financeFeed: formData.has("financeFeed"),
+    scienceFeed: formData.has("scienceFeed"),
+    weather: formData.has("weather"),
+    stock: formData.has("stock"),
+  };
+  persistStateSilently();
+  if (state.auth.user) {
+    try {
+      await saveAccountPreferencesRemote();
+    } catch (error) {
+      console.warn("Failed to save account preferences remotely.", error);
+      setSaveStatus("面板设置已保存在本地，云端同步稍后重试");
+    }
+  }
+  render();
+  renderAccountProfileModal();
+  if (state.data.preferences.sidebar.github) {
+    await refreshGitHubRepo();
+    renderWidgets();
+  }
+  setSaveStatus("已保存账号面板设置", "success");
 }
 
 function openChangePasswordModal() {
@@ -2299,6 +3192,12 @@ function updateTheme(theme) {
   state.data.preferences.theme = theme;
   saveData(`已切换到 ${themeLabel(theme)}`);
   render();
+  if (state.auth.user) {
+    void saveAccountPreferencesRemote().catch((error) => {
+      console.warn("Failed to save theme remotely.", error);
+      setSaveStatus(`已切换到 ${themeLabel(theme)}，云端同步稍后重试`);
+    });
+  }
 }
 
 function themeLabel(theme) {
@@ -2759,6 +3658,12 @@ function saveSettings(formData) {
     };
     saveData("已保存 Weather 设置");
     closeModal();
+    if (state.auth.user) {
+      void saveAccountPreferencesRemote().catch((error) => {
+        console.warn("Failed to save weather preferences remotely.", error);
+        setSaveStatus("Weather 设置已保存在本地，云端同步稍后重试");
+      });
+    }
     void refreshWeather().finally(() => {
       renderWidgets();
     });
@@ -2774,6 +3679,12 @@ function saveSettings(formData) {
     };
     saveData("已保存 Stock 设置");
     closeModal();
+    if (state.auth.user) {
+      void saveAccountPreferencesRemote().catch((error) => {
+        console.warn("Failed to save stock preferences remotely.", error);
+        setSaveStatus("Stock 设置已保存在本地，云端同步稍后重试");
+      });
+    }
     refreshStocks();
     renderWidgets();
   }
@@ -2789,6 +3700,9 @@ async function initAuthClient() {
     saveSessionId(payload?.session?.id || loadSessionId());
     if (state.auth.user?.id) {
       switchDataScope(state.auth.user.id);
+      if (payload?.user?.preferences) {
+        applyAccountPreferences(payload.user.preferences, { applyTheme: true });
+      }
     }
     state.auth.status = state.auth.user ? "ready" : "idle";
     state.auth.feedback = state.auth.user
@@ -2860,6 +3774,16 @@ function resetCurrentAccountLocalState(scopeKey = getCurrentScopeKey()) {
   state.data.preferences = preservedPreferences;
   persistScopedData(scopeKey, state.data);
   resetScopedUiState();
+}
+
+async function syncAccountPreferencesFromRemote() {
+  if (!state.auth.user || !isRemoteReady()) {
+    return;
+  }
+  const payload = await fetchApiJson("/api/account/profile");
+  if (payload?.user?.preferences) {
+    applyAccountPreferences(payload.user.preferences, { applyTheme: true });
+  }
 }
 
 async function handleChangePasswordSubmit(event) {
@@ -3005,6 +3929,7 @@ async function bootstrapRemoteData() {
     } else {
       await seedRemoteFromLocal(localSnapshot);
     }
+    await syncAccountPreferencesFromRemote();
     await syncTasksFromRemote();
     await Promise.all([
       syncSelectedDateRecord({ silent: true }),
@@ -3587,8 +4512,116 @@ async function syncTaskUpdate(task, successMessage) {
 }
 
 async function refreshExternalData() {
-  await Promise.allSettled([refreshWeather(), refreshStocks()]);
+  const jobs = [];
+  if (getSidebarPreferences().github) {
+    jobs.push(refreshGitHubRepo());
+  }
+  if (getSidebarPreferences().weather) {
+    jobs.push(refreshWeather());
+  }
+  if (getSidebarPreferences().stock) {
+    jobs.push(refreshStocks());
+  }
+  if (state.auth.user) {
+    jobs.push(loadFeaturedContent("finance"), loadFeaturedContent("science"));
+  }
+  await Promise.allSettled(jobs);
   renderWidgets();
+}
+
+function parseGitHubOwnerFromUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return "";
+  }
+  try {
+    const parsed = new URL(raw);
+    if (!/github\.com$/i.test(parsed.hostname)) {
+      return "";
+    }
+    const [owner] = parsed.pathname.split("/").filter(Boolean);
+    return owner || "";
+  } catch (error) {
+    return "";
+  }
+}
+
+async function refreshGitHubRepo() {
+  const profileUrl = String(state.data.preferences.widgets.github?.profileUrl || "").trim();
+  const owner = parseGitHubOwnerFromUrl(profileUrl);
+  const fallback = {
+    status: "fallback",
+    repos: [
+      {
+        name: "DanN-55 / life-flow",
+        description: "Dashboard preview for personal execution, market notes and research reading.",
+        updatedAt: "",
+        url: "https://github.com/DanN-55/life-flow",
+        shortUrl: "life-flow",
+      },
+    ],
+    url: profileUrl,
+    message: "最近活跃仓库",
+  };
+  if (!owner || !profileUrl) {
+    state.widgetData.github = {
+      status: "idle",
+      repos: [],
+      url: profileUrl,
+      message: "等待配置 GitHub 主页",
+    };
+    return;
+  }
+  state.widgetData.github = {
+    ...state.widgetData.github,
+    status: "loading",
+    url: profileUrl,
+    message: "正在同步仓库列表",
+  };
+  renderWidgets();
+
+  try {
+    const payload = await fetchJson(
+      `https://api.github.com/users/${owner}/repos?sort=pushed&per_page=6`,
+      {
+        credentials: "omit",
+        timeoutMs: 6000,
+        headers: {
+          Accept: "application/vnd.github+json",
+        },
+      },
+    );
+    const repos = Array.isArray(payload)
+      ? payload
+          .filter((repo) => !repo.fork)
+          .sort((left, right) => {
+            const leftTime = new Date(left.pushed_at || left.updated_at || 0).getTime();
+            const rightTime = new Date(right.pushed_at || right.updated_at || 0).getTime();
+            return rightTime - leftTime;
+          })
+          .slice(0, 3)
+          .map((repo) => ({
+            name: repo.full_name || repo.name || "Repository",
+            description: repo.description || "暂无仓库简介。",
+            updatedAt: repo.pushed_at || repo.updated_at || "",
+            url: repo.html_url || profileUrl,
+            shortUrl: repo.name || "Open Repo",
+          }))
+      : [];
+    state.widgetData.github = {
+      status: "ready",
+      repos: repos.length ? repos : fallback.repos,
+      url: profileUrl,
+      message: "最近活跃仓库",
+    };
+  } catch (error) {
+    state.widgetData.github = {
+      ...fallback,
+      status: "error",
+      url: profileUrl,
+      message: "GitHub 预览暂时不可用",
+    };
+  }
 }
 
 async function refreshWeather() {
@@ -3995,6 +5028,9 @@ function handleTopTabClick(event) {
   }
   state.activeAppTab = button.dataset.appTab;
   renderTopTabs();
+  if (state.activeAppTab === "finance" || state.activeAppTab === "science") {
+    void ensureContentChannelLoaded(state.activeAppTab, { refreshFeatured: true });
+  }
 }
 
 function handleCenterTabClick(event) {
@@ -4209,6 +5245,117 @@ function handleShowMoreClick(event) {
   }
   state.activeAppTab = button.dataset.appTabTarget;
   renderTopTabs();
+  if (state.activeAppTab === "finance" || state.activeAppTab === "science") {
+    void ensureContentChannelLoaded(state.activeAppTab, { refreshFeatured: true });
+  }
+}
+
+function getContentChannelFromControl(control) {
+  if (
+    control === elements.financeSearch ||
+    control === elements.financeTagFilter ||
+    control === elements.financeSourceFilter ||
+    control === elements.financeSortFilter
+  ) {
+    return "finance";
+  }
+  if (
+    control === elements.scienceSearch ||
+    control === elements.scienceTagFilter ||
+    control === elements.scienceSourceFilter ||
+    control === elements.scienceSortFilter
+  ) {
+    return "science";
+  }
+  return "";
+}
+
+function handleContentToolbarInput(event) {
+  const channel = getContentChannelFromControl(event.target);
+  if (!channel || event.target.type !== "search") {
+    return;
+  }
+  queueContentSearch(channel, event.target.value);
+}
+
+function handleContentToolbarChange(event) {
+  const channel = getContentChannelFromControl(event.target);
+  if (!channel || event.target.type === "search") {
+    return;
+  }
+  const channelElements = getContentElements(channel);
+  void loadChannelContent(channel, {
+    page: 1,
+    tag: channelElements.tagFilter.value,
+    sourceId: channelElements.sourceFilter.value,
+    sort: channelElements.sortFilter.value,
+  });
+}
+
+function handleContentClick(event) {
+  const detailCloseTarget = event.target.closest("[data-content-detail-modal-close]");
+  if (detailCloseTarget) {
+    closeContentDetailModal();
+    return;
+  }
+
+  const sourceCloseTarget = event.target.closest("[data-content-source-modal-close]");
+  if (sourceCloseTarget) {
+    closeContentSourceModal();
+    return;
+  }
+
+  const refreshTarget = event.target.closest("[data-content-refresh]");
+  if (refreshTarget) {
+    void refreshChannelContentManually(refreshTarget.dataset.contentRefresh || "");
+    return;
+  }
+
+  const openSourcesTarget = event.target.closest("[data-content-open-sources]");
+  if (openSourcesTarget) {
+    void openContentSourceModal(openSourcesTarget.dataset.contentOpenSources || "");
+    return;
+  }
+
+  const pageTarget = event.target.closest("[data-content-page]");
+  if (pageTarget) {
+    const [channel, pageValue] = String(pageTarget.dataset.contentPage || "").split(":");
+    const page = Number(pageValue);
+    if (["finance", "science"].includes(channel) && Number.isFinite(page) && page > 0) {
+      void loadChannelContent(channel, { page });
+    }
+    return;
+  }
+
+  const sourceEditTarget = event.target.closest("[data-content-source-edit]");
+  if (sourceEditTarget && state.content.sourceModalChannel) {
+    state.content.sourceEditingId = sourceEditTarget.dataset.contentSourceEdit || "";
+    renderContentSourceModal();
+    return;
+  }
+
+  const sourceDeleteTarget = event.target.closest("[data-content-source-delete]");
+  if (sourceDeleteTarget && state.content.sourceModalChannel) {
+    const sourceId = sourceDeleteTarget.dataset.contentSourceDelete || "";
+    if (sourceId && window.confirm("确认删除这个信源吗？")) {
+      void deleteContentSource(state.content.sourceModalChannel, sourceId);
+    }
+    return;
+  }
+
+  const itemTarget = event.target.closest("[data-content-open]");
+  if (itemTarget) {
+    void openContentDetail(itemTarget.dataset.contentOpen || "");
+    return;
+  }
+
+  const linkTarget = event.target.closest("[data-content-open-link]");
+  if (linkTarget) {
+    const link = String(linkTarget.dataset.contentOpenLink || "").trim();
+    if (link) {
+      window.open(link, "_blank", "noopener,noreferrer");
+    }
+  }
 }
 
 function handleWidgetClick(event) {
@@ -4459,6 +5606,20 @@ function bindEvents() {
     button.addEventListener("click", handleShowMoreClick);
   });
   document
+    .querySelector(".left-rail")
+    ?.addEventListener("submit", (event) => {
+      void handleGitHubProfileSubmit(event);
+    });
+  elements.financeView?.addEventListener("click", handleContentClick);
+  elements.scienceView?.addEventListener("click", handleContentClick);
+  elements.financeView?.addEventListener("input", handleContentToolbarInput);
+  elements.scienceView?.addEventListener("input", handleContentToolbarInput);
+  elements.financeView?.addEventListener("change", handleContentToolbarChange);
+  elements.scienceView?.addEventListener("change", handleContentToolbarChange);
+  elements.contentDetailModal?.addEventListener("click", handleContentClick);
+  elements.contentSourceModal?.addEventListener("click", handleContentClick);
+  elements.contentSourceForm?.addEventListener("submit", handleContentSourceSubmit);
+  document
     .querySelector(".right-rail")
     .addEventListener("click", handleWidgetClick);
   elements.settingsModal.addEventListener("click", handleModalClick);
@@ -4474,6 +5635,9 @@ function bindEvents() {
     elements.taskTimelineModal.addEventListener("click", handleModalClick);
   }
   elements.accountProfileModal?.addEventListener("click", handleModalClick);
+  elements.accountProfileModal?.addEventListener("submit", (event) => {
+    void handleAccountProfilePreferencesSubmit(event);
+  });
   elements.changePasswordModal?.addEventListener("click", handleModalClick);
   elements.changePasswordForm?.addEventListener("submit", handleChangePasswordSubmit);
   elements.clearAccountDataModal?.addEventListener("click", handleModalClick);
@@ -4671,6 +5835,8 @@ persistStateSilently();
 void initAuthClient().then((user) => {
   if (user) {
     render();
+    void ensureContentChannelLoaded("finance", { refreshFeatured: true });
+    void ensureContentChannelLoaded("science", { refreshFeatured: true });
     refreshExternalData();
     return;
   }

@@ -206,7 +206,7 @@ class SupabaseStore {
   async findUserByUsername(username) {
     const { data, error } = await this.client
       .from("users")
-      .select("id, username, password_hash, created_at")
+      .select("id, username, password_hash, preferences, created_at")
       .eq("username", username)
       .maybeSingle();
 
@@ -220,7 +220,7 @@ class SupabaseStore {
   async getUserById(userId) {
     const { data, error } = await this.client
       .from("users")
-      .select("id, username, password_hash, created_at")
+      .select("id, username, password_hash, preferences, created_at")
       .eq("id", userId)
       .maybeSingle();
 
@@ -235,7 +235,7 @@ class SupabaseStore {
     const { data, error } = await this.client
       .from("users")
       .insert(user)
-      .select("id, username, password_hash, created_at")
+      .select("id, username, password_hash, preferences, created_at")
       .single();
 
     if (error) {
@@ -250,7 +250,22 @@ class SupabaseStore {
       .from("users")
       .update({ password_hash: passwordHash })
       .eq("id", userId)
-      .select("id, username, password_hash, created_at")
+      .select("id, username, password_hash, preferences, created_at")
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    return data;
+  }
+
+  async updateUserPreferences(userId, preferences) {
+    const { data, error } = await this.client
+      .from("users")
+      .update({ preferences: preferences && typeof preferences === "object" ? preferences : {} })
+      .eq("id", userId)
+      .select("id, username, password_hash, preferences, created_at")
       .maybeSingle();
 
     if (error) {
@@ -290,6 +305,7 @@ class SupabaseStore {
       user: {
         id: user.id,
         username: user.username,
+        preferences: user.preferences || {},
         created_at: user.created_at,
       },
       counts: {
@@ -298,6 +314,205 @@ class SupabaseStore {
         weeklySummaries: weeklyCount || 0,
       },
     };
+  }
+
+  async listUsers() {
+    const { data, error } = await this.client
+      .from("users")
+      .select("id, username, created_at");
+
+    if (error) {
+      throw error;
+    }
+
+    return data;
+  }
+
+  async listContentSources(scope = {}, channel = "") {
+    let query = this.client
+      .from("content_sources")
+      .select("id, channel, type, name, url, enabled, sort_order, parser_key, is_default, created_at, updated_at")
+      .eq("user_id", scope.userId || "")
+      .order("sort_order", { ascending: true });
+
+    if (channel) {
+      query = query.eq("channel", channel);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      throw error;
+    }
+    return data;
+  }
+
+  async getContentSource(scope = {}, sourceId) {
+    const { data, error } = await this.client
+      .from("content_sources")
+      .select("id, channel, type, name, url, enabled, sort_order, parser_key, is_default, created_at, updated_at")
+      .eq("user_id", scope.userId || "")
+      .eq("id", sourceId)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+    return data;
+  }
+
+  async createContentSource(scope = {}, source) {
+    const { data, error } = await this.client
+      .from("content_sources")
+      .insert({ ...source, user_id: scope.userId || "" })
+      .select("id, channel, type, name, url, enabled, sort_order, parser_key, is_default, created_at, updated_at")
+      .single();
+
+    if (error) {
+      throw error;
+    }
+    return data;
+  }
+
+  async updateContentSource(scope = {}, sourceId, patch) {
+    const { data, error } = await this.client
+      .from("content_sources")
+      .update({ ...patch, updated_at: new Date().toISOString() })
+      .eq("user_id", scope.userId || "")
+      .eq("id", sourceId)
+      .select("id, channel, type, name, url, enabled, sort_order, parser_key, is_default, created_at, updated_at")
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+    return data;
+  }
+
+  async deleteContentSource(scope = {}, sourceId) {
+    const { error } = await this.client
+      .from("content_sources")
+      .delete()
+      .eq("user_id", scope.userId || "")
+      .eq("id", sourceId);
+
+    if (error) {
+      throw error;
+    }
+  }
+
+  async upsertContentItems(scope = {}, items = []) {
+    if (!items.length) {
+      return [];
+    }
+    const payload = items.map((item) => ({
+      ...item,
+      user_id: scope.userId || "",
+    }));
+    const { data, error } = await this.client
+      .from("content_items")
+      .upsert(payload, { onConflict: "user_id,channel,canonical_url" })
+      .select("id, channel, source_id, title, summary_zh, summary_raw, body_zh, body_raw, author, published_at, content_type, source_name, source_url, canonical_url, tags, lang, image_url, is_featured, fetched_at, created_at, updated_at");
+
+    if (error) {
+      throw error;
+    }
+    return data;
+  }
+
+  async listContent(scope = {}, filters = {}) {
+    const page = Math.max(1, Number(filters.page || 1));
+    const pageSize = Math.max(1, Math.min(50, Number(filters.pageSize || 20)));
+    let query = this.client
+      .from("content_items")
+      .select(
+        "id, channel, source_id, title, summary_zh, summary_raw, body_zh, body_raw, author, published_at, content_type, source_name, source_url, canonical_url, tags, lang, image_url, is_featured, fetched_at, created_at, updated_at",
+        { count: "exact" },
+      )
+      .eq("user_id", scope.userId || "");
+
+    if (filters.channel) {
+      query = query.eq("channel", filters.channel);
+    }
+    if (filters.tag) {
+      query = query.contains("tags", [filters.tag]);
+    }
+    if (filters.sourceId) {
+      query = query.eq("source_id", filters.sourceId);
+    }
+    if (filters.q) {
+      const escaped = String(filters.q).replace(/[%_,]/g, " ").trim();
+      query = query.or(
+        `title.ilike.%${escaped}%,summary_zh.ilike.%${escaped}%,summary_raw.ilike.%${escaped}%,body_zh.ilike.%${escaped}%,body_raw.ilike.%${escaped}%,source_name.ilike.%${escaped}%`,
+      );
+    }
+
+    query = query.order("published_at", { ascending: filters.sort === "oldest" });
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
+    const { data, count, error } = await query.range(from, to);
+
+    if (error) {
+      throw error;
+    }
+    return {
+      items: data || [],
+      total: count || 0,
+      page,
+      pageSize,
+    };
+  }
+
+  async listContentFacets(scope = {}, channel = "") {
+    let itemsQuery = this.client
+      .from("content_items")
+      .select("tags, source_id")
+      .eq("user_id", scope.userId || "");
+    let sourcesQuery = this.client
+      .from("content_sources")
+      .select("id, name")
+      .eq("user_id", scope.userId || "")
+      .order("sort_order", { ascending: true });
+    if (channel) {
+      itemsQuery = itemsQuery.eq("channel", channel);
+      sourcesQuery = sourcesQuery.eq("channel", channel);
+    }
+    const [{ data: items, error: itemsError }, { data: sources, error: sourcesError }] =
+      await Promise.all([itemsQuery, sourcesQuery]);
+    if (itemsError || sourcesError) {
+      throw itemsError || sourcesError;
+    }
+    const tags = [...new Set((items || []).flatMap((item) => (Array.isArray(item.tags) ? item.tags : [])))].sort();
+    return { tags, sources: sources || [] };
+  }
+
+  async getFeaturedContent(scope = {}, channel = "", limit = 3) {
+    const { data, error } = await this.client
+      .from("content_items")
+      .select("id, channel, source_id, title, summary_zh, summary_raw, body_zh, body_raw, author, published_at, content_type, source_name, source_url, canonical_url, tags, lang, image_url, is_featured, fetched_at, created_at, updated_at")
+      .eq("user_id", scope.userId || "")
+      .eq("channel", channel)
+      .order("is_featured", { ascending: false })
+      .order("published_at", { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      throw error;
+    }
+    return data || [];
+  }
+
+  async getContentItem(scope = {}, itemId) {
+    const { data, error } = await this.client
+      .from("content_items")
+      .select("id, channel, source_id, title, summary_zh, summary_raw, body_zh, body_raw, author, published_at, content_type, source_name, source_url, canonical_url, tags, lang, image_url, is_featured, fetched_at, created_at, updated_at")
+      .eq("user_id", scope.userId || "")
+      .eq("id", itemId)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+    return data;
   }
 
   async createSession(session) {
@@ -317,7 +532,7 @@ class SupabaseStore {
   async getSessionWithUser(sessionId) {
     const { data, error } = await this.client
       .from("user_sessions")
-      .select("id, user_id, expires_at, created_at, users!inner(id, username, password_hash, created_at)")
+      .select("id, user_id, expires_at, created_at, users!inner(id, username, password_hash, preferences, created_at)")
       .eq("id", sessionId)
       .maybeSingle();
 
@@ -349,14 +564,28 @@ class SupabaseStore {
   }
 
   async clearUserData(userId) {
-    const [tasksResult, recordsResult, summariesResult] = await Promise.all([
+    const [tasksResult, recordsResult, summariesResult, contentItemsResult, contentSourcesResult] = await Promise.all([
       this.client.from("tasks").delete().eq("user_id", userId),
       this.client.from("daily_records").delete().eq("user_id", userId),
       this.client.from("weekly_summaries").delete().eq("user_id", userId),
+      this.client.from("content_items").delete().eq("user_id", userId),
+      this.client.from("content_sources").delete().eq("user_id", userId),
     ]);
 
-    if (tasksResult.error || recordsResult.error || summariesResult.error) {
-      throw tasksResult.error || recordsResult.error || summariesResult.error;
+    if (
+      tasksResult.error ||
+      recordsResult.error ||
+      summariesResult.error ||
+      contentItemsResult.error ||
+      contentSourcesResult.error
+    ) {
+      throw (
+        tasksResult.error ||
+        recordsResult.error ||
+        summariesResult.error ||
+        contentItemsResult.error ||
+        contentSourcesResult.error
+      );
     }
   }
 

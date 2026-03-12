@@ -5,8 +5,11 @@ class MemoryStore {
     this.tasksByUser = new Map();
     this.dailyRecordsByUser = new Map();
     this.weeklySummariesByUser = new Map();
+    this.contentSourcesByUser = new Map();
+    this.contentItemsByUser = new Map();
     this.usersByUsername = new Map();
     this.sessionsById = new Map();
+    this.schemaMode = "user-scoped";
   }
 
   async init() {
@@ -23,11 +26,19 @@ class MemoryStore {
     if (!this.weeklySummariesByUser.has(userId)) {
       this.weeklySummariesByUser.set(userId, new Map());
     }
+    if (!this.contentSourcesByUser.has(userId)) {
+      this.contentSourcesByUser.set(userId, new Map());
+    }
+    if (!this.contentItemsByUser.has(userId)) {
+      this.contentItemsByUser.set(userId, new Map());
+    }
 
     return {
       tasks: this.tasksByUser.get(userId),
       dailyRecords: this.dailyRecordsByUser.get(userId),
       weeklySummaries: this.weeklySummariesByUser.get(userId),
+      contentSources: this.contentSourcesByUser.get(userId),
+      contentItems: this.contentItemsByUser.get(userId),
     };
   }
 
@@ -121,8 +132,12 @@ class MemoryStore {
   }
 
   async createUser(user) {
-    this.usersByUsername.set(user.username, user);
-    return user;
+    const next = {
+      ...user,
+      preferences: user.preferences && typeof user.preferences === "object" ? user.preferences : {},
+    };
+    this.usersByUsername.set(next.username, next);
+    return next;
   }
 
   async updateUserPassword(userId, passwordHash) {
@@ -131,6 +146,19 @@ class MemoryStore {
       return null;
     }
     const next = { ...user, password_hash: passwordHash };
+    this.usersByUsername.set(next.username, next);
+    return next;
+  }
+
+  async updateUserPreferences(userId, preferences) {
+    const user = await this.getUserById(userId);
+    if (!user) {
+      return null;
+    }
+    const next = {
+      ...user,
+      preferences: preferences && typeof preferences === "object" ? preferences : {},
+    };
     this.usersByUsername.set(next.username, next);
     return next;
   }
@@ -145,6 +173,7 @@ class MemoryStore {
       user: {
         id: user.id,
         username: user.username,
+        preferences: user.preferences || {},
         created_at: user.created_at || "",
       },
       counts: {
@@ -153,6 +182,156 @@ class MemoryStore {
         weeklySummaries: scope.weeklySummaries.size,
       },
     };
+  }
+
+  async listUsers() {
+    return [...this.usersByUsername.values()].map((user) => ({
+      id: user.id,
+      username: user.username,
+      preferences: user.preferences || {},
+      created_at: user.created_at || "",
+    }));
+  }
+
+  async listContentSources(scope = {}, channel = "") {
+    const { contentSources } = this.ensureUserScope(scope.userId);
+    return [...contentSources.values()]
+      .filter((source) => (!channel ? true : source.channel === channel))
+      .sort((left, right) => {
+        const byOrder = Number(left.sort_order || 0) - Number(right.sort_order || 0);
+        if (byOrder !== 0) {
+          return byOrder;
+        }
+        return String(left.name || "").localeCompare(String(right.name || ""), "zh-CN");
+      });
+  }
+
+  async createContentSource(scope = {}, source) {
+    const { contentSources } = this.ensureUserScope(scope.userId);
+    contentSources.set(source.id, source);
+    return source;
+  }
+
+  async updateContentSource(scope = {}, sourceId, patch) {
+    const { contentSources } = this.ensureUserScope(scope.userId);
+    const existing = contentSources.get(sourceId);
+    if (!existing) {
+      return null;
+    }
+    const next = { ...existing };
+    Object.entries(patch).forEach(([key, value]) => {
+      if (typeof value !== "undefined") {
+        next[key] = value;
+      }
+    });
+    next.updated_at = new Date().toISOString();
+    contentSources.set(sourceId, next);
+    return next;
+  }
+
+  async deleteContentSource(scope = {}, sourceId) {
+    const { contentSources, contentItems } = this.ensureUserScope(scope.userId);
+    contentSources.delete(sourceId);
+    for (const [itemId, item] of contentItems.entries()) {
+      if (item.source_id === sourceId) {
+        contentItems.delete(itemId);
+      }
+    }
+  }
+
+  async getContentSource(scope = {}, sourceId) {
+    const { contentSources } = this.ensureUserScope(scope.userId);
+    return contentSources.get(sourceId) || null;
+  }
+
+  async upsertContentItems(scope = {}, items = []) {
+    const { contentItems } = this.ensureUserScope(scope.userId);
+    const persisted = [];
+    for (const item of items) {
+      const dedupeKey = `${item.channel}::${item.canonical_url}`;
+      const existing = [...contentItems.values()].find(
+        (entry) => `${entry.channel}::${entry.canonical_url}` === dedupeKey,
+      );
+      const next = existing
+        ? { ...existing, ...item, id: existing.id, updated_at: new Date().toISOString() }
+        : item;
+      contentItems.set(next.id, next);
+      persisted.push(next);
+    }
+    return persisted;
+  }
+
+  async listContent(scope = {}, filters = {}) {
+    const { contentItems } = this.ensureUserScope(scope.userId);
+    const page = Math.max(1, Number(filters.page || 1));
+    const pageSize = Math.max(1, Math.min(50, Number(filters.pageSize || 20)));
+    const q = String(filters.q || "").trim().toLowerCase();
+    const tag = String(filters.tag || "").trim();
+    const sourceId = String(filters.sourceId || "").trim();
+    const sort = String(filters.sort || "latest");
+    const channel = String(filters.channel || "").trim();
+
+    let items = [...contentItems.values()].filter((item) =>
+      channel ? item.channel === channel : true,
+    );
+
+    if (q) {
+      items = items.filter((item) =>
+        [item.title, item.summary_zh, item.summary_raw, item.body_zh, item.body_raw, item.source_name, item.author]
+          .join(" ")
+          .toLowerCase()
+          .includes(q),
+      );
+    }
+    if (tag) {
+      items = items.filter((item) => Array.isArray(item.tags) && item.tags.includes(tag));
+    }
+    if (sourceId) {
+      items = items.filter((item) => item.source_id === sourceId);
+    }
+
+    items.sort((left, right) => {
+      const leftTime = new Date(left.published_at || left.fetched_at || 0).getTime();
+      const rightTime = new Date(right.published_at || right.fetched_at || 0).getTime();
+      return sort === "oldest" ? leftTime - rightTime : rightTime - leftTime;
+    });
+
+    const total = items.length;
+    const start = (page - 1) * pageSize;
+    return {
+      items: items.slice(start, start + pageSize),
+      total,
+      page,
+      pageSize,
+    };
+  }
+
+  async listContentFacets(scope = {}, channel = "") {
+    const { contentItems, contentSources } = this.ensureUserScope(scope.userId);
+    const items = [...contentItems.values()].filter((item) => (channel ? item.channel === channel : true));
+    const tags = [...new Set(items.flatMap((item) => (Array.isArray(item.tags) ? item.tags : [])))].sort();
+    const sources = [...contentSources.values()]
+      .filter((source) => (!channel ? true : source.channel === channel))
+      .map((source) => ({
+        id: source.id,
+        name: source.name,
+      }));
+    return { tags, sources };
+  }
+
+  async getFeaturedContent(scope = {}, channel = "", limit = 3) {
+    const result = await this.listContent(scope, {
+      channel,
+      page: 1,
+      pageSize: Math.max(1, limit),
+      sort: "latest",
+    });
+    return result.items.slice(0, limit);
+  }
+
+  async getContentItem(scope = {}, itemId) {
+    const { contentItems } = this.ensureUserScope(scope.userId);
+    return contentItems.get(itemId) || null;
   }
 
   async createSession(session) {
@@ -183,6 +362,8 @@ class MemoryStore {
     this.tasksByUser.set(userId, new Map());
     this.dailyRecordsByUser.set(userId, new Map());
     this.weeklySummariesByUser.set(userId, new Map());
+    this.contentSourcesByUser.set(userId, new Map());
+    this.contentItemsByUser.set(userId, new Map());
   }
 
   async deleteUserAccount(userId) {

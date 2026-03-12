@@ -14,11 +14,15 @@
 
 - 健康检查接口
 - 用户注册 / 登录 / 退出 / 当前用户
+- 图形验证码
+- 账号资料 / 修改密码 / 清空账号数据 / 删除账号
 - 任务增删改查
 - 任务存档与恢复
 - 每日记录读写
 - 周复盘聚合
 - 每周总结读写
+- Finance / Science 资讯聚合、信源管理、详情与手动刷新
+- 天气组件代理接口
 
 ## 快速开始
 
@@ -54,6 +58,7 @@ http://localhost:8787
 - `POST /api/auth/signin`
 - `POST /api/auth/signout`
 - `GET /api/auth/me`
+- `GET /api/auth/captcha`
 
 业务接口：
 - `GET /api/tasks`
@@ -65,6 +70,19 @@ http://localhost:8787
 - `GET /api/weekly-review/:week`
 - `GET /api/weekly-summaries/:week`
 - `PUT /api/weekly-summaries/:week`
+- `GET /api/account/profile`
+- `POST /api/account/password`
+- `POST /api/account/clear-data`
+- `POST /api/account/delete`
+- `GET /api/content`
+- `GET /api/content/featured`
+- `GET /api/content/:id`
+- `POST /api/content/refresh`
+- `GET /api/content-sources`
+- `POST /api/content-sources`
+- `PATCH /api/content-sources/:id`
+- `DELETE /api/content-sources/:id`
+- `GET /api/widgets/weather`
 
 ## Supabase 作为数据库
 
@@ -73,11 +91,13 @@ http://localhost:8787
 1. 在 Supabase 创建一个新项目
 2. 打开 SQL Editor，执行：
    [schema.sql](/Users/dan/Programs/LifeFlow/private-dashboard/backend/supabase/schema.sql)
-3. 再执行以下迁移：
+3. 再按顺序执行以下迁移：
    [2026-03-09-add-user-scope.sql](/Users/dan/Programs/LifeFlow/private-dashboard/backend/supabase/migrations/2026-03-09-add-user-scope.sql)
    [2026-03-11-add-task-archive-columns.sql](/Users/dan/Programs/LifeFlow/private-dashboard/backend/supabase/migrations/2026-03-11-add-task-archive-columns.sql)
-   [2026-03-11-add-weekly-summaries.sql](/Users/dan/Programs/LifeFlow/private-dashboard/backend/supabase/migrations/2026-03-11-add-weekly-summaries.sql)
    [2026-03-11-add-users-and-sessions.sql](/Users/dan/Programs/LifeFlow/private-dashboard/backend/supabase/migrations/2026-03-11-add-users-and-sessions.sql)
+   [2026-03-11-add-weekly-summaries.sql](/Users/dan/Programs/LifeFlow/private-dashboard/backend/supabase/migrations/2026-03-11-add-weekly-summaries.sql)
+   [2026-03-11-drop-public-defaults.sql](/Users/dan/Programs/LifeFlow/private-dashboard/backend/supabase/migrations/2026-03-11-drop-public-defaults.sql)
+   [2026-03-12-add-content-tables.sql](/Users/dan/Programs/LifeFlow/private-dashboard/backend/supabase/migrations/2026-03-12-add-content-tables.sql)
 4. 在项目设置里拿到：
    - `Project URL`
    - `service_role` key
@@ -93,7 +113,6 @@ http://localhost:8787
 ```env
 PORT=8787
 CORS_ORIGIN=http://localhost:8000,https://your-frontend.vercel.app
-APP_WRITE_KEY=
 SUPABASE_URL=https://your-project-ref.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 ```
@@ -119,18 +138,19 @@ http://localhost:8787/health
 
 说明后端已经切到 Supabase 数据库。
 
-## 用户与数据隔离
+## 用户与数据隔离 / 账号偏好
 
 当前数据隔离方式：
 
 - `users`：保存账号
 - `user_sessions`：保存后端 session
-- `tasks / daily_records / weekly_summaries`：通过 `user_id` 关联到具体用户
+- `tasks / daily_records / weekly_summaries / content_sources / content_items`：通过 `user_id` 关联到具体用户
 
 也就是说：
 - 每个账号登录后只能看到自己的内容
 - 不再依赖 Supabase Auth
 - Supabase 这里只负责数据库存储
+- 左右栏卡片开关、主题和 GitHub 主页网址当前保存在前端账号本地偏好里，不走后端表
 
 ## 部署注意
 
@@ -140,10 +160,14 @@ http://localhost:8787/health
 - 前后端都必须使用 HTTPS
 - 登录态依赖 Cookie，跨域场景下后端会自动写 `SameSite=None; Secure`
 
-## 迁移旧数据
+## 当前你需要做的事
 
-如果你之前已经有旧版 `public` 数据：
+如果你要把现在这版完整连起来，最低只需要完成：
 
-- 旧任务和记录仍然会保留在 `public` 作用域
-- 新注册用户会使用自己的 `user_id`
-- 如需把旧 `public` 数据迁到某个用户名下，需要单独写一次数据迁移脚本
+1. 在 Supabase 执行最新 schema / migration
+2. 在后端配置：
+   - `SUPABASE_URL`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `CORS_ORIGIN`
+3. 重启或重新部署后端
+4. 前端继续直接调用当前后端，无需额外生成前端 key

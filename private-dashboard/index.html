@@ -102,6 +102,7 @@
       <main class="dashboard-grid">
         <aside class="left-rail">
           <section
+            id="calendar-card"
             class="rail-card calendar-card"
             aria-labelledby="calendar-title"
           >
@@ -130,6 +131,36 @@
           </section>
 
           <section
+            id="github-card"
+            class="rail-card widget-card github-card"
+            aria-labelledby="github-card-title"
+          >
+            <div class="section-head">
+              <div>
+                <p class="panel-kicker">Project preview</p>
+                <h2 id="github-card-title">GitHub</h2>
+              </div>
+              <a
+                id="github-card-link"
+                class="icon-button github-open-button"
+                href="https://github.com/DanN-55"
+                target="_blank"
+                rel="noreferrer"
+                aria-label="打开 GitHub 主页"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" class="github-logo">
+                  <path
+                    d="M12 2C6.477 2 2 6.484 2 12.017c0 4.426 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.866-.013-1.7-2.782.605-3.369-1.344-3.369-1.344-.455-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.004.071 1.532 1.032 1.532 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.027A9.564 9.564 0 0 1 12 6.844c.85.004 1.705.115 2.504.337 1.909-1.297 2.748-1.027 2.748-1.027.546 1.378.202 2.397.1 2.65.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.748 0 .268.18.58.688.481A10.019 10.019 0 0 0 22 12.017C22 6.484 17.523 2 12 2Z"
+                    fill="currentColor"
+                  />
+                </svg>
+              </a>
+            </div>
+            <div id="github-widget-display" class="widget-display"></div>
+          </section>
+
+          <section
+            id="finance-feed-card"
             class="rail-card feed-card"
             aria-labelledby="finance-feed-title"
           >
@@ -154,6 +185,7 @@
           </section>
 
           <section
+            id="science-feed-card"
             class="rail-card feed-card"
             aria-labelledby="science-feed-title"
           >
@@ -331,31 +363,96 @@
             </section>
           </div>
 
-          <section id="finance-view" class="stage-view placeholder-view" hidden>
-            <div class="placeholder-card">
-              <p class="placeholder-tag">Finance</p>
-              <div class="placeholder-grid">
-                <div class="placeholder-block"></div>
-                <div class="placeholder-block"></div>
-                <div class="placeholder-block"></div>
+          <section id="finance-view" class="stage-view content-stream-view" hidden>
+            <div class="content-stream-shell">
+              <div class="panel-header">
+                <div>
+                  <p class="panel-kicker">Market pulse</p>
+                  <h1>Finance</h1>
+                </div>
+                <div class="content-stream-actions">
+                  <button type="button" class="task-cancel-action" data-content-open-sources="finance">
+                    管理信源
+                  </button>
+                  <button type="button" class="settings-save" data-content-refresh="finance">
+                    刷新资讯
+                  </button>
+                </div>
               </div>
+              <div class="content-toolbar">
+                <label class="content-toolbar-field content-toolbar-search">
+                  <span class="weekly-filter-label">搜索</span>
+                  <input id="finance-search" type="search" placeholder="搜索标题、摘要或来源" />
+                </label>
+                <label class="content-toolbar-field">
+                  <span class="weekly-filter-label">标签</span>
+                  <select id="finance-tag-filter"></select>
+                </label>
+                <label class="content-toolbar-field">
+                  <span class="weekly-filter-label">来源</span>
+                  <select id="finance-source-filter"></select>
+                </label>
+                <label class="content-toolbar-field">
+                  <span class="weekly-filter-label">排序</span>
+                  <select id="finance-sort-filter">
+                    <option value="latest">最新优先</option>
+                    <option value="oldest">最早优先</option>
+                  </select>
+                </label>
+              </div>
+              <div id="finance-content-meta" class="content-stream-meta"></div>
+              <div id="finance-content-grid" class="content-masonry" aria-live="polite"></div>
+              <div id="finance-content-pagination" class="content-pagination"></div>
             </div>
           </section>
 
-          <section id="science-view" class="stage-view placeholder-view" hidden>
-            <div class="placeholder-card">
-              <p class="placeholder-tag">Science</p>
-              <div class="placeholder-grid">
-                <div class="placeholder-block"></div>
-                <div class="placeholder-block"></div>
-                <div class="placeholder-block"></div>
+          <section id="science-view" class="stage-view content-stream-view" hidden>
+            <div class="content-stream-shell">
+              <div class="panel-header">
+                <div>
+                  <p class="panel-kicker">Research radar</p>
+                  <h1>Science</h1>
+                </div>
+                <div class="content-stream-actions">
+                  <button type="button" class="task-cancel-action" data-content-open-sources="science">
+                    管理信源
+                  </button>
+                  <button type="button" class="settings-save" data-content-refresh="science">
+                    刷新资讯
+                  </button>
+                </div>
               </div>
+              <div class="content-toolbar">
+                <label class="content-toolbar-field content-toolbar-search">
+                  <span class="weekly-filter-label">搜索</span>
+                  <input id="science-search" type="search" placeholder="搜索标题、摘要或来源" />
+                </label>
+                <label class="content-toolbar-field">
+                  <span class="weekly-filter-label">标签</span>
+                  <select id="science-tag-filter"></select>
+                </label>
+                <label class="content-toolbar-field">
+                  <span class="weekly-filter-label">来源</span>
+                  <select id="science-source-filter"></select>
+                </label>
+                <label class="content-toolbar-field">
+                  <span class="weekly-filter-label">排序</span>
+                  <select id="science-sort-filter">
+                    <option value="latest">最新优先</option>
+                    <option value="oldest">最早优先</option>
+                  </select>
+                </label>
+              </div>
+              <div id="science-content-meta" class="content-stream-meta"></div>
+              <div id="science-content-grid" class="content-masonry" aria-live="polite"></div>
+              <div id="science-content-pagination" class="content-pagination"></div>
             </div>
           </section>
         </section>
 
         <aside class="right-rail">
           <section
+            id="weather-card"
             class="rail-card widget-card"
             aria-labelledby="weather-card-title"
           >
@@ -374,6 +471,7 @@
           </section>
 
           <section
+            id="stock-card"
             class="rail-card widget-card"
             aria-labelledby="stock-card-title"
           >
@@ -730,6 +828,82 @@
             </button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <div id="content-detail-modal" class="settings-modal" hidden>
+      <div class="settings-backdrop" data-content-detail-modal-close></div>
+      <div
+        class="settings-dialog content-detail-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="content-detail-title"
+      >
+        <div class="settings-header">
+          <div>
+            <p class="panel-kicker" id="content-detail-kicker">Article</p>
+            <h2 id="content-detail-title">资讯详情</h2>
+          </div>
+          <button type="button" class="settings-save modal-close" data-content-detail-modal-close>
+            关闭
+          </button>
+        </div>
+        <div id="content-detail-body" class="content-detail-body"></div>
+      </div>
+    </div>
+
+    <div id="content-source-modal" class="settings-modal" hidden>
+      <div class="settings-backdrop" data-content-source-modal-close></div>
+      <div
+        class="settings-dialog content-source-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="content-source-title"
+      >
+        <div class="settings-header">
+          <div>
+            <p class="panel-kicker">Content Sources</p>
+            <h2 id="content-source-title">信源管理</h2>
+          </div>
+          <button type="button" class="settings-save modal-close" data-content-source-modal-close>
+            关闭
+          </button>
+        </div>
+        <form id="content-source-form" class="settings-form content-source-form">
+          <input id="content-source-id" name="sourceId" type="hidden" />
+          <div class="content-source-form-grid">
+            <label class="settings-field">
+              <span class="widget-label">名称</span>
+              <input name="name" type="text" maxlength="80" required />
+            </label>
+            <label class="settings-field">
+              <span class="widget-label">类型</span>
+              <select name="type">
+                <option value="rss">RSS / Atom</option>
+                <option value="site">网站</option>
+              </select>
+            </label>
+          </div>
+          <label class="settings-field">
+            <span class="widget-label">链接</span>
+            <input name="url" type="url" maxlength="500" placeholder="https://example.com/feed.xml" required />
+          </label>
+          <label class="settings-field">
+            <span class="widget-label">解析标识（可选）</span>
+            <input name="parserKey" type="text" maxlength="64" placeholder="默认留空，优先自动识别" />
+          </label>
+          <label class="settings-field">
+            <span class="widget-label">启用状态</span>
+            <select name="enabled">
+              <option value="true">启用</option>
+              <option value="false">停用</option>
+            </select>
+          </label>
+          <div class="settings-actions">
+            <button type="submit" class="settings-save">保存信源</button>
+          </div>
+        </form>
+        <div id="content-source-list" class="content-source-list"></div>
       </div>
     </div>
 

@@ -4,6 +4,13 @@ const express = require("express");
 const svgCaptcha = require("svg-captcha");
 const { z } = require("zod");
 const { formatDateKey, getWeekRangeFromWeekValue } = require("./lib/date");
+const {
+  CHANNELS,
+  DEFAULT_PAGE_SIZE,
+  ensureDefaultSources,
+  ensureFreshChannelContent,
+  refreshChannelContent,
+} = require("./lib/content");
 
 const SESSION_COOKIE_NAME = "lifeflow_session";
 const SESSION_HEADER_NAME = "x-session-id";
@@ -63,10 +70,61 @@ const deleteAccountSchema = z.object({
   password: z.string().min(6).max(128),
 });
 
+const accountPreferencesSchema = z.object({
+  theme: z.enum(["light", "dark"]).optional(),
+  sidebar: z.object({
+    calendar: z.boolean().optional(),
+    github: z.boolean().optional(),
+    financeFeed: z.boolean().optional(),
+    scienceFeed: z.boolean().optional(),
+    weather: z.boolean().optional(),
+    stock: z.boolean().optional(),
+  }).optional(),
+  widgets: z.object({
+    github: z.object({
+      profileUrl: z.string().max(300).optional(),
+    }).optional(),
+    weather: z.object({
+      title: z.string().max(80).optional(),
+      locationQuery: z.string().max(120).optional(),
+    }).optional(),
+    stock: z.object({
+      title: z.string().max(80).optional(),
+      symbols: z.string().max(300).optional(),
+    }).optional(),
+  }).optional(),
+});
+
 const weatherQuerySchema = z.object({
   latitude: z.coerce.number().min(-90).max(90).optional(),
   longitude: z.coerce.number().min(-180).max(180).optional(),
   query: z.string().min(1).max(120).optional(),
+});
+
+const contentChannelSchema = z.enum(CHANNELS);
+
+const contentListQuerySchema = z.object({
+  channel: contentChannelSchema,
+  page: z.coerce.number().int().positive().optional(),
+  pageSize: z.coerce.number().int().min(1).max(10).optional(),
+  q: z.string().max(120).optional(),
+  tag: z.string().max(64).optional(),
+  sourceId: z.string().max(128).optional(),
+  sort: z.enum(["latest", "oldest"]).optional(),
+});
+
+const contentRefreshSchema = z.object({
+  channel: contentChannelSchema,
+});
+
+const contentSourceSchema = z.object({
+  channel: contentChannelSchema,
+  type: z.enum(["rss", "site"]),
+  name: z.string().min(1).max(80),
+  url: z.string().url().max(500),
+  enabled: z.boolean().optional(),
+  sortOrder: z.number().int().positive().optional(),
+  parserKey: z.string().max(64).optional().default(""),
 });
 
 function createApp({ config, store }) {
@@ -192,6 +250,7 @@ function createApp({ config, store }) {
         id: crypto.randomUUID(),
         username: parsed.username,
         password_hash: await hashPassword(parsed.password),
+        preferences: {},
       });
       const session = await store.createSession(createSessionPayload(user.id));
       writeSessionCookie(request, response, session.id);
@@ -199,6 +258,7 @@ function createApp({ config, store }) {
         user: {
           id: user.id,
           username: user.username,
+          preferences: user.preferences || {},
         },
         session: {
           id: session.id,
@@ -228,6 +288,7 @@ function createApp({ config, store }) {
         user: {
           id: user.id,
           username: user.username,
+          preferences: user.preferences || {},
         },
         session: {
           id: session.id,
@@ -261,6 +322,7 @@ function createApp({ config, store }) {
       user: {
         id: request.userContext.userId,
         username: request.userContext.username,
+        preferences: request.userContext.preferences || {},
       },
       session: {
         id: request.userContext.sessionId,
@@ -280,12 +342,25 @@ function createApp({ config, store }) {
           id: profile.user.id,
           username: profile.user.username,
           createdAt: profile.user.created_at || "",
+          preferences: profile.user.preferences || {},
         },
         counts: {
           tasks: Number(profile.counts?.tasks || 0),
           dailyRecords: Number(profile.counts?.dailyRecords || 0),
           weeklySummaries: Number(profile.counts?.weeklySummaries || 0),
         },
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.put("/api/account/preferences", requireAuthenticated, async (request, response, next) => {
+    try {
+      const parsed = accountPreferencesSchema.parse(request.body || {});
+      const user = await store.updateUserPreferences(request.userContext.userId, parsed);
+      response.json({
+        preferences: user?.preferences || {},
       });
     } catch (error) {
       next(error);
@@ -501,6 +576,175 @@ function createApp({ config, store }) {
     }
   });
 
+  app.get("/api/content", requireAuthenticated, async (request, response, next) => {
+    try {
+      const query = contentListQuerySchema.parse(request.query || {});
+      await ensureDefaultSources(store, request.userContext.userId, query.channel);
+      let result = await store.listContent(request.userContext, {
+        channel: query.channel,
+        page: query.page || 1,
+        pageSize: query.pageSize || DEFAULT_PAGE_SIZE,
+        q: query.q || "",
+        tag: query.tag || "",
+        sourceId: query.sourceId || "",
+        sort: query.sort || "latest",
+      });
+      if (result.total === 0) {
+        await ensureFreshChannelContent({
+          store,
+          userId: request.userContext.userId,
+          channel: query.channel,
+          limit: query.pageSize || DEFAULT_PAGE_SIZE,
+          force: false,
+        });
+        result = await store.listContent(request.userContext, {
+          channel: query.channel,
+          page: query.page || 1,
+          pageSize: query.pageSize || DEFAULT_PAGE_SIZE,
+          q: query.q || "",
+          tag: query.tag || "",
+          sourceId: query.sourceId || "",
+          sort: query.sort || "latest",
+        });
+      }
+      const facets = await store.listContentFacets(request.userContext, query.channel);
+      response.json({
+        ...result,
+        tags: facets.tags || [],
+        sources: facets.sources || [],
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/content/featured", requireAuthenticated, async (request, response, next) => {
+    try {
+      const query = contentListQuerySchema.pick({ channel: true }).extend({
+        limit: z.coerce.number().int().min(1).max(6).optional(),
+      }).parse(request.query || {});
+      await ensureDefaultSources(store, request.userContext.userId, query.channel);
+      let items = await store.getFeaturedContent(
+        request.userContext,
+        query.channel,
+        query.limit || 3,
+      );
+      if (items.length === 0) {
+        await ensureFreshChannelContent({
+          store,
+          userId: request.userContext.userId,
+          channel: query.channel,
+          limit: query.limit || 3,
+          force: false,
+        });
+        items = await store.getFeaturedContent(
+          request.userContext,
+          query.channel,
+          query.limit || 3,
+        );
+      }
+      response.json({ items });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/content/:itemId", requireAuthenticated, async (request, response, next) => {
+    try {
+      const item = await store.getContentItem(request.userContext, request.params.itemId);
+      if (!item) {
+        response.status(404).json({ error: "Content not found" });
+        return;
+      }
+      response.json({ item });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/content/refresh", requireAuthenticated, async (request, response, next) => {
+    try {
+      const parsed = contentRefreshSchema.parse(request.body || {});
+      const items = await refreshChannelContent({
+        store,
+        userId: request.userContext.userId,
+        channel: parsed.channel,
+        limit: DEFAULT_PAGE_SIZE,
+      });
+      response.json({ ok: true, count: items.length });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/content-sources", requireAuthenticated, async (request, response, next) => {
+    try {
+      const query = contentListQuerySchema.pick({ channel: true }).parse(request.query || {});
+      const sources = await ensureDefaultSources(store, request.userContext.userId, query.channel);
+      response.json({ sources });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/content-sources", requireAuthenticated, async (request, response, next) => {
+    try {
+      const parsed = contentSourceSchema.parse(request.body || {});
+      const existing = await store.listContentSources(request.userContext, parsed.channel);
+      const source = await store.createContentSource(request.userContext, {
+        id: crypto.randomUUID(),
+        channel: parsed.channel,
+        type: parsed.type,
+        name: parsed.name,
+        url: parsed.url,
+        enabled: typeof parsed.enabled === "boolean" ? parsed.enabled : true,
+        sort_order: parsed.sortOrder || existing.length + 1,
+        parser_key: parsed.parserKey || "",
+        is_default: false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+      response.status(201).json({ source });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/content-sources/:sourceId", requireAuthenticated, async (request, response, next) => {
+    try {
+      const parsed = contentSourceSchema.partial().parse(request.body || {});
+      const source = await store.updateContentSource(
+        request.userContext,
+        request.params.sourceId,
+        {
+          channel: parsed.channel,
+          type: parsed.type,
+          name: parsed.name,
+          url: parsed.url,
+          enabled: parsed.enabled,
+          sort_order: parsed.sortOrder,
+          parser_key: parsed.parserKey,
+        },
+      );
+      if (!source) {
+        response.status(404).json({ error: "Source not found" });
+        return;
+      }
+      response.json({ source });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/api/content-sources/:sourceId", requireAuthenticated, async (request, response, next) => {
+    try {
+      await store.deleteContentSource(request.userContext, request.params.sourceId);
+      response.status(204).send();
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.use((error, request, response, next) => {
     if (error instanceof z.ZodError) {
       response.status(400).json({ error: "Validation failed", details: error.flatten() });
@@ -554,6 +798,7 @@ async function resolveUserContext(request, store) {
     userId: result.user.id,
     isAuthenticated: true,
     username: result.user.username || "",
+    preferences: result.user.preferences || {},
     sessionId,
   };
 }

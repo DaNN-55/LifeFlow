@@ -73,11 +73,12 @@ function renderCaptchaImage(svgMarkup) {
     authElements.captchaImage.textContent = "加载失败";
     return;
   }
-  const image = document.createElement("img");
-  image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgMarkup)}`;
-  image.alt = "图形验证码";
-  image.decoding = "async";
-  authElements.captchaImage.append(image);
+  authElements.captchaImage.innerHTML = svgMarkup;
+  const inlineSvg = authElements.captchaImage.querySelector("svg");
+  if (inlineSvg) {
+    inlineSvg.setAttribute("aria-hidden", "true");
+    inlineSvg.setAttribute("focusable", "false");
+  }
 }
 
 function buildAuthErrorMessage(error, mode) {
