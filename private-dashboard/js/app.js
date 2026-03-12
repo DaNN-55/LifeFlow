@@ -1573,7 +1573,6 @@ function renderWeeklyReview() {
   elements.weeklyReviewList.innerHTML = weeklyTasks
     .map((task) => {
       const notes = aggregation.notesByTask[task.id];
-      const timelineCount = aggregation.eventsByTask[task.id]?.length || 0;
       const noteHtml = notes.length
         ? notes
             .map(
@@ -1623,7 +1622,6 @@ function renderWeeklyReview() {
               </button>
               <span class="review-chip">${aggregation.completionCounts[task.id]} / ${aggregation.totalDays} DAYS</span>
               <span class="review-chip">${notes.length} NOTES</span>
-              <span class="review-chip">${timelineCount} RECORDS</span>
             </div>
           </div>
           <div class="review-notes">${noteHtml}</div>
@@ -2786,7 +2784,7 @@ async function initAuthClient() {
   renderControls();
 
   try {
-    const payload = await fetchApiJson("/api/auth/me", { requireAuth: false });
+    const payload = await fetchAuthSession();
     state.auth.user = payload.user || null;
     saveSessionId(payload?.session?.id || loadSessionId());
     if (state.auth.user?.id) {
@@ -2804,8 +2802,8 @@ async function initAuthClient() {
     }
 
     renderControls();
-    await bootstrapRemoteData();
     setAppVisibility(true);
+    void bootstrapRemoteData();
     return state.auth.user;
   } catch (error) {
     state.auth.user = null;
@@ -2815,6 +2813,17 @@ async function initAuthClient() {
     renderControls();
     redirectToLoginPage();
     return null;
+  }
+}
+
+async function fetchAuthSession() {
+  try {
+    return await fetchApiJson("/api/auth/me", { requireAuth: false });
+  } catch (error) {
+    // If a stale cached API base points to the wrong backend, clear it and probe again once.
+    state.remote.apiBase = "";
+    saveApiBase("");
+    return fetchApiJson("/api/auth/me", { requireAuth: false });
   }
 }
 

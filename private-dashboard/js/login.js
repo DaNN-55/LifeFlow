@@ -1,5 +1,6 @@
 const AUTH_CONFIG_STORAGE_KEY = "lifeflow-private-dashboard-auth-config";
 const SESSION_STORAGE_KEY = "lifeflow-private-dashboard-session";
+const API_BASE_STORAGE_KEY = "lifeflow-private-dashboard-api-base";
 const DEFAULT_API_BASE = "https://lifeflow-backend-mrs1.onrender.com";
 
 const authElements = {
@@ -49,6 +50,14 @@ function saveSessionId(sessionId) {
     return;
   }
   localStorage.setItem(SESSION_STORAGE_KEY, String(sessionId).trim());
+}
+
+function saveApiBase(apiBase) {
+  if (!apiBase) {
+    localStorage.removeItem(API_BASE_STORAGE_KEY);
+    return;
+  }
+  localStorage.setItem(API_BASE_STORAGE_KEY, String(apiBase).trim());
 }
 
 function setFeedback(message) {
@@ -133,6 +142,7 @@ async function detectApiBase() {
 
 async function fetchApiJson(path, options = {}) {
   const apiBase = await detectApiBase();
+  saveApiBase(apiBase);
   const headers = new Headers(options.headers || {});
   const sessionId = loadSessionId();
   if (sessionId) {
