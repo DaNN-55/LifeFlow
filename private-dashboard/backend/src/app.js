@@ -688,15 +688,16 @@ function createApp({ config, store }) {
   app.post("/api/content/refresh", requireAuthenticated, async (request, response, next) => {
     try {
       const parsed = contentRefreshSchema.parse(request.body || {});
-      const items = await refreshChannelContent({
+      const result = await refreshChannelContent({
         store,
         userId: request.userContext.userId,
         channel: parsed.channel,
-        limit: parsed.limit || 36,
+        limit: parsed.limit || DEFAULT_REFRESH_LIMIT,
       });
       response.json({
         ok: true,
-        count: items.length,
+        count: result.items.length,
+        refresh: result.stats,
         cache: getChannelCacheStatus(request.userContext.userId, parsed.channel),
       });
     } catch (error) {

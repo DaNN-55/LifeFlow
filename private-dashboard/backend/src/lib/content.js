@@ -12,8 +12,8 @@ const parser = new Parser({
 
 const CHANNELS = ["finance", "science"];
 const FETCH_TIMEOUT_MS = 10000;
-const DEFAULT_PAGE_SIZE = 30;
-const DEFAULT_REFRESH_LIMIT = 36;
+const DEFAULT_PAGE_SIZE = 10;
+const DEFAULT_REFRESH_LIMIT = 30;
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const cacheByChannel = new Map();
 const refreshInFlight = new Map();
@@ -71,6 +71,7 @@ function createEmptyChannelCache() {
   return {
     items: [],
     refreshedAt: 0,
+    lastRefreshStats: null,
   };
 }
 
@@ -92,12 +93,18 @@ function setCachedChannelItems(userId, channel, items) {
   cache.refreshedAt = Date.now();
 }
 
+function setChannelRefreshStats(userId, channel, stats) {
+  const cache = getChannelCache(userId, channel);
+  cache.lastRefreshStats = stats || null;
+}
+
 function getChannelCacheStatus(userId, channel) {
   const cache = getChannelCache(userId, channel);
   return {
     refreshedAt: cache.refreshedAt || 0,
     isFresh: Date.now() - (cache.refreshedAt || 0) < CACHE_TTL_MS,
     count: Array.isArray(cache.items) ? cache.items.length : 0,
+    lastRefreshStats: cache.lastRefreshStats || null,
   };
 }
 
@@ -123,10 +130,20 @@ async function refreshChannelContent({ store, userId, channel, limit = DEFAULT_R
     const sources = (await ensureDefaultSources(store, userId, channel)).filter((source) => source.enabled);
     if (sources.length === 0) {
       setCachedChannelItems(userId, channel, []);
-      return [];
+      const stats = {
+        totalSources: 0,
+        successCount: 0,
+        failureCount: 0,
+        failures: [],
+        refreshedAt: new Date().toISOString(),
+      };
+      setChannelRefreshStats(userId, channel, stats);
+      return { items: [], stats };
     }
     const perSourceLimit = Math.max(8, Math.ceil(limit / sources.length) + 4);
     const collected = [];
+    const failures = [];
+    let successCount = 0;
 
     for (const source of sources) {
       try {
@@ -135,14 +152,28 @@ async function refreshChannelContent({ store, userId, channel, limit = DEFAULT_R
             ? await fetchSiteSource(source, channel, perSourceLimit)
             : await fetchRssSource(source, channel, perSourceLimit);
         collected.push(...items);
+        successCount += 1;
       } catch (error) {
         console.warn("[content] failed to refresh source", source.name, error.message);
+        failures.push({
+          sourceId: source.id,
+          sourceName: source.name,
+          message: error.message,
+        });
       }
     }
 
     const deduped = dedupeContentItems(collected).slice(0, limit);
     setCachedChannelItems(userId, channel, deduped);
-    return deduped;
+    const stats = {
+      totalSources: sources.length,
+      successCount,
+      failureCount: failures.length,
+      failures,
+      refreshedAt: new Date().toISOString(),
+    };
+    setChannelRefreshStats(userId, channel, stats);
+    return { items: deduped, stats };
   })();
 
   refreshInFlight.set(cacheKey, job);

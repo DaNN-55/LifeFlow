@@ -9,7 +9,7 @@ const PENDING_SYNC_STORAGE_KEY = "lifeflow-private-dashboard-pending-sync";
 const WEATHER_CACHE_STORAGE_KEY = "lifeflow-private-dashboard-weather-cache";
 const API_PROBE_TIMEOUT_MS = 1500;
 const LOCAL_SCOPE_KEY = "__local__";
-const CONTENT_PAGE_SIZE = 30;
+const CONTENT_PAGE_SIZE = 10;
 
 const defaultTasks = [
   { id: "task1", name: "任务1", order: 1, color: "#4f46e5" },
@@ -28,19 +28,6 @@ const TASK_COLOR_PALETTES = [
   { id: "emerald", label: "翠绿", value: "#059669" },
   { id: "rose", label: "玫红", value: "#e11d48" },
 ];
-
-const placeholderFeeds = {
-  finance: [
-    { title: "Market breadth and earnings drift", meta: "8h // curated" },
-    { title: "Rates hold expectations for next cycle", meta: "1d // overview" },
-    { title: "Semiconductor watchlist checkpoint", meta: "2d // notes" },
-  ],
-  science: [
-    { title: "Neural mapping paper placeholder", meta: "queue // review" },
-    { title: "Energy materials reading placeholder", meta: "queue // review" },
-    { title: "Physics preprint placeholder", meta: "queue // review" },
-  ],
-};
 
 const mockContentCatalog = {
   finance: [
@@ -74,6 +61,10 @@ const defaultWidgets = {
     owner: "DanN-55",
     profileUrl: "",
   },
+  favorites: {
+    title: "Favorites",
+    channel: "all",
+  },
   weather: {
     title: "Weather",
     locationQuery: "",
@@ -102,7 +93,10 @@ function createInitialContentChannelState(channel) {
     loading: false,
     loaded: false,
     refreshing: false,
+    autoRefreshed: false,
     usingMock: false,
+    lastRefreshedAt: "",
+    lastRefreshStats: null,
     error: "",
     meta: "",
   };
@@ -159,6 +153,8 @@ const elements = {
   githubCardLink: document.querySelector("#github-card-link"),
   financeFeedCard: document.querySelector("#finance-feed-card"),
   scienceFeedCard: document.querySelector("#science-feed-card"),
+  favoritesCard: document.querySelector("#favorites-card"),
+  favoritesWidgetDisplay: document.querySelector("#favorites-widget-display"),
   githubWidgetDisplay: document.querySelector("#github-widget-display"),
   scienceSearch: document.querySelector("#science-search"),
   scienceTagFilter: document.querySelector("#science-tag-filter"),
@@ -268,6 +264,11 @@ const state = {
   },
   pendingSync: loadPendingSyncStore(),
   widgetData: {
+    favorites: {
+      status: "idle",
+      items: [],
+      message: "最近收藏的资讯",
+    },
     github: {
       status: "idle",
       repos: [],
@@ -363,6 +364,7 @@ function createInitialData() {
         github: true,
         financeFeed: true,
         scienceFeed: true,
+        favorites: true,
         weather: true,
         stock: true,
       },
@@ -383,6 +385,10 @@ function mergePreferences(preferences = {}) {
       github: {
         ...base.widgets.github,
         ...(preferences?.widgets?.github || {}),
+      },
+      favorites: {
+        ...base.widgets.favorites,
+        ...(preferences?.widgets?.favorites || {}),
       },
       weather: {
         ...base.widgets.weather,
@@ -1115,11 +1121,24 @@ function getContentChannelState(channel) {
   return channel === "science" ? state.content.science : state.content.finance;
 }
 
+function scrollContentChannelToTop(channel) {
+  const view = channel === "science" ? elements.scienceView : elements.financeView;
+  const shell = view?.querySelector(".content-stream-shell");
+  if (!shell) {
+    return;
+  }
+  shell.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 async function ensureContentChannelLoaded(channel, options = {}) {
   if (!state.auth.user || !["finance", "science"].includes(channel)) {
     return;
   }
   const contentState = getContentChannelState(channel);
+  if (!contentState.autoRefreshed) {
+    await refreshChannelContentManually(channel, { silent: true, markAuto: true });
+    return;
+  }
   const jobs = [];
   if (options.refreshFeatured || (!contentState.featured.length && !contentState.loading)) {
     jobs.push(loadFeaturedContent(channel));
@@ -1127,10 +1146,9 @@ async function ensureContentChannelLoaded(channel, options = {}) {
   if (options.force || !contentState.loaded) {
     jobs.push(loadChannelContent(channel));
   }
-  if (!jobs.length) {
-    return;
+  if (jobs.length) {
+    await Promise.all(jobs);
   }
-  await Promise.all(jobs);
 }
 
 function renderCenterTabs() {
@@ -1404,6 +1422,9 @@ function renderSidebarCards() {
   if (elements.scienceFeedCard) {
     elements.scienceFeedCard.hidden = !sidebar.scienceFeed;
   }
+  if (elements.favoritesCard) {
+    elements.favoritesCard.hidden = !sidebar.favorites;
+  }
   if (elements.weatherCard) {
     elements.weatherCard.hidden = !sidebar.weather;
   }
@@ -1467,12 +1488,59 @@ function renderAccountProfileModal() {
       <div class="account-profile-item">
         <span class="account-profile-label">面板开关</span>
         <div class="account-card-toggle-list">
-          <label class="account-card-toggle"><input type="checkbox" name="calendar" ${sidebar.calendar ? "checked" : ""} /> <span>日历</span></label>
-          <label class="account-card-toggle"><input type="checkbox" name="github" ${sidebar.github ? "checked" : ""} /> <span>GitHub</span></label>
-          <label class="account-card-toggle"><input type="checkbox" name="financeFeed" ${sidebar.financeFeed ? "checked" : ""} /> <span>Finance</span></label>
-          <label class="account-card-toggle"><input type="checkbox" name="scienceFeed" ${sidebar.scienceFeed ? "checked" : ""} /> <span>Science</span></label>
-          <label class="account-card-toggle"><input type="checkbox" name="weather" ${sidebar.weather ? "checked" : ""} /> <span>天气</span></label>
-          <label class="account-card-toggle"><input type="checkbox" name="stock" ${sidebar.stock ? "checked" : ""} /> <span>股票</span></label>
+          <div class="account-card-toggle-column">
+            <label class="account-card-toggle">
+              <span>日历</span>
+              <span class="account-toggle-switch">
+                <input type="checkbox" name="calendar" ${sidebar.calendar ? "checked" : ""} />
+                <span class="account-toggle-track"></span>
+              </span>
+            </label>
+            <label class="account-card-toggle">
+              <span>GitHub</span>
+              <span class="account-toggle-switch">
+                <input type="checkbox" name="github" ${sidebar.github ? "checked" : ""} />
+                <span class="account-toggle-track"></span>
+              </span>
+            </label>
+            <label class="account-card-toggle">
+              <span>Finance</span>
+              <span class="account-toggle-switch">
+                <input type="checkbox" name="financeFeed" ${sidebar.financeFeed ? "checked" : ""} />
+                <span class="account-toggle-track"></span>
+              </span>
+            </label>
+            <label class="account-card-toggle">
+              <span>Science</span>
+              <span class="account-toggle-switch">
+                <input type="checkbox" name="scienceFeed" ${sidebar.scienceFeed ? "checked" : ""} />
+                <span class="account-toggle-track"></span>
+              </span>
+            </label>
+          </div>
+          <div class="account-card-toggle-column">
+            <label class="account-card-toggle">
+              <span>天气</span>
+              <span class="account-toggle-switch">
+                <input type="checkbox" name="weather" ${sidebar.weather ? "checked" : ""} />
+                <span class="account-toggle-track"></span>
+              </span>
+            </label>
+            <label class="account-card-toggle">
+              <span>股票</span>
+              <span class="account-toggle-switch">
+                <input type="checkbox" name="stock" ${sidebar.stock ? "checked" : ""} />
+                <span class="account-toggle-track"></span>
+              </span>
+            </label>
+            <label class="account-card-toggle">
+              <span>Favorites</span>
+              <span class="account-toggle-switch">
+                <input type="checkbox" name="favorites" ${sidebar.favorites ? "checked" : ""} />
+                <span class="account-toggle-track"></span>
+              </span>
+            </label>
+          </div>
         </div>
       </div>
       <div class="delete-task-dialog-actions">
@@ -1566,16 +1634,9 @@ function renderFeeds() {
 
 function renderFeedInto(container, items, channel) {
   if (!Array.isArray(items) || items.length === 0) {
-    container.innerHTML = placeholderFeeds[channel]
-      .map(
-        (item) => `
-          <article class="feed-item">
-            <p class="feed-meta">${item.meta}</p>
-            <h3>${item.title}</h3>
-          </article>
-        `,
-      )
-      .join("");
+    const contentState = getContentChannelState(channel);
+    const message = contentState?.loading || !contentState?.loaded ? "加载中..." : "加载中...";
+    container.innerHTML = `<div class="content-empty-state">${message}</div>`;
     return;
   }
   container.innerHTML = items
@@ -1587,7 +1648,10 @@ function renderFeedInto(container, items, channel) {
               ${escapeHtml(item.title)}
             </a>
           </h3>
-          <p class="feed-meta">${escapeHtml(formatFeedMeta(item))}</p>
+          <div class="feed-meta-stack">
+            <p class="feed-meta">${escapeHtml(item.source_name || "未知来源")}</p>
+            <p class="feed-meta">${escapeHtml(formatDateTime(item.published_at || item.fetched_at))}</p>
+          </div>
         </article>
       `,
     )
@@ -1756,10 +1820,10 @@ function renderContentChannel(channel) {
   channelElements.grid.innerHTML = contentState.items
     .map(
       (item) => `
-        <article class="content-card ${item.is_favorite ? "is-favorited" : ""}" data-content-open="${escapeAttribute(item.id)}">
+        <article class="content-card ${item.is_favorite ? "is-favorited" : ""}">
           <div class="content-card-main">
             <h3>${escapeHtml(item.title)}</h3>
-            <p>${escapeHtml(item.summary_zh || "暂无摘要。")}</p>
+            <p>${escapeHtml(getContentCardExcerpt(item))}</p>
             <div class="content-card-footer">
               <span>${escapeHtml(item.source_name || "未知来源")}</span>
               <span>${escapeHtml(item.author || "未知作者")}</span>
@@ -1767,14 +1831,6 @@ function renderContentChannel(channel) {
             </div>
           </div>
           <div class="content-card-side">
-            <button
-              type="button"
-              class="content-favorite-button ${item.is_favorite ? "is-active" : ""}"
-              data-content-favorite="${escapeAttribute(item.id)}"
-              aria-label="${item.is_favorite ? "取消收藏" : "收藏资讯"}"
-            >
-              ${item.is_favorite ? "取消收藏" : "收藏"}
-            </button>
             ${
               Array.isArray(item.tags) && item.tags.length
                 ? `<div class="content-card-tags">${item.tags
@@ -1783,6 +1839,27 @@ function renderContentChannel(channel) {
                     .join("")}</div>`
                 : '<div class="content-card-tags"><span class="content-tag">资讯</span></div>'
             }
+            <div class="content-card-actions">
+              <button
+                type="button"
+                class="content-favorite-button ${item.is_favorite ? "is-active" : ""}"
+                data-content-favorite="${escapeAttribute(item.id)}"
+                aria-label="${item.is_favorite ? "取消收藏" : "收藏资讯"}"
+              >
+                ${item.is_favorite ? "取消收藏" : "收藏"}
+              </button>
+              ${
+                getSafeContentLink(item)
+                  ? `<button
+                      type="button"
+                      class="content-link-inline"
+                      data-content-open-link="${escapeAttribute(getSafeContentLink(item))}"
+                    >
+                      查看原文
+                    </button>`
+                  : ""
+              }
+            </div>
           </div>
         </article>
       `,
@@ -1802,22 +1879,50 @@ function renderContentChannel(channel) {
 }
 
 function getContentMetaText(contentState) {
+  const refreshedAt = contentState.lastRefreshedAt
+    ? `最近刷新 ${formatDateTime(contentState.lastRefreshedAt)}`
+    : "";
+  const refreshSummary =
+    contentState.lastRefreshStats && contentState.lastRefreshStats.totalSources
+      ? `${contentState.lastRefreshStats.successCount} 个源成功 / ${contentState.lastRefreshStats.failureCount} 个源失败`
+      : "";
   if (contentState.loading) {
     return "正在同步最新资讯...";
   }
   if (contentState.usingMock) {
-    return `当前显示测试资讯 · 每页 ${contentState.pageSize} 条`;
+    return [refreshedAt, "当前显示测试资讯", `每页 ${contentState.pageSize} 条`].filter(Boolean).join(" · ");
   }
   if (contentState.favoriteFilter === "favorites") {
     return contentState.total
-      ? `共 ${contentState.total} 条收藏资讯 · 每页 ${contentState.pageSize} 条`
-      : "当前没有收藏资讯。";
+      ? [refreshedAt, `共 ${contentState.total} 条收藏资讯`, `每页 ${contentState.pageSize} 条`]
+          .filter(Boolean)
+          .join(" · ")
+      : [refreshedAt, "当前没有收藏资讯。"].filter(Boolean).join(" · ");
   }
   const total = Number(contentState.total || 0);
   if (!total) {
-    return "当前暂无缓存资讯，请手动刷新。";
+    return [refreshedAt, "当前暂无缓存资讯，请手动刷新。"].filter(Boolean).join(" · ");
   }
-  return `共 ${total} 条资讯 · 每页 ${contentState.pageSize} 条`;
+  return [refreshedAt, refreshSummary, `共 ${total} 条资讯`, `每页 ${contentState.pageSize} 条`]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function getContentCardExcerpt(item) {
+  const raw = String(
+    item?.body_zh ||
+      item?.body_raw ||
+      item?.summary_zh ||
+      item?.summary_raw ||
+      "",
+  ).trim();
+  if (!raw) {
+    return "暂无摘要。";
+  }
+  return raw
+    .replace(/^(中文摘要|英文摘要|摘要|全文内容|英文正文摘录|英文正文内容)\s*[:：]\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function renderContentDetailModal() {
@@ -1896,6 +2001,7 @@ function renderContentSourceModal() {
   const channelLabel = channel === "science" ? "Science" : "Finance";
   elements.contentSourceTitle.textContent = `${channelLabel} 信源管理`;
   const sources = state.content[channel].sources || [];
+  const refreshFailures = state.content[channel].lastRefreshStats?.failures || [];
   const editingSource = sources.find((source) => source.id === state.content.sourceEditingId) || null;
   if (elements.contentSourceForm) {
     elements.contentSourceForm.dataset.channel = channel;
@@ -1911,12 +2017,19 @@ function renderContentSourceModal() {
   elements.contentSourceList.innerHTML = sources.length
     ? sources
         .map(
-          (source) => `
+          (source) => {
+            const recentFailure = refreshFailures.find((item) => item.sourceId === source.id);
+            return `
             <article class="content-source-item">
               <div>
                 <strong>${escapeHtml(source.name)}</strong>
                 <p>${escapeHtml(source.url)}</p>
                 <span class="feed-meta">${escapeHtml(source.type)} · ${source.enabled ? "已启用" : "已停用"}</span>
+                ${
+                  recentFailure
+                    ? `<p class="content-source-status is-error">最近刷新失败 · ${escapeHtml(recentFailure.message || "未知错误")}</p>`
+                    : ""
+                }
               </div>
               <div class="content-source-item-actions">
                 <button type="button" class="task-cancel-action" data-content-source-edit="${escapeAttribute(source.id)}">编辑</button>
@@ -1927,7 +2040,8 @@ function renderContentSourceModal() {
                 }
               </div>
             </article>
-          `,
+          `;
+          },
         )
         .join("")
     : '<div class="content-empty-state">当前没有可用信源。</div>';
@@ -1950,6 +2064,47 @@ async function loadFeaturedContent(channel) {
       renderFeeds();
     }
   }
+}
+
+async function refreshFavoriteHighlights() {
+  if (!state.auth.user) {
+    state.widgetData.favorites = {
+      status: "idle",
+      items: [],
+      message: "登录后可查看最近收藏的资讯。",
+    };
+    renderWidgets();
+    return;
+  }
+  try {
+    const [financePayload, sciencePayload] = await Promise.all([
+      fetchApiJson("/api/content?channel=finance&page=1&pageSize=3&favorite=favorites&sort=latest"),
+      fetchApiJson("/api/content?channel=science&page=1&pageSize=3&favorite=favorites&sort=latest"),
+    ]);
+    const merged = [
+      ...(financePayload?.items || []),
+      ...(sciencePayload?.items || []),
+    ]
+      .sort((left, right) => {
+        const leftTime = new Date(left.published_at || left.favorited_at || left.created_at || 0).getTime();
+        const rightTime = new Date(right.published_at || right.favorited_at || right.created_at || 0).getTime();
+        return rightTime - leftTime;
+      })
+      .slice(0, 3);
+    state.widgetData.favorites = {
+      status: "ready",
+      items: merged,
+      message: merged.length ? "最近收藏的资讯" : "当前还没有收藏资讯。",
+    };
+  } catch (error) {
+    console.warn("Failed to load favorite highlights.", error);
+    state.widgetData.favorites = {
+      status: "error",
+      items: [],
+      message: "收藏资讯暂时不可用。",
+    };
+  }
+  renderWidgets();
 }
 
 async function loadChannelContent(channel, options = {}) {
@@ -2008,6 +2163,8 @@ async function loadChannelContent(channel, options = {}) {
     contentState.page = Number(payload?.page || contentState.page);
     contentState.tags = Array.isArray(payload?.tags) ? payload.tags : [];
     contentState.sources = Array.isArray(payload?.sources) ? payload.sources : [];
+    contentState.lastRefreshedAt = payload?.cache?.refreshedAt || contentState.lastRefreshedAt || "";
+    contentState.lastRefreshStats = payload?.cache?.lastRefreshStats || contentState.lastRefreshStats || null;
     contentState.loaded = true;
     contentState.usingMock = false;
     contentState.meta = getContentMetaText(contentState);
@@ -2033,7 +2190,7 @@ async function loadChannelContent(channel, options = {}) {
   }
 }
 
-async function refreshChannelContentManually(channel) {
+async function refreshChannelContentManually(channel, options = {}) {
   const contentState = state.content[channel];
   if (!contentState || contentState.refreshing) {
     return;
@@ -2042,21 +2199,45 @@ async function refreshChannelContentManually(channel) {
   contentState.meta = "正在刷新资讯...";
   renderContentChannel(channel);
   try {
-    await fetchApiJson("/api/content/refresh", {
+    const payload = await fetchApiJson("/api/content/refresh", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ channel, limit: CONTENT_PAGE_SIZE + 6 }),
+      body: JSON.stringify({ channel, limit: 30 }),
     });
-    await Promise.all([loadChannelContent(channel), loadFeaturedContent(channel)]);
-    setSaveStatus(`${channel === "science" ? "Science" : "Finance"} 资讯已刷新`, "success");
+    if (options.featuredOnly) {
+      await loadFeaturedContent(channel);
+    } else {
+      await Promise.all([loadChannelContent(channel), loadFeaturedContent(channel)]);
+    }
+    contentState.autoRefreshed = options.markAuto !== false;
+    contentState.lastRefreshedAt = payload?.cache?.refreshedAt || payload?.refresh?.refreshedAt || "";
+    contentState.lastRefreshStats = payload?.refresh || payload?.cache?.lastRefreshStats || null;
+    if (!options.silent) {
+      const refreshLabel = contentState.lastRefreshStats
+        ? `${contentState.lastRefreshStats.successCount} 个源成功 / ${contentState.lastRefreshStats.failureCount} 个源失败`
+        : "资讯已刷新";
+      setSaveStatus(`${channel === "science" ? "Science" : "Finance"} 已刷新 · ${refreshLabel}`, "success");
+    }
   } catch (error) {
     console.warn(`Failed to refresh ${channel} content.`, error);
     contentState.error = error?.message || "资讯刷新失败";
-    setSaveStatus(contentState.error);
+    if (!options.silent) {
+      setSaveStatus(contentState.error);
+    }
     renderContentChannel(channel);
   } finally {
     contentState.refreshing = false;
   }
+}
+
+async function prefetchContentFeedsOnSessionStart() {
+  if (!state.auth.user) {
+    return;
+  }
+  await Promise.all([
+    refreshChannelContentManually("finance", { silent: true, markAuto: true, featuredOnly: true }),
+    refreshChannelContentManually("science", { silent: true, markAuto: true, featuredOnly: true }),
+  ]);
 }
 
 function queueContentSearch(channel, value) {
@@ -2120,7 +2301,7 @@ async function toggleContentFavorite(itemId) {
       });
       setSaveStatus("已加入收藏", "success");
     }
-    await Promise.all([loadChannelContent(item.channel), loadFeaturedContent(item.channel)]);
+    await Promise.all([loadChannelContent(item.channel), loadFeaturedContent(item.channel), refreshFavoriteHighlights()]);
     if (state.content.detailItem?.id === itemId) {
       state.content.detailItem = findLocalContentItem(itemId) || state.content.detailItem;
       renderContentDetailModal();
@@ -2593,11 +2774,50 @@ function normalizeWeeklyAggregation(payload) {
 }
 
 function renderWidgets() {
+  if (elements.favoritesWidgetDisplay) {
+    elements.favoritesWidgetDisplay.innerHTML = renderFavoritesWidget();
+  }
   if (elements.githubWidgetDisplay) {
     elements.githubWidgetDisplay.innerHTML = renderGitHubWidget();
   }
   elements.weatherWidgetDisplay.innerHTML = renderWeatherWidget();
   elements.stockWidgetDisplay.innerHTML = renderStockWidget();
+}
+
+function renderFavoritesWidget() {
+  const favorites = state.widgetData.favorites;
+  const config = state.data.preferences.widgets.favorites || defaultWidgets.favorites;
+  const channelFilter = config.channel || "all";
+  const items = Array.isArray(favorites.items) ? favorites.items : [];
+  if (!state.auth.user) {
+    return '<p class="widget-status">登录后可查看最近收藏的资讯。</p>';
+  }
+  const filteredItems = items
+    .filter((item) => channelFilter === "all" || item.channel === channelFilter)
+    .slice(0, 3);
+  if (!filteredItems.length) {
+    return `<p class="widget-status">${escapeHtml(favorites.message || "当前还没有收藏资讯。")}</p>`;
+  }
+  return `
+    <div class="favorites-widget-list">
+      ${filteredItems
+        .map(
+          (item) => `
+            <article class="favorites-widget-item">
+              <button
+                type="button"
+                class="favorites-widget-link"
+                data-favorites-jump="${escapeAttribute(item.channel)}"
+              >
+                <strong>${escapeHtml(item.title)}</strong>
+                <span class="feed-meta">${escapeHtml(item.source_name || item.channel)} // ${escapeHtml(formatDateTime(item.published_at || item.favorited_at || item.created_at))}</span>
+              </button>
+            </article>
+          `,
+        )
+        .join("")}
+    </div>
+  `;
 }
 
 function renderGitHubWidget() {
@@ -2809,7 +3029,7 @@ function renderModal() {
 
   elements.settingsModal.hidden = false;
   elements.settingsTitle.textContent =
-    widget === "weather" ? "Weather 设置" : "Stock 设置";
+    widget === "weather" ? "Weather 设置" : widget === "stock" ? "Stock 设置" : "Favorites 设置";
   elements.settingsForm.innerHTML = renderSettingsForm(widget);
 }
 
@@ -3049,6 +3269,7 @@ async function handleAccountProfilePreferencesSubmit(event) {
     github: formData.has("github"),
     financeFeed: formData.has("financeFeed"),
     scienceFeed: formData.has("scienceFeed"),
+    favorites: formData.has("favorites"),
     weather: formData.has("weather"),
     stock: formData.has("stock"),
   };
@@ -3134,6 +3355,22 @@ function getTaskTimelineEntries(taskId) {
 }
 
 function renderSettingsForm(widget) {
+  if (widget === "favorites") {
+    const config = state.data.preferences.widgets.favorites;
+    return `
+      <label class="settings-field">
+        <span class="widget-label">显示范围</span>
+        <select name="favoritesChannel">
+          <option value="all" ${config.channel === "all" ? "selected" : ""}>Finance + Science</option>
+          <option value="finance" ${config.channel === "finance" ? "selected" : ""}>仅 Finance</option>
+          <option value="science" ${config.channel === "science" ? "selected" : ""}>仅 Science</option>
+        </select>
+      </label>
+      <div class="settings-actions">
+        <button type="submit" class="settings-save">保存设置</button>
+      </div>
+    `;
+  }
   if (widget === "weather") {
     const config = state.data.preferences.widgets.weather;
     return `
@@ -3762,6 +3999,23 @@ function closeModal() {
 }
 
 function saveSettings(formData) {
+  if (state.modal.widget === "favorites") {
+    state.data.preferences.widgets.favorites = {
+      title: "Favorites",
+      channel: String(formData.get("favoritesChannel") || defaultWidgets.favorites.channel),
+    };
+    saveData("已保存 Favorites 设置");
+    closeModal();
+    if (state.auth.user) {
+      void saveAccountPreferencesRemote().catch((error) => {
+        console.warn("Failed to save favorites preferences remotely.", error);
+        setSaveStatus("Favorites 设置已保存在本地，云端同步稍后重试");
+      });
+    }
+    renderWidgets();
+    return;
+  }
+
   if (state.modal.widget === "weather") {
     state.data.preferences.widgets.weather = {
       title: "Weather",
@@ -4054,6 +4308,7 @@ async function bootstrapRemoteData() {
       syncSelectedWeekReview({ silent: true }),
       syncSelectedWeekSummary({ silent: true }),
     ]);
+    await refreshFavoriteHighlights();
     state.remote.status = "ready";
     if (pendingSyncFailed) {
       setSaveStatus("云端已连接，但有部分待同步内容提交失败", "default");
@@ -4061,6 +4316,7 @@ async function bootstrapRemoteData() {
       setSaveStatus("后端已连接，当前通过 API 同步数据");
     }
     render();
+    void prefetchContentFeedsOnSessionStart();
   } catch (error) {
     console.warn("Failed to bootstrap remote data.", error);
     state.remote.status = "offline";
@@ -5449,6 +5705,7 @@ function handleContentClick(event) {
     const [channel, pageValue] = String(pageTarget.dataset.contentPage || "").split(":");
     const page = Number(pageValue);
     if (["finance", "science"].includes(channel) && Number.isFinite(page) && page > 0) {
+      scrollContentChannelToTop(channel);
       void loadChannelContent(channel, { page });
     }
     return;
@@ -5476,12 +5733,6 @@ function handleContentClick(event) {
     return;
   }
 
-  const itemTarget = event.target.closest("[data-content-open]");
-  if (itemTarget) {
-    void openContentDetail(itemTarget.dataset.contentOpen || "");
-    return;
-  }
-
   const linkTarget = event.target.closest("[data-content-open-link]");
   if (linkTarget) {
     const link = String(linkTarget.dataset.contentOpenLink || "").trim();
@@ -5492,6 +5743,20 @@ function handleContentClick(event) {
 }
 
 function handleWidgetClick(event) {
+  const favoritesJump = event.target.closest("[data-favorites-jump]");
+  if (favoritesJump) {
+    const channel = favoritesJump.dataset.favoritesJump || "finance";
+    if (channel === "finance" || channel === "science") {
+      state.activeAppTab = channel;
+      renderTopTabs();
+      scrollContentChannelToTop(channel);
+      void loadChannelContent(channel, {
+        page: 1,
+        favorite: "favorites",
+      });
+    }
+    return;
+  }
   const weatherRefreshButton = event.target.closest("[data-weather-refresh]");
   if (weatherRefreshButton) {
     void refreshWeather().finally(() => {

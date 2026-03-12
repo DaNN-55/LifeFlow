@@ -788,6 +788,11 @@ body[data-theme="light"] .main-nav .auth-button:active {
   gap: 4px;
 }
 
+.feed-meta-stack {
+  display: grid;
+  gap: 2px;
+}
+
 .feed-item h3 {
   margin: 0;
   font-size: 0.96rem;
@@ -812,16 +817,21 @@ body[data-theme="light"] .main-nav .auth-button:active {
 .show-more {
   justify-self: end;
   margin-top: 2px;
-  padding-left: 0;
+  min-height: 24px;
+  padding: 0 2px;
   color: #9ca3af;
   gap: 4px;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   font-size: 0.68rem;
+  line-height: 1;
+  vertical-align: middle;
 }
 
 .show-more .material-symbols-outlined {
   font-size: 14px;
+  line-height: 1;
 }
 
 .icon-button {
@@ -1917,6 +1927,48 @@ body[data-theme="light"] .github-open-button {
   white-space: pre-line;
 }
 
+.favorites-widget-list {
+  display: grid;
+  gap: 10px;
+}
+
+.favorites-widget-item {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 10px;
+}
+
+.favorites-widget-item:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.favorites-widget-link {
+  width: 100%;
+  display: grid;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.favorites-widget-link strong {
+  font-size: 0.92rem;
+  line-height: 1.4;
+}
+
+.favorites-widget-link .feed-meta {
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
+.favorites-widget-link:hover strong,
+.favorites-widget-link:focus-visible strong {
+  text-decoration: underline;
+}
+
 .github-card .widget-display {
   padding: 0;
   border: 0;
@@ -1989,11 +2041,14 @@ body[data-theme="light"] .github-open-button {
 
 .github-inline-link {
   margin-top: 0;
-  padding-left: 0;
-  min-height: auto;
+  min-height: 24px;
+  padding: 0 2px;
   font-size: 0.68rem;
   letter-spacing: 0.02em;
-  align-self: baseline;
+  align-self: center;
+  justify-content: center;
+  line-height: 1;
+  vertical-align: middle;
 }
 
 .weather-chart {
@@ -2301,22 +2356,79 @@ body[data-theme="light"] .weather-tooltip {
 .account-card-toggle-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px 14px;
+  gap: 12px 22px;
   margin-top: 8px;
+  align-items: start;
+}
+
+.account-card-toggle-column {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  align-items: start;
 }
 
 .account-card-toggle {
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: space-between;
+  gap: 14px;
   color: var(--text);
   font-size: 0.9rem;
 }
 
-.account-card-toggle input {
-  width: 16px;
-  height: 16px;
+.account-toggle-switch {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.account-toggle-switch input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
   margin: 0;
+  cursor: pointer;
+}
+
+.account-toggle-track {
+  position: relative;
+  width: 42px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--card-2) 86%, transparent);
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.account-toggle-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--panel);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.18);
+  transition: transform 140ms ease, background-color 140ms ease;
+}
+
+.account-toggle-switch input:checked + .account-toggle-track {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.account-toggle-switch input:checked + .account-toggle-track::after {
+  transform: translateX(18px);
+  background: var(--panel);
+}
+
+.account-toggle-switch input:focus-visible + .account-toggle-track {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 .account-profile-stat {
@@ -2352,30 +2464,37 @@ body[data-theme="light"] .weather-tooltip {
 .content-toolbar {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) repeat(4, minmax(0, 0.72fr));
-  gap: 10px;
-  padding: 12px;
+  gap: 12px;
+  padding: 14px;
   border: 1px solid var(--line);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--card) 56%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--card) 78%, var(--card-2));
 }
 
 .content-toolbar-field {
   display: grid;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
+  font-size: 0.76rem;
+  color: var(--muted);
 }
 
 .content-toolbar-field input,
 .content-toolbar-field select,
 .settings-field select {
   width: 100%;
-  min-height: 36px;
-  padding: 0 10px;
+  min-height: 40px;
+  padding: 0 12px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: 10px;
   background: var(--input);
   color: var(--text);
   font: inherit;
+  appearance: none;
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    background-color 140ms ease;
 }
 
 .content-toolbar-field input::placeholder {
@@ -2383,10 +2502,22 @@ body[data-theme="light"] .weather-tooltip {
 }
 
 .content-toolbar-field .weekly-filter-label {
-  font-size: 0.68rem;
+  font-size: 0.76rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
+}
+
+.content-toolbar-field input:hover,
+.content-toolbar-field select:hover {
+  border-color: color-mix(in srgb, var(--accent) 18%, var(--line));
+}
+
+.content-toolbar-field input:focus-visible,
+.content-toolbar-field select:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--line));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 .content-stream-meta {
@@ -2410,10 +2541,10 @@ body[data-theme="light"] .weather-tooltip {
   display: grid;
   grid-template-columns: minmax(0, 1.3fr) minmax(220px, 0.7fr);
   gap: 18px;
+  align-items: stretch;
   padding: 16px;
   border: 1px solid var(--line);
   background: transparent;
-  cursor: pointer;
   transition:
     transform 160ms ease,
     border-color 160ms ease,
@@ -2443,7 +2574,9 @@ body[data-theme="light"] .weather-tooltip {
 
 .content-card-side {
   display: grid;
-  align-content: start;
+  grid-template-rows: auto 1fr auto;
+  align-content: stretch;
+  align-self: stretch;
   justify-items: end;
   gap: 10px;
   min-width: 0;
@@ -2493,6 +2626,15 @@ body[data-theme="light"] .weather-tooltip {
   justify-content: flex-end;
 }
 
+.content-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: auto;
+}
+
 .content-favorite-button {
   display: inline-flex;
   align-items: center;
@@ -2520,6 +2662,30 @@ body[data-theme="light"] .weather-tooltip {
   border-color: color-mix(in srgb, var(--text) 26%, var(--line));
   background: color-mix(in srgb, var(--text) 12%, transparent);
   color: var(--text);
+}
+
+.content-link-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-family: "JetBrains Mono", monospace;
+  cursor: pointer;
+}
+
+.content-link-inline:hover,
+.content-link-inline:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--line));
+  color: var(--text);
+  background: color-mix(in srgb, var(--card-2) 78%, transparent);
 }
 
 .content-tag {
@@ -2590,6 +2756,16 @@ body[data-theme="light"] .weather-tooltip {
   margin: 0;
   color: var(--muted);
   line-height: 1.7;
+}
+
+.content-source-status {
+  margin-top: 6px !important;
+  font-size: 0.74rem;
+  line-height: 1.5;
+}
+
+.content-source-status.is-error {
+  color: var(--danger);
 }
 
 .content-detail-summary p {
@@ -2729,6 +2905,11 @@ body[data-theme="light"] textarea:focus-visible {
 
   .content-card-side {
     justify-items: start;
+  }
+
+  .content-card-tags,
+  .content-card-actions {
+    justify-content: flex-start;
   }
 
   .github-repo-meta {
