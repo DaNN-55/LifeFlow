@@ -4036,8 +4036,14 @@ async function bootstrapRemoteData() {
   renderControls();
 
   try {
+    let pendingSyncFailed = false;
     if (hasPendingSync()) {
-      await flushPendingSync();
+      try {
+        await flushPendingSync();
+      } catch (error) {
+        pendingSyncFailed = true;
+        console.warn("Failed to flush pending sync during bootstrap.", error);
+      }
     } else {
       await seedRemoteFromLocal(localSnapshot);
     }
@@ -4049,7 +4055,9 @@ async function bootstrapRemoteData() {
       syncSelectedWeekSummary({ silent: true }),
     ]);
     state.remote.status = "ready";
-    if (shouldShowConnecting || state.remote.status !== "ready") {
+    if (pendingSyncFailed) {
+      setSaveStatus("云端已连接，但有部分待同步内容提交失败", "default");
+    } else if (shouldShowConnecting || state.remote.status !== "ready") {
       setSaveStatus("后端已连接，当前通过 API 同步数据");
     }
     render();
@@ -4061,7 +4069,12 @@ async function bootstrapRemoteData() {
     state.remote.connectedThisSession = false;
     saveApiBase("");
     renderControls();
-    setSaveStatus("后端同步失败，已回退为本地保存");
+    const reason = String(error?.message || "").trim();
+    setSaveStatus(
+      reason
+        ? `后端同步失败：${reason}，已回退为本地保存`
+        : "后端同步失败，已回退为本地保存",
+    );
   }
   })();
 
@@ -4277,15 +4290,14 @@ async function fetchApiJson(path, options = {}) {
   if (!state.remote.apiBase) {
     state.remote.apiBase = await detectApiBase();
   }
-  if (!state.remote.apiBase || (!isRemoteReady() && requireAuth)) {
-    if (!requireAuth && state.remote.apiBase) {
-      // allow auth endpoints during initial handshake
-    } else {
-      throw new Error("Remote API unavailable");
-    }
+  if (!state.remote.apiBase) {
+    throw new Error("Remote API unavailable");
   }
   const headers = new Headers(options.headers || {});
   const sessionId = loadSessionId();
+  if (requireAuth && !sessionId && !state.auth.user) {
+    throw new Error("Remote API unavailable");
+  }
   if (sessionId) {
     headers.set("x-session-id", sessionId);
   }
