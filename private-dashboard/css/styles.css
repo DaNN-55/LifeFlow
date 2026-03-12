@@ -2190,6 +2190,9 @@ body[data-theme="light"] .weather-tooltip {
   position: fixed;
   inset: 0;
   z-index: 50;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 24px 0;
 }
 
 .settings-backdrop {
@@ -2206,6 +2209,8 @@ body[data-theme="light"] .weather-tooltip {
   border: 1px solid var(--line-2);
   border-radius: 10px;
   background: var(--panel);
+  max-height: calc(100vh - 96px);
+  overflow-y: auto;
 }
 
 .settings-copy {
@@ -2522,6 +2527,7 @@ body[data-theme="light"] .weather-tooltip {
 
 .content-detail-dialog {
   width: min(760px, calc(100% - 32px));
+  overscroll-behavior: contain;
 }
 
 .content-detail-body {
