@@ -11,11 +11,11 @@ const parser = new Parser({
 });
 
 const CHANNELS = ["finance", "science"];
-const REFRESH_INTERVAL_MS = 20 * 60 * 1000;
-const REFRESH_CACHE_TTL_MS = 10 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 10000;
-const DEFAULT_PAGE_SIZE = 10;
-const refreshState = new Map();
+const DEFAULT_PAGE_SIZE = 30;
+const DEFAULT_REFRESH_LIMIT = 36;
+const CACHE_TTL_MS = 15 * 60 * 1000;
+const cacheByChannel = new Map();
 const refreshInFlight = new Map();
 
 const DEFAULT_SOURCES = {
@@ -30,6 +30,17 @@ const DEFAULT_SOURCES = {
     { name: "Phys.org", type: "rss", url: "https://phys.org/rss-feed/" },
   ],
 };
+
+function getCacheKey(userId, channel) {
+  return `${userId}:${channel}`;
+}
+
+function createContentId(channel, canonicalUrl) {
+  return crypto
+    .createHash("sha1")
+    .update(`${channel}:${canonicalUrl}`)
+    .digest("hex");
+}
 
 async function ensureDefaultSources(store, userId, channel) {
   const scope = { userId };
@@ -56,55 +67,82 @@ async function ensureDefaultSources(store, userId, channel) {
   return store.listContentSources(scope, channel);
 }
 
-async function refreshChannelContent({ store, userId, channel, limit = DEFAULT_PAGE_SIZE }) {
-  return runRefresh({ store, userId, channel, limit, force: true });
+function createEmptyChannelCache() {
+  return {
+    items: [],
+    refreshedAt: 0,
+  };
 }
 
-async function ensureFreshChannelContent({ store, userId, channel, limit = DEFAULT_PAGE_SIZE, force = false }) {
-  return runRefresh({ store, userId, channel, limit, force });
-}
-
-async function runRefresh({ store, userId, channel, limit = DEFAULT_PAGE_SIZE, force = false }) {
-  const cacheKey = `${userId}:${channel}`;
-  const now = Date.now();
-  const existingState = refreshState.get(cacheKey);
-  if (!force && existingState && now - existingState.refreshedAt < REFRESH_CACHE_TTL_MS) {
-    return [];
+function getChannelCache(userId, channel) {
+  const key = getCacheKey(userId, channel);
+  if (!cacheByChannel.has(key)) {
+    cacheByChannel.set(key, createEmptyChannelCache());
   }
+  return cacheByChannel.get(key);
+}
+
+function getCachedChannelItems(userId, channel) {
+  return getChannelCache(userId, channel).items || [];
+}
+
+function setCachedChannelItems(userId, channel, items) {
+  const cache = getChannelCache(userId, channel);
+  cache.items = items;
+  cache.refreshedAt = Date.now();
+}
+
+function getChannelCacheStatus(userId, channel) {
+  const cache = getChannelCache(userId, channel);
+  return {
+    refreshedAt: cache.refreshedAt || 0,
+    isFresh: Date.now() - (cache.refreshedAt || 0) < CACHE_TTL_MS,
+    count: Array.isArray(cache.items) ? cache.items.length : 0,
+  };
+}
+
+function clearContentCache(userId, channel = "") {
+  if (channel) {
+    cacheByChannel.delete(getCacheKey(userId, channel));
+    return;
+  }
+  for (const key of [...cacheByChannel.keys()]) {
+    if (key.startsWith(`${userId}:`)) {
+      cacheByChannel.delete(key);
+    }
+  }
+}
+
+async function refreshChannelContent({ store, userId, channel, limit = DEFAULT_REFRESH_LIMIT }) {
+  const cacheKey = getCacheKey(userId, channel);
   if (refreshInFlight.has(cacheKey)) {
     return refreshInFlight.get(cacheKey);
   }
 
   const job = (async () => {
-  const scope = { userId };
-  const sources = (await ensureDefaultSources(store, userId, channel)).filter((source) => source.enabled);
-  if (sources.length === 0) {
-    refreshState.set(cacheKey, { refreshedAt: now, count: 0 });
-    return [];
-  }
-  const perSourceLimit = Math.max(4, Math.ceil(limit / sources.length) + 2);
-  const collected = [];
-
-  for (const source of sources) {
-    try {
-      const items =
-        source.type === "site"
-          ? await fetchSiteSource(source, channel, perSourceLimit)
-          : await fetchRssSource(source, channel, perSourceLimit);
-      collected.push(...items);
-    } catch (error) {
-      console.warn("[content] failed to refresh source", source.name, error.message);
+    const sources = (await ensureDefaultSources(store, userId, channel)).filter((source) => source.enabled);
+    if (sources.length === 0) {
+      setCachedChannelItems(userId, channel, []);
+      return [];
     }
-  }
+    const perSourceLimit = Math.max(8, Math.ceil(limit / sources.length) + 4);
+    const collected = [];
 
-  const deduped = dedupeContentItems(collected).slice(0, Math.max(limit * 2, limit));
-  if (deduped.length === 0) {
-    refreshState.set(cacheKey, { refreshedAt: Date.now(), count: 0 });
-    return [];
-  }
-    const persisted = await store.upsertContentItems(scope, deduped);
-    refreshState.set(cacheKey, { refreshedAt: Date.now(), count: persisted.length });
-    return persisted;
+    for (const source of sources) {
+      try {
+        const items =
+          source.type === "site"
+            ? await fetchSiteSource(source, channel, perSourceLimit)
+            : await fetchRssSource(source, channel, perSourceLimit);
+        collected.push(...items);
+      } catch (error) {
+        console.warn("[content] failed to refresh source", source.name, error.message);
+      }
+    }
+
+    const deduped = dedupeContentItems(collected).slice(0, limit);
+    setCachedChannelItems(userId, channel, deduped);
+    return deduped;
   })();
 
   refreshInFlight.set(cacheKey, job);
@@ -115,37 +153,10 @@ async function runRefresh({ store, userId, channel, limit = DEFAULT_PAGE_SIZE, f
   }
 }
 
-async function warmUserContent(store, userId) {
-  for (const channel of CHANNELS) {
-    await ensureFreshChannelContent({ store, userId, channel, force: true }).catch((error) => {
-      console.warn("[content] warm user content failed", channel, error.message);
-    });
-  }
-}
-
-function startContentRefreshLoop(store) {
-  const timer = setInterval(async () => {
-    try {
-      const users = typeof store.listUsers === "function" ? await store.listUsers() : [];
-      for (const user of users) {
-        await warmUserContent(store, user.id);
-      }
-    } catch (error) {
-      console.warn("[content] refresh loop failed", error.message);
-    }
-  }, REFRESH_INTERVAL_MS);
-  if (typeof timer.unref === "function") {
-    timer.unref();
-  }
-  return timer;
-}
-
 async function fetchRssSource(source, channel, limit) {
   const feed = await parser.parseURL(source.url);
   const entries = Array.isArray(feed.items) ? feed.items.slice(0, limit) : [];
-  const normalized = await Promise.all(
-    entries.map((item) => normalizeFeedItem(item, source, channel)),
-  );
+  const normalized = await Promise.all(entries.map((item) => normalizeFeedItem(item, source, channel)));
   return normalized.filter((item) => item && item.canonical_url);
 }
 
@@ -171,9 +182,7 @@ async function fetchSiteSource(source, channel, limit) {
       return;
     }
     const canonicalUrl = new URL(href, source.url).toString();
-    const summaryRaw =
-      cleanText(root.find("p").first().text()) ||
-      cleanText(root.text()).slice(0, 240);
+    const summaryRaw = cleanText(root.find("p").first().text()) || cleanText(root.text()).slice(0, 240);
     items.push({
       title,
       canonicalUrl,
@@ -185,9 +194,7 @@ async function fetchSiteSource(source, channel, limit) {
       lang: inferLanguage(title, summaryRaw),
     });
   });
-  const normalized = await Promise.all(
-    items.map((item) => normalizeContentItem(item, source, channel)),
-  );
+  const normalized = await Promise.all(items.map((item) => normalizeContentItem(item, source, channel)));
   return normalized.filter(Boolean);
 }
 
@@ -209,7 +216,7 @@ async function normalizeFeedItem(item, source, channel) {
       author: normalizeAuthor(item.creator || item.author || item["dc:creator"] || ""),
       publishedAt: item.isoDate || item.pubDate || "",
       tags: normalizeTags(item.categories || item.category || []),
-      type: inferContentType(channel, item, source),
+      type: inferContentType(channel, item),
       lang: inferLanguage(item.title || "", summaryRaw),
     },
     source,
@@ -228,7 +235,7 @@ async function normalizeContentItem(item, source, channel) {
   const bodyRaw = excerpt.raw || summaryRaw;
   const bodyZh = localizeBody(bodyRaw, summaryZh, item.title);
   return {
-    id: crypto.randomUUID(),
+    id: createContentId(channel, item.canonicalUrl),
     channel,
     source_id: source.id,
     title: item.title,
@@ -245,10 +252,9 @@ async function normalizeContentItem(item, source, channel) {
     tags: item.tags || [],
     lang: item.lang || "unknown",
     image_url: "",
-    is_featured: false,
     fetched_at: fetchedAt,
-    created_at: fetchedAt,
     updated_at: fetchedAt,
+    created_at: fetchedAt,
   };
 }
 
@@ -272,6 +278,91 @@ function dedupeContentItems(items) {
     const rightTime = new Date(right.published_at || right.fetched_at || 0).getTime();
     return rightTime - leftTime;
   });
+}
+
+function listCachedContent({
+  userId,
+  channel,
+  page = 1,
+  pageSize = DEFAULT_PAGE_SIZE,
+  q = "",
+  tag = "",
+  sourceId = "",
+  sort = "latest",
+  favoritesOnly = false,
+  favoriteUrls = [],
+}) {
+  let items = [...getCachedChannelItems(userId, channel)];
+  const favoriteUrlSet = new Set((favoriteUrls || []).filter(Boolean));
+  const query = String(q || "").trim().toLowerCase();
+
+  items = items.map((item) => ({
+    ...item,
+    is_favorite: favoriteUrlSet.has(item.canonical_url),
+  }));
+
+  if (favoritesOnly) {
+    items = items.filter((item) => item.is_favorite);
+  }
+  if (query) {
+    items = items.filter((item) =>
+      [item.title, item.summary_zh, item.body_zh, item.source_name, item.author]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(query)),
+    );
+  }
+  if (tag) {
+    items = items.filter((item) => Array.isArray(item.tags) && item.tags.includes(tag));
+  }
+  if (sourceId) {
+    items = items.filter((item) => item.source_id === sourceId);
+  }
+  if (sort === "oldest") {
+    items.reverse();
+  }
+  const total = items.length;
+  const safePage = Math.max(1, Number(page || 1));
+  const safePageSize = Math.max(1, Math.min(40, Number(pageSize || DEFAULT_PAGE_SIZE)));
+  const start = (safePage - 1) * safePageSize;
+  return {
+    items: items.slice(start, start + safePageSize),
+    total,
+    page: safePage,
+    pageSize: safePageSize,
+  };
+}
+
+function getCachedContentFacets(userId, channel, sources = [], favoriteUrls = []) {
+  const items = getCachedChannelItems(userId, channel);
+  const tags = [...new Set(items.flatMap((item) => (Array.isArray(item.tags) ? item.tags : [])))].sort();
+  return {
+    tags,
+    sources: (sources || []).map((source) => ({
+      id: source.id,
+      name: source.name,
+      favoriteCount: items.filter(
+        (item) => item.source_id === source.id && favoriteUrls.includes(item.canonical_url),
+      ).length,
+    })),
+  };
+}
+
+function getCachedFeaturedContent(userId, channel, limit = 3, favoriteUrls = []) {
+  const favoriteSet = new Set((favoriteUrls || []).filter(Boolean));
+  return getCachedChannelItems(userId, channel)
+    .slice(0, limit)
+    .map((item) => ({ ...item, is_favorite: favoriteSet.has(item.canonical_url) }));
+}
+
+function getCachedContentItem(userId, itemId, favoriteUrls = []) {
+  const favoriteSet = new Set((favoriteUrls || []).filter(Boolean));
+  for (const channel of CHANNELS) {
+    const match = getCachedChannelItems(userId, channel).find((item) => item.id === itemId);
+    if (match) {
+      return { ...match, is_favorite: favoriteSet.has(match.canonical_url) };
+    }
+  }
+  return null;
 }
 
 function normalizeTags(tags) {
@@ -308,13 +399,13 @@ function localizeSummary(summaryRaw, title) {
 
 function localizeBody(bodyRaw, summaryZh, title) {
   if (containsChinese(bodyRaw)) {
-    return truncate(bodyRaw, 1800);
+    return truncate(bodyRaw, 2200);
   }
   const fallback = bodyRaw || summaryZh || title;
   if (!fallback) {
     return "暂无正文摘录。";
   }
-  return `英文正文摘录：${truncate(fallback, 1800)}`;
+  return `英文正文摘录：${truncate(fallback, 2200)}`;
 }
 
 function inferLanguage(title, summary) {
@@ -325,8 +416,9 @@ function containsChinese(text) {
   return /[\u3400-\u9fff]/.test(String(text || ""));
 }
 
-function inferContentType(channel, item, source) {
-  const text = `${item.title || ""} ${(item.categories || []).join(" ")}`.toLowerCase();
+function inferContentType(channel, item) {
+  const categories = Array.isArray(item.categories) ? item.categories : [];
+  const text = `${item.title || ""} ${categories.join(" ")}`.toLowerCase();
   if (channel === "science") {
     if (text.includes("paper") || text.includes("research") || text.includes("journal")) {
       return "论文/研究";
@@ -371,7 +463,7 @@ async function fetchText(url) {
 async function buildBodyExcerpt(url, summaryRaw, title) {
   const baseText = cleanText(summaryRaw || title || "");
   if (baseText.length >= 260) {
-    return { raw: truncate(baseText, 1800) };
+    return { raw: truncate(baseText, 2200) };
   }
   try {
     const html = await fetchText(url);
@@ -383,19 +475,25 @@ async function buildBodyExcerpt(url, summaryRaw, title) {
       cleanText($(".article-body, .entry-content, .post-content, .story-body").text()),
       cleanText($("body").text()),
     ].find((text) => text && text.length >= 220);
-    return { raw: truncate(candidate || baseText, 1800) };
+    return { raw: truncate(candidate || baseText, 2200) };
   } catch (error) {
-    return { raw: truncate(baseText, 1800) };
+    return { raw: truncate(baseText, 2200) };
   }
 }
 
 module.exports = {
   CHANNELS,
   DEFAULT_PAGE_SIZE,
+  DEFAULT_REFRESH_LIMIT,
   DEFAULT_SOURCES,
+  CACHE_TTL_MS,
   ensureDefaultSources,
-  ensureFreshChannelContent,
   refreshChannelContent,
-  startContentRefreshLoop,
-  warmUserContent,
+  listCachedContent,
+  getCachedContentFacets,
+  getCachedFeaturedContent,
+  getCachedContentItem,
+  getChannelCacheStatus,
+  clearContentCache,
+  createContentId,
 };

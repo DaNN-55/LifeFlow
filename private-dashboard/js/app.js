@@ -9,7 +9,7 @@ const PENDING_SYNC_STORAGE_KEY = "lifeflow-private-dashboard-pending-sync";
 const WEATHER_CACHE_STORAGE_KEY = "lifeflow-private-dashboard-weather-cache";
 const API_PROBE_TIMEOUT_MS = 1500;
 const LOCAL_SCOPE_KEY = "__local__";
-const CONTENT_PAGE_SIZE = 10;
+const CONTENT_PAGE_SIZE = 30;
 
 const defaultTasks = [
   { id: "task1", name: "任务1", order: 1, color: "#4f46e5" },
@@ -97,6 +97,7 @@ function createInitialContentChannelState(channel) {
     search: "",
     tag: "all",
     sourceId: "all",
+    favoriteFilter: "all",
     sort: "latest",
     loading: false,
     loaded: false,
@@ -148,6 +149,7 @@ const elements = {
   financeSearch: document.querySelector("#finance-search"),
   financeTagFilter: document.querySelector("#finance-tag-filter"),
   financeSourceFilter: document.querySelector("#finance-source-filter"),
+  financeFavoriteFilter: document.querySelector("#finance-favorite-filter"),
   financeSortFilter: document.querySelector("#finance-sort-filter"),
   financeContentMeta: document.querySelector("#finance-content-meta"),
   financeContentGrid: document.querySelector("#finance-content-grid"),
@@ -161,6 +163,7 @@ const elements = {
   scienceSearch: document.querySelector("#science-search"),
   scienceTagFilter: document.querySelector("#science-tag-filter"),
   scienceSourceFilter: document.querySelector("#science-source-filter"),
+  scienceFavoriteFilter: document.querySelector("#science-favorite-filter"),
   scienceSortFilter: document.querySelector("#science-sort-filter"),
   scienceContentMeta: document.querySelector("#science-content-meta"),
   scienceContentGrid: document.querySelector("#science-content-grid"),
@@ -1118,7 +1121,7 @@ async function ensureContentChannelLoaded(channel, options = {}) {
   }
   const contentState = getContentChannelState(channel);
   const jobs = [];
-  if (options.refreshFeatured || !contentState.featured.length) {
+  if (options.refreshFeatured || (!contentState.featured.length && !contentState.loading)) {
     jobs.push(loadFeaturedContent(channel));
   }
   if (options.force || !contentState.loaded) {
@@ -1599,7 +1602,8 @@ function getSafeContentLink(item) {
 
 function buildMockContent(channel) {
   const base = mockContentCatalog[channel] || [];
-  return base.map((item, index) => {
+  return Array.from({ length: 30 }, (_, index) => {
+    const item = base[index % base.length];
     const publishedAt = new Date(Date.now() - index * 6 * 60 * 60 * 1000).toISOString();
     const externalUrl = `https://example.com/${channel}/${index + 1}`;
     return {
@@ -1623,6 +1627,7 @@ function buildMockContent(channel) {
       ],
       lang: "zh",
       is_featured: index < 3,
+      is_favorite: false,
     };
   });
 }
@@ -1642,6 +1647,9 @@ function getMockContentPayload(channel, currentState) {
   }
   if (currentState.sourceId !== "all") {
     items = items.filter((item) => item.source_name === currentState.sourceId);
+  }
+  if (currentState.favoriteFilter === "favorites") {
+    items = items.filter((item) => item.is_favorite);
   }
   if (currentState.sort === "oldest") {
     items = [...items].reverse();
@@ -1669,6 +1677,7 @@ function getContentElements(channel) {
       search: elements.financeSearch,
       tagFilter: elements.financeTagFilter,
       sourceFilter: elements.financeSourceFilter,
+      favoriteFilter: elements.financeFavoriteFilter,
       sortFilter: elements.financeSortFilter,
       meta: elements.financeContentMeta,
       grid: elements.financeContentGrid,
@@ -1679,6 +1688,7 @@ function getContentElements(channel) {
     search: elements.scienceSearch,
     tagFilter: elements.scienceTagFilter,
     sourceFilter: elements.scienceSourceFilter,
+    favoriteFilter: elements.scienceFavoriteFilter,
     sortFilter: elements.scienceSortFilter,
     meta: elements.scienceContentMeta,
     grid: elements.scienceContentGrid,
@@ -1700,6 +1710,7 @@ function renderContentChannel(channel) {
 
   channelElements.search.value = contentState.search;
   channelElements.sortFilter.value = contentState.sort;
+  channelElements.favoriteFilter.value = contentState.favoriteFilter;
   channelElements.tagFilter.innerHTML = [
     '<option value="all">全部标签</option>',
     ...contentState.tags.map((tag) => `<option value="${escapeAttribute(tag)}">${escapeHtml(tag)}</option>`),
@@ -1746,6 +1757,14 @@ function renderContentChannel(channel) {
             </div>
           </div>
           <div class="content-card-side">
+            <button
+              type="button"
+              class="content-favorite-button ${item.is_favorite ? "is-active" : ""}"
+              data-content-favorite="${escapeAttribute(item.id)}"
+              aria-label="${item.is_favorite ? "取消收藏" : "收藏资讯"}"
+            >
+              ${item.is_favorite ? "已收藏" : "收藏"}
+            </button>
             ${
               Array.isArray(item.tags) && item.tags.length
                 ? `<div class="content-card-tags">${item.tags
@@ -1777,11 +1796,16 @@ function getContentMetaText(contentState) {
     return "正在同步最新资讯...";
   }
   if (contentState.usingMock) {
-    return `当前显示 10 条测试资讯，用于前端联调`;
+    return `当前显示测试资讯 · 每页 ${contentState.pageSize} 条`;
+  }
+  if (contentState.favoriteFilter === "favorites") {
+    return contentState.total
+      ? `共 ${contentState.total} 条收藏资讯 · 每页 ${contentState.pageSize} 条`
+      : "当前没有收藏资讯。";
   }
   const total = Number(contentState.total || 0);
   if (!total) {
-    return "当前暂无缓存资讯。";
+    return "当前暂无缓存资讯，请手动刷新。";
   }
   return `共 ${total} 条资讯 · 每页 ${contentState.pageSize} 条`;
 }
@@ -1801,6 +1825,16 @@ function renderContentDetailModal() {
   elements.contentDetailKicker.textContent = item.channel === "science" ? "Science insight" : "Finance insight";
   elements.contentDetailTitle.textContent = item.title;
   const contentLink = getSafeContentLink(item);
+  const favoriteButton = `
+    <button
+      type="button"
+      class="content-favorite-button ${item.is_favorite ? "is-active" : ""}"
+      data-content-favorite="${escapeAttribute(item.id)}"
+      aria-label="${item.is_favorite ? "取消收藏" : "收藏资讯"}"
+    >
+      ${item.is_favorite ? "已收藏" : "收藏"}
+    </button>
+  `;
   const fullBody = item.body_zh || item.body_raw || item.summary_raw || item.summary_zh || "暂无内容。";
   const leadSummary =
     item.summary_zh && item.summary_zh !== fullBody ? item.summary_zh : "";
@@ -1828,6 +1862,7 @@ function renderContentDetailModal() {
       <p>${escapeHtml(fullBody)}</p>
     </div>
     <div class="content-detail-actions">
+      ${favoriteButton}
       ${
         contentLink
           ? `<button type="button" class="settings-save content-link-button" data-content-open-link="${escapeAttribute(contentLink)}">
@@ -1927,6 +1962,9 @@ async function loadChannelContent(channel, options = {}) {
   if (typeof options.sourceId === "string") {
     contentState.sourceId = options.sourceId;
   }
+  if (typeof options.favorite === "string") {
+    contentState.favoriteFilter = options.favorite;
+  }
   if (typeof options.sort === "string") {
     contentState.sort = options.sort;
   }
@@ -1950,6 +1988,9 @@ async function loadChannelContent(channel, options = {}) {
     }
     if (contentState.sourceId !== "all") {
       params.set("sourceId", contentState.sourceId);
+    }
+    if (contentState.favoriteFilter !== "all") {
+      params.set("favorite", contentState.favoriteFilter);
     }
     const payload = await fetchApiJson(`/api/content?${params.toString()}`);
     contentState.items = Array.isArray(payload?.items) ? payload.items : [];
@@ -1994,7 +2035,7 @@ async function refreshChannelContentManually(channel) {
     await fetchApiJson("/api/content/refresh", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ channel }),
+      body: JSON.stringify({ channel, limit: CONTENT_PAGE_SIZE + 6 }),
     });
     await Promise.all([loadChannelContent(channel), loadFeaturedContent(channel)]);
     setSaveStatus(`${channel === "science" ? "Science" : "Finance"} 资讯已刷新`, "success");
@@ -2019,12 +2060,72 @@ function queueContentSearch(channel, value) {
   }, 220);
 }
 
+function findLocalContentItem(itemId) {
+  return [
+    ...state.content.finance.items,
+    ...state.content.finance.featured,
+    ...state.content.science.items,
+    ...state.content.science.featured,
+  ].find((item) => item.id === itemId);
+}
+
+async function toggleContentFavorite(itemId) {
+  if (!itemId || !state.auth.user) {
+    return;
+  }
+  const item = findLocalContentItem(itemId) || state.content.detailItem;
+  if (!item) {
+    return;
+  }
+  try {
+    if (item.is_favorite) {
+      await fetchApiJson(
+        `/api/content/favorites?channel=${encodeURIComponent(item.channel)}&canonicalUrl=${encodeURIComponent(item.canonical_url)}`,
+        { method: "DELETE" },
+      );
+      setSaveStatus("已取消收藏", "success");
+    } else {
+      await fetchApiJson("/api/content/favorites", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: item.id,
+          channel: item.channel,
+          source_id: item.source_id || "",
+          title: item.title,
+          summary_zh: item.summary_zh || "",
+          summary_raw: item.summary_raw || "",
+          body_zh: item.body_zh || "",
+          body_raw: item.body_raw || "",
+          author: item.author || "",
+          published_at: item.published_at || item.fetched_at || "",
+          content_type: item.content_type || "",
+          source_name: item.source_name || "",
+          source_url: item.source_url || "",
+          canonical_url: item.canonical_url,
+          tags: Array.isArray(item.tags) ? item.tags : [],
+          lang: item.lang || "unknown",
+          image_url: item.image_url || "",
+        }),
+      });
+      setSaveStatus("已加入收藏", "success");
+    }
+    await Promise.all([loadChannelContent(item.channel), loadFeaturedContent(item.channel)]);
+    if (state.content.detailItem?.id === itemId) {
+      state.content.detailItem = findLocalContentItem(itemId) || state.content.detailItem;
+      renderContentDetailModal();
+    }
+  } catch (error) {
+    console.warn("Failed to toggle content favorite.", error);
+    setSaveStatus(error?.message || "收藏操作失败");
+  }
+}
+
 async function openContentDetail(itemId) {
   if (!itemId) {
     return;
   }
-  const localItem = [...state.content.finance.items, ...state.content.finance.featured, ...state.content.science.items, ...state.content.science.featured]
-    .find((item) => item.id === itemId);
+  const localItem = findLocalContentItem(itemId);
   if (localItem?.id?.startsWith("mock-")) {
     state.content.detailItem = localItem;
     renderContentDetailModal();
@@ -4522,9 +4623,6 @@ async function refreshExternalData() {
   if (getSidebarPreferences().stock) {
     jobs.push(refreshStocks());
   }
-  if (state.auth.user) {
-    jobs.push(loadFeaturedContent("finance"), loadFeaturedContent("science"));
-  }
   await Promise.allSettled(jobs);
   renderWidgets();
 }
@@ -5029,7 +5127,7 @@ function handleTopTabClick(event) {
   state.activeAppTab = button.dataset.appTab;
   renderTopTabs();
   if (state.activeAppTab === "finance" || state.activeAppTab === "science") {
-    void ensureContentChannelLoaded(state.activeAppTab, { refreshFeatured: true });
+    void ensureContentChannelLoaded(state.activeAppTab);
   }
 }
 
@@ -5246,7 +5344,7 @@ function handleShowMoreClick(event) {
   state.activeAppTab = button.dataset.appTabTarget;
   renderTopTabs();
   if (state.activeAppTab === "finance" || state.activeAppTab === "science") {
-    void ensureContentChannelLoaded(state.activeAppTab, { refreshFeatured: true });
+    void ensureContentChannelLoaded(state.activeAppTab);
   }
 }
 
@@ -5255,6 +5353,7 @@ function getContentChannelFromControl(control) {
     control === elements.financeSearch ||
     control === elements.financeTagFilter ||
     control === elements.financeSourceFilter ||
+    control === elements.financeFavoriteFilter ||
     control === elements.financeSortFilter
   ) {
     return "finance";
@@ -5263,6 +5362,7 @@ function getContentChannelFromControl(control) {
     control === elements.scienceSearch ||
     control === elements.scienceTagFilter ||
     control === elements.scienceSourceFilter ||
+    control === elements.scienceFavoriteFilter ||
     control === elements.scienceSortFilter
   ) {
     return "science";
@@ -5288,6 +5388,7 @@ function handleContentToolbarChange(event) {
     page: 1,
     tag: channelElements.tagFilter.value,
     sourceId: channelElements.sourceFilter.value,
+    favorite: channelElements.favoriteFilter.value,
     sort: channelElements.sortFilter.value,
   });
 }
@@ -5340,6 +5441,12 @@ function handleContentClick(event) {
     if (sourceId && window.confirm("确认删除这个信源吗？")) {
       void deleteContentSource(state.content.sourceModalChannel, sourceId);
     }
+    return;
+  }
+
+  const favoriteTarget = event.target.closest("[data-content-favorite]");
+  if (favoriteTarget) {
+    void toggleContentFavorite(favoriteTarget.dataset.contentFavorite || "");
     return;
   }
 
@@ -5835,8 +5942,6 @@ persistStateSilently();
 void initAuthClient().then((user) => {
   if (user) {
     render();
-    void ensureContentChannelLoaded("finance", { refreshFeatured: true });
-    void ensureContentChannelLoaded("science", { refreshFeatured: true });
     refreshExternalData();
     return;
   }

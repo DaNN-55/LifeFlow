@@ -2351,7 +2351,7 @@ body[data-theme="light"] .weather-tooltip {
 
 .content-toolbar {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) repeat(3, minmax(0, 0.72fr));
+  grid-template-columns: minmax(0, 1.2fr) repeat(4, minmax(0, 0.72fr));
   gap: 10px;
   padding: 12px;
   border: 1px solid var(--line);
@@ -2440,7 +2440,7 @@ body[data-theme="light"] .weather-tooltip {
   display: grid;
   align-content: start;
   justify-items: end;
-  gap: 14px;
+  gap: 10px;
   min-width: 0;
 }
 
@@ -2485,6 +2485,33 @@ body[data-theme="light"] .weather-tooltip {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.content-favorite-button {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.content-favorite-button:hover,
+.content-favorite-button:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--line));
+  color: var(--text);
+  background: color-mix(in srgb, var(--card-2) 78%, transparent);
+}
+
+.content-favorite-button.is-active {
+  border-color: var(--text);
+  background: var(--text);
+  color: var(--panel);
 }
 
 .content-tag {
@@ -2571,6 +2598,8 @@ body[data-theme="light"] .weather-tooltip {
 .content-detail-actions {
   display: flex;
   justify-content: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .content-link-button {

@@ -7,6 +7,7 @@ class MemoryStore {
     this.weeklySummariesByUser = new Map();
     this.contentSourcesByUser = new Map();
     this.contentItemsByUser = new Map();
+    this.contentFavoritesByUser = new Map();
     this.usersByUsername = new Map();
     this.sessionsById = new Map();
     this.schemaMode = "user-scoped";
@@ -32,6 +33,9 @@ class MemoryStore {
     if (!this.contentItemsByUser.has(userId)) {
       this.contentItemsByUser.set(userId, new Map());
     }
+    if (!this.contentFavoritesByUser.has(userId)) {
+      this.contentFavoritesByUser.set(userId, new Map());
+    }
 
     return {
       tasks: this.tasksByUser.get(userId),
@@ -39,6 +43,7 @@ class MemoryStore {
       weeklySummaries: this.weeklySummariesByUser.get(userId),
       contentSources: this.contentSourcesByUser.get(userId),
       contentItems: this.contentItemsByUser.get(userId),
+      contentFavorites: this.contentFavoritesByUser.get(userId),
     };
   }
 
@@ -334,6 +339,101 @@ class MemoryStore {
     return contentItems.get(itemId) || null;
   }
 
+  async listFavoriteContent(scope = {}, filters = {}) {
+    const { contentFavorites } = this.ensureUserScope(scope.userId);
+    const page = Math.max(1, Number(filters.page || 1));
+    const pageSize = Math.max(1, Math.min(50, Number(filters.pageSize || 20)));
+    const q = String(filters.q || "").trim().toLowerCase();
+    const tag = String(filters.tag || "").trim();
+    const sourceId = String(filters.sourceId || "").trim();
+    const sort = String(filters.sort || "latest");
+    const channel = String(filters.channel || "").trim();
+
+    let items = [...contentFavorites.values()].filter((item) => (channel ? item.channel === channel : true));
+
+    if (q) {
+      items = items.filter((item) =>
+        [item.title, item.summary_zh, item.summary_raw, item.body_zh, item.body_raw, item.source_name, item.author]
+          .join(" ")
+          .toLowerCase()
+          .includes(q),
+      );
+    }
+    if (tag) {
+      items = items.filter((item) => Array.isArray(item.tags) && item.tags.includes(tag));
+    }
+    if (sourceId) {
+      items = items.filter((item) => item.source_id === sourceId);
+    }
+
+    items.sort((left, right) => {
+      const leftTime = new Date(left.published_at || left.favorited_at || 0).getTime();
+      const rightTime = new Date(right.published_at || right.favorited_at || 0).getTime();
+      return sort === "oldest" ? leftTime - rightTime : rightTime - leftTime;
+    });
+
+    const total = items.length;
+    const start = (page - 1) * pageSize;
+    return {
+      items: items.slice(start, start + pageSize).map((item) => ({ ...item, is_favorite: true })),
+      total,
+      page,
+      pageSize,
+    };
+  }
+
+  async listFavoriteContentFacets(scope = {}, channel = "") {
+    const { contentFavorites, contentSources } = this.ensureUserScope(scope.userId);
+    const items = [...contentFavorites.values()].filter((item) => (channel ? item.channel === channel : true));
+    const tags = [...new Set(items.flatMap((item) => (Array.isArray(item.tags) ? item.tags : [])))].sort();
+    const sourceIds = new Set(items.map((item) => item.source_id).filter(Boolean));
+    const sources = [...contentSources.values()]
+      .filter((source) => (!channel ? true : source.channel === channel))
+      .filter((source) => sourceIds.size === 0 || sourceIds.has(source.id))
+      .map((source) => ({ id: source.id, name: source.name }));
+    return { tags, sources };
+  }
+
+  async listFavoriteContentUrls(scope = {}, channel = "") {
+    const { contentFavorites } = this.ensureUserScope(scope.userId);
+    return [...contentFavorites.values()]
+      .filter((item) => (!channel ? true : item.channel === channel))
+      .map((item) => item.canonical_url)
+      .filter(Boolean);
+  }
+
+  async getFavoriteContentItem(scope = {}, itemId) {
+    const { contentFavorites } = this.ensureUserScope(scope.userId);
+    const item = contentFavorites.get(itemId) || null;
+    return item ? { ...item, is_favorite: true } : null;
+  }
+
+  async upsertFavoriteContent(scope = {}, item) {
+    const { contentFavorites } = this.ensureUserScope(scope.userId);
+    const existing = [...contentFavorites.values()].find(
+      (entry) => entry.channel === item.channel && entry.canonical_url === item.canonical_url,
+    );
+    const next = {
+      ...(existing || {}),
+      ...item,
+      id: existing?.id || item.id,
+      favorited_at: existing?.favorited_at || item.favorited_at || new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      is_favorite: true,
+    };
+    contentFavorites.set(next.id, next);
+    return next;
+  }
+
+  async deleteFavoriteContent(scope = {}, channel, canonicalUrl) {
+    const { contentFavorites } = this.ensureUserScope(scope.userId);
+    for (const [itemId, item] of contentFavorites.entries()) {
+      if (item.channel === channel && item.canonical_url === canonicalUrl) {
+        contentFavorites.delete(itemId);
+      }
+    }
+  }
+
   async createSession(session) {
     this.sessionsById.set(session.id, session);
     return session;
@@ -364,6 +464,7 @@ class MemoryStore {
     this.weeklySummariesByUser.set(userId, new Map());
     this.contentSourcesByUser.set(userId, new Map());
     this.contentItemsByUser.set(userId, new Map());
+    this.contentFavoritesByUser.set(userId, new Map());
   }
 
   async deleteUserAccount(userId) {

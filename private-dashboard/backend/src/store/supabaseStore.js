@@ -515,6 +515,136 @@ class SupabaseStore {
     return data;
   }
 
+  async listFavoriteContent(scope = {}, filters = {}) {
+    const page = Math.max(1, Number(filters.page || 1));
+    const pageSize = Math.max(1, Math.min(50, Number(filters.pageSize || 20)));
+    let query = this.client
+      .from("content_favorites")
+      .select(
+        "id, channel, source_id, title, summary_zh, summary_raw, body_zh, body_raw, author, published_at, content_type, source_name, source_url, canonical_url, tags, lang, image_url, favorited_at, created_at, updated_at",
+        { count: "exact" },
+      )
+      .eq("user_id", scope.userId || "");
+
+    if (filters.channel) {
+      query = query.eq("channel", filters.channel);
+    }
+    if (filters.tag) {
+      query = query.contains("tags", [filters.tag]);
+    }
+    if (filters.sourceId) {
+      query = query.eq("source_id", filters.sourceId);
+    }
+    if (filters.q) {
+      const escaped = String(filters.q).replace(/[%_,]/g, " ").trim();
+      query = query.or(
+        `title.ilike.%${escaped}%,summary_zh.ilike.%${escaped}%,summary_raw.ilike.%${escaped}%,body_zh.ilike.%${escaped}%,body_raw.ilike.%${escaped}%,source_name.ilike.%${escaped}%`,
+      );
+    }
+
+    query = query.order("published_at", { ascending: filters.sort === "oldest" });
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
+    const { data, count, error } = await query.range(from, to);
+    if (error) {
+      throw error;
+    }
+    return {
+      items: (data || []).map((item) => ({ ...item, is_favorite: true })),
+      total: count || 0,
+      page,
+      pageSize,
+    };
+  }
+
+  async listFavoriteContentFacets(scope = {}, channel = "") {
+    let itemsQuery = this.client
+      .from("content_favorites")
+      .select("tags, source_id")
+      .eq("user_id", scope.userId || "");
+    let sourcesQuery = this.client
+      .from("content_sources")
+      .select("id, name")
+      .eq("user_id", scope.userId || "")
+      .order("sort_order", { ascending: true });
+    if (channel) {
+      itemsQuery = itemsQuery.eq("channel", channel);
+      sourcesQuery = sourcesQuery.eq("channel", channel);
+    }
+    const [{ data: items, error: itemsError }, { data: sources, error: sourcesError }] =
+      await Promise.all([itemsQuery, sourcesQuery]);
+    if (itemsError || sourcesError) {
+      throw itemsError || sourcesError;
+    }
+    const tags = [...new Set((items || []).flatMap((item) => (Array.isArray(item.tags) ? item.tags : [])))].sort();
+    const sourceIds = new Set((items || []).map((item) => item.source_id).filter(Boolean));
+    return {
+      tags,
+      sources: (sources || []).filter((source) => sourceIds.size === 0 || sourceIds.has(source.id)),
+    };
+  }
+
+  async listFavoriteContentUrls(scope = {}, channel = "") {
+    let query = this.client
+      .from("content_favorites")
+      .select("canonical_url")
+      .eq("user_id", scope.userId || "");
+    if (channel) {
+      query = query.eq("channel", channel);
+    }
+    const { data, error } = await query;
+    if (error) {
+      throw error;
+    }
+    return (data || []).map((item) => item.canonical_url).filter(Boolean);
+  }
+
+  async getFavoriteContentItem(scope = {}, itemId) {
+    const { data, error } = await this.client
+      .from("content_favorites")
+      .select("id, channel, source_id, title, summary_zh, summary_raw, body_zh, body_raw, author, published_at, content_type, source_name, source_url, canonical_url, tags, lang, image_url, favorited_at, created_at, updated_at")
+      .eq("user_id", scope.userId || "")
+      .eq("id", itemId)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+    return data ? { ...data, is_favorite: true } : null;
+  }
+
+  async upsertFavoriteContent(scope = {}, item) {
+    const payload = {
+      ...item,
+      user_id: scope.userId || "",
+      favorited_at: item.favorited_at || new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    const { data, error } = await this.client
+      .from("content_favorites")
+      .upsert(payload, { onConflict: "user_id,channel,canonical_url" })
+      .select("id, channel, source_id, title, summary_zh, summary_raw, body_zh, body_raw, author, published_at, content_type, source_name, source_url, canonical_url, tags, lang, image_url, favorited_at, created_at, updated_at")
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+    return data ? { ...data, is_favorite: true } : null;
+  }
+
+  async deleteFavoriteContent(scope = {}, channel, canonicalUrl) {
+    const { error } = await this.client
+      .from("content_favorites")
+      .delete()
+      .eq("user_id", scope.userId || "")
+      .eq("channel", channel)
+      .eq("canonical_url", canonicalUrl);
+
+    if (error) {
+      throw error;
+    }
+  }
+
   async createSession(session) {
     const { data, error } = await this.client
       .from("user_sessions")
@@ -564,12 +694,13 @@ class SupabaseStore {
   }
 
   async clearUserData(userId) {
-    const [tasksResult, recordsResult, summariesResult, contentItemsResult, contentSourcesResult] = await Promise.all([
+    const [tasksResult, recordsResult, summariesResult, contentItemsResult, contentSourcesResult, favoritesResult] = await Promise.all([
       this.client.from("tasks").delete().eq("user_id", userId),
       this.client.from("daily_records").delete().eq("user_id", userId),
       this.client.from("weekly_summaries").delete().eq("user_id", userId),
       this.client.from("content_items").delete().eq("user_id", userId),
       this.client.from("content_sources").delete().eq("user_id", userId),
+      this.client.from("content_favorites").delete().eq("user_id", userId),
     ]);
 
     if (
@@ -577,14 +708,16 @@ class SupabaseStore {
       recordsResult.error ||
       summariesResult.error ||
       contentItemsResult.error ||
-      contentSourcesResult.error
+      contentSourcesResult.error ||
+      favoritesResult.error
     ) {
       throw (
         tasksResult.error ||
         recordsResult.error ||
         summariesResult.error ||
         contentItemsResult.error ||
-        contentSourcesResult.error
+        contentSourcesResult.error ||
+        favoritesResult.error
       );
     }
   }

@@ -1,7 +1,6 @@
 const { config } = require("./config");
 const { createApp } = require("./app");
 const { createStore } = require("./store");
-const { startContentRefreshLoop } = require("./lib/content");
 
 async function main() {
   const store = createStore(config);
@@ -9,7 +8,6 @@ async function main() {
     await store.init();
   }
   const app = createApp({ config, store });
-  startContentRefreshLoop(store);
 
   app.listen(config.port, () => {
     console.log(

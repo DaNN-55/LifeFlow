@@ -8,8 +8,13 @@ const {
   CHANNELS,
   DEFAULT_PAGE_SIZE,
   ensureDefaultSources,
-  ensureFreshChannelContent,
   refreshChannelContent,
+  listCachedContent,
+  getCachedContentFacets,
+  getCachedFeaturedContent,
+  getCachedContentItem,
+  getChannelCacheStatus,
+  clearContentCache,
 } = require("./lib/content");
 
 const SESSION_COOKIE_NAME = "lifeflow_session";
@@ -106,15 +111,37 @@ const contentChannelSchema = z.enum(CHANNELS);
 const contentListQuerySchema = z.object({
   channel: contentChannelSchema,
   page: z.coerce.number().int().positive().optional(),
-  pageSize: z.coerce.number().int().min(1).max(10).optional(),
+  pageSize: z.coerce.number().int().min(1).max(40).optional(),
   q: z.string().max(120).optional(),
   tag: z.string().max(64).optional(),
   sourceId: z.string().max(128).optional(),
   sort: z.enum(["latest", "oldest"]).optional(),
+  favorite: z.enum(["all", "favorites"]).optional(),
 });
 
 const contentRefreshSchema = z.object({
   channel: contentChannelSchema,
+  limit: z.coerce.number().int().min(1).max(40).optional(),
+});
+
+const contentFavoriteSchema = z.object({
+  id: z.string().min(1).max(128),
+  channel: contentChannelSchema,
+  source_id: z.string().max(128).optional().default(""),
+  title: z.string().min(1).max(300),
+  summary_zh: z.string().optional().default(""),
+  summary_raw: z.string().optional().default(""),
+  body_zh: z.string().optional().default(""),
+  body_raw: z.string().optional().default(""),
+  author: z.string().optional().default(""),
+  published_at: z.string().optional().default(""),
+  content_type: z.string().optional().default(""),
+  source_name: z.string().optional().default(""),
+  source_url: z.string().optional().default(""),
+  canonical_url: z.string().url().max(1000),
+  tags: z.array(z.string().max(64)).optional().default([]),
+  lang: z.string().optional().default("unknown"),
+  image_url: z.string().optional().default(""),
 });
 
 const contentSourceSchema = z.object({
@@ -580,38 +607,43 @@ function createApp({ config, store }) {
     try {
       const query = contentListQuerySchema.parse(request.query || {});
       await ensureDefaultSources(store, request.userContext.userId, query.channel);
-      let result = await store.listContent(request.userContext, {
-        channel: query.channel,
-        page: query.page || 1,
-        pageSize: query.pageSize || DEFAULT_PAGE_SIZE,
-        q: query.q || "",
-        tag: query.tag || "",
-        sourceId: query.sourceId || "",
-        sort: query.sort || "latest",
-      });
-      if (result.total === 0) {
-        await ensureFreshChannelContent({
-          store,
-          userId: request.userContext.userId,
-          channel: query.channel,
-          limit: query.pageSize || DEFAULT_PAGE_SIZE,
-          force: false,
-        });
-        result = await store.listContent(request.userContext, {
-          channel: query.channel,
-          page: query.page || 1,
-          pageSize: query.pageSize || DEFAULT_PAGE_SIZE,
-          q: query.q || "",
-          tag: query.tag || "",
-          sourceId: query.sourceId || "",
-          sort: query.sort || "latest",
-        });
-      }
-      const facets = await store.listContentFacets(request.userContext, query.channel);
+      const favoriteUrls = await store.listFavoriteContentUrls(request.userContext, query.channel);
+      const favoritesOnly = query.favorite === "favorites";
+      const result = favoritesOnly
+        ? await store.listFavoriteContent(request.userContext, {
+            channel: query.channel,
+            page: query.page || 1,
+            pageSize: query.pageSize || DEFAULT_PAGE_SIZE,
+            q: query.q || "",
+            tag: query.tag || "",
+            sourceId: query.sourceId || "",
+            sort: query.sort || "latest",
+          })
+        : listCachedContent({
+            userId: request.userContext.userId,
+            channel: query.channel,
+            page: query.page || 1,
+            pageSize: query.pageSize || DEFAULT_PAGE_SIZE,
+            q: query.q || "",
+            tag: query.tag || "",
+            sourceId: query.sourceId || "",
+            sort: query.sort || "latest",
+            favoriteUrls,
+          });
+      const facets = favoritesOnly
+        ? await store.listFavoriteContentFacets(request.userContext, query.channel)
+        : getCachedContentFacets(
+            request.userContext.userId,
+            query.channel,
+            await store.listContentSources(request.userContext, query.channel),
+            favoriteUrls,
+          );
+      const cacheStatus = getChannelCacheStatus(request.userContext.userId, query.channel);
       response.json({
         ...result,
         tags: facets.tags || [],
         sources: facets.sources || [],
+        cache: cacheStatus,
       });
     } catch (error) {
       next(error);
@@ -624,25 +656,13 @@ function createApp({ config, store }) {
         limit: z.coerce.number().int().min(1).max(6).optional(),
       }).parse(request.query || {});
       await ensureDefaultSources(store, request.userContext.userId, query.channel);
-      let items = await store.getFeaturedContent(
-        request.userContext,
+      const favoriteUrls = await store.listFavoriteContentUrls(request.userContext, query.channel);
+      const items = getCachedFeaturedContent(
+        request.userContext.userId,
         query.channel,
         query.limit || 3,
+        favoriteUrls,
       );
-      if (items.length === 0) {
-        await ensureFreshChannelContent({
-          store,
-          userId: request.userContext.userId,
-          channel: query.channel,
-          limit: query.limit || 3,
-          force: false,
-        });
-        items = await store.getFeaturedContent(
-          request.userContext,
-          query.channel,
-          query.limit || 3,
-        );
-      }
       response.json({ items });
     } catch (error) {
       next(error);
@@ -651,7 +671,10 @@ function createApp({ config, store }) {
 
   app.get("/api/content/:itemId", requireAuthenticated, async (request, response, next) => {
     try {
-      const item = await store.getContentItem(request.userContext, request.params.itemId);
+      const favoriteUrls = await store.listFavoriteContentUrls(request.userContext);
+      const item =
+        getCachedContentItem(request.userContext.userId, request.params.itemId, favoriteUrls) ||
+        (await store.getFavoriteContentItem(request.userContext, request.params.itemId));
       if (!item) {
         response.status(404).json({ error: "Content not found" });
         return;
@@ -669,9 +692,41 @@ function createApp({ config, store }) {
         store,
         userId: request.userContext.userId,
         channel: parsed.channel,
-        limit: DEFAULT_PAGE_SIZE,
+        limit: parsed.limit || 36,
       });
-      response.json({ ok: true, count: items.length });
+      response.json({
+        ok: true,
+        count: items.length,
+        cache: getChannelCacheStatus(request.userContext.userId, parsed.channel),
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/content/favorites", requireAuthenticated, async (request, response, next) => {
+    try {
+      const parsed = contentFavoriteSchema.parse(request.body || {});
+      const favorite = await store.upsertFavoriteContent(request.userContext, {
+        ...parsed,
+        favorited_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+      response.status(201).json({ item: favorite });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/api/content/favorites", requireAuthenticated, async (request, response, next) => {
+    try {
+      const parsed = z.object({
+        channel: contentChannelSchema,
+        canonicalUrl: z.string().url().max(1000),
+      }).parse(request.query || {});
+      await store.deleteFavoriteContent(request.userContext, parsed.channel, parsed.canonicalUrl);
+      response.status(204).send();
     } catch (error) {
       next(error);
     }
