@@ -51,17 +51,33 @@
         <div class="nav-actions">
           <div class="sync-indicators">
             <div class="account-menu-wrap">
-              <button type="button" id="auth-status-chip" class="status-chip account-chip">
+              <button
+                type="button"
+                id="auth-status-chip"
+                class="status-chip account-chip"
+              >
                 未登录
               </button>
               <div id="account-menu" class="account-menu" hidden>
-                <button type="button" class="account-menu-item" data-account-action="profile">
+                <button
+                  type="button"
+                  class="account-menu-item"
+                  data-account-action="profile"
+                >
                   当前账号资料
                 </button>
-                <button type="button" class="account-menu-item" data-account-action="password">
+                <button
+                  type="button"
+                  class="account-menu-item"
+                  data-account-action="password"
+                >
                   修改密码
                 </button>
-                <button type="button" class="account-menu-item" data-account-action="clear-data">
+                <button
+                  type="button"
+                  class="account-menu-item"
+                  data-account-action="clear-data"
+                >
                   清空本账号数据
                 </button>
                 <button
@@ -77,7 +93,11 @@
           <button type="button" id="auth-action" class="auth-button">
             云端登录
           </button>
-          <div class="theme-switcher" aria-label="主题模式切换" data-active-theme="light">
+          <div
+            class="theme-switcher"
+            aria-label="主题模式切换"
+            data-active-theme="light"
+          >
             <button
               type="button"
               class="theme-option"
@@ -228,7 +248,11 @@
                   Weekly
                 </button>
               </div>
-              <button type="button" id="export-data-button" class="settings-save">
+              <button
+                type="button"
+                id="export-data-button"
+                class="settings-save"
+              >
                 导出 JSON
               </button>
             </div>
@@ -254,10 +278,20 @@
               <div class="save-note-row">
                 <p class="save-note" id="save-status">数据将自动保存到本地</p>
                 <div class="save-note-actions">
-                  <button type="button" id="save-status-undo" class="task-cancel-action" hidden>
+                  <button
+                    type="button"
+                    id="save-status-undo"
+                    class="task-cancel-action"
+                    hidden
+                  >
                     撤销
                   </button>
-                  <button type="button" id="save-status-retry" class="settings-save" hidden>
+                  <button
+                    type="button"
+                    id="save-status-retry"
+                    class="settings-save"
+                    hidden
+                  >
                     重新同步
                   </button>
                 </div>
@@ -277,26 +311,45 @@
                 </div>
               </div>
 
-              <div
-                class="weekly-tools"
-              >
+              <div class="weekly-tools">
                 <div class="weekly-review-controls">
                   <div class="weekly-mode-block">
                     <span class="weekly-filter-label">复盘范围</span>
-                    <div class="weekly-mode-toggle" aria-label="复盘范围" data-active-mode="week">
-                      <button type="button" id="weekly-mode-week" class="task-cancel-action is-active">
+                    <div
+                      class="weekly-mode-toggle"
+                      aria-label="复盘范围"
+                      data-active-mode="week"
+                    >
+                      <button
+                        type="button"
+                        id="weekly-mode-week"
+                        class="task-cancel-action is-active"
+                      >
                         按周
                       </button>
-                      <button type="button" id="weekly-mode-month" class="task-cancel-action">
+                      <button
+                        type="button"
+                        id="weekly-mode-month"
+                        class="task-cancel-action"
+                      >
                         按月
                       </button>
                     </div>
                   </div>
 
                   <label class="weekly-filter-field weekly-range-field">
-                    <span id="review-range-label" class="weekly-filter-label">周范围</span>
-                    <select id="weekly-range-picker" class="weekly-range-picker"></select>
-                    <select id="monthly-range-picker" class="weekly-range-picker" hidden></select>
+                    <span id="review-range-label" class="weekly-filter-label"
+                      >周范围</span
+                    >
+                    <select
+                      id="weekly-range-picker"
+                      class="weekly-range-picker"
+                    ></select>
+                    <select
+                      id="monthly-range-picker"
+                      class="weekly-range-picker"
+                      hidden
+                    ></select>
                   </label>
 
                   <label class="weekly-filter-field">
@@ -312,14 +365,6 @@
                     </select>
                   </label>
                   <label class="weekly-filter-field">
-                    <span class="weekly-filter-label">备注</span>
-                    <select id="weekly-notes-filter">
-                      <option value="all">全部</option>
-                      <option value="with-notes">只看有备注</option>
-                      <option value="without-notes">只看无备注</option>
-                    </select>
-                  </label>
-                  <label class="weekly-filter-field">
                     <span class="weekly-filter-label">存档状态</span>
                     <select id="weekly-archive-filter">
                       <option value="all">全部</option>
@@ -329,17 +374,30 @@
                   </label>
                 </div>
 
-                <section id="weekly-summary-card" class="weekly-summary-card" aria-labelledby="weekly-summary-title">
+                <section
+                  id="weekly-summary-card"
+                  class="weekly-summary-card"
+                  aria-labelledby="weekly-summary-title"
+                >
                   <div class="section-head">
                     <div>
                       <p class="panel-kicker">Weekly wrap-up</p>
                       <h2 id="weekly-summary-title">周总结</h2>
                     </div>
                     <div class="weekly-summary-actions">
-                      <button type="button" id="weekly-summary-edit" class="settings-save" hidden>
+                      <button
+                        type="button"
+                        id="weekly-summary-edit"
+                        class="settings-save"
+                        hidden
+                      >
                         修改
                       </button>
-                      <button type="button" id="weekly-summary-save" class="settings-save">
+                      <button
+                        type="button"
+                        id="weekly-summary-save"
+                        class="settings-save"
+                      >
                         保存总结
                       </button>
                     </div>
@@ -349,8 +407,14 @@
                     class="weekly-summary-input"
                     placeholder="记录这周的判断、问题、下周重点。"
                   ></textarea>
-                  <div id="weekly-summary-display" class="weekly-summary-display" hidden></div>
-                  <p id="weekly-summary-meta" class="weekly-summary-meta">尚未保存</p>
+                  <div
+                    id="weekly-summary-display"
+                    class="weekly-summary-display"
+                    hidden
+                  ></div>
+                  <p id="weekly-summary-meta" class="weekly-summary-meta">
+                    尚未保存
+                  </p>
                 </section>
               </div>
 
@@ -362,7 +426,11 @@
             </section>
           </div>
 
-          <section id="finance-view" class="stage-view content-stream-view" hidden>
+          <section
+            id="finance-view"
+            class="stage-view content-stream-view"
+            hidden
+          >
             <div class="content-stream-shell">
               <div class="panel-header">
                 <div>
@@ -370,10 +438,18 @@
                   <h1>Finance</h1>
                 </div>
                 <div class="content-stream-actions">
-                  <button type="button" class="task-cancel-action" data-content-open-sources="finance">
+                  <button
+                    type="button"
+                    class="task-cancel-action"
+                    data-content-open-sources="finance"
+                  >
                     管理信源
                   </button>
-                  <button type="button" class="settings-save" data-content-refresh="finance">
+                  <button
+                    type="button"
+                    class="settings-save"
+                    data-content-refresh="finance"
+                  >
                     刷新资讯
                   </button>
                 </div>
@@ -381,7 +457,11 @@
               <div class="content-toolbar">
                 <label class="content-toolbar-field content-toolbar-search">
                   <span class="weekly-filter-label">搜索</span>
-                  <input id="finance-search" type="search" placeholder="搜索标题、摘要或来源" />
+                  <input
+                    id="finance-search"
+                    type="search"
+                    placeholder="搜索标题、摘要或来源"
+                  />
                 </label>
                 <label class="content-toolbar-field">
                   <span class="weekly-filter-label">标签</span>
@@ -407,12 +487,23 @@
                 </label>
               </div>
               <div id="finance-content-meta" class="content-stream-meta"></div>
-              <div id="finance-content-grid" class="content-masonry" aria-live="polite"></div>
-              <div id="finance-content-pagination" class="content-pagination"></div>
+              <div
+                id="finance-content-grid"
+                class="content-masonry"
+                aria-live="polite"
+              ></div>
+              <div
+                id="finance-content-pagination"
+                class="content-pagination"
+              ></div>
             </div>
           </section>
 
-          <section id="science-view" class="stage-view content-stream-view" hidden>
+          <section
+            id="science-view"
+            class="stage-view content-stream-view"
+            hidden
+          >
             <div class="content-stream-shell">
               <div class="panel-header">
                 <div>
@@ -420,10 +511,18 @@
                   <h1>Science</h1>
                 </div>
                 <div class="content-stream-actions">
-                  <button type="button" class="task-cancel-action" data-content-open-sources="science">
+                  <button
+                    type="button"
+                    class="task-cancel-action"
+                    data-content-open-sources="science"
+                  >
                     管理信源
                   </button>
-                  <button type="button" class="settings-save" data-content-refresh="science">
+                  <button
+                    type="button"
+                    class="settings-save"
+                    data-content-refresh="science"
+                  >
                     刷新资讯
                   </button>
                 </div>
@@ -431,7 +530,11 @@
               <div class="content-toolbar">
                 <label class="content-toolbar-field content-toolbar-search">
                   <span class="weekly-filter-label">搜索</span>
-                  <input id="science-search" type="search" placeholder="搜索标题、摘要或来源" />
+                  <input
+                    id="science-search"
+                    type="search"
+                    placeholder="搜索标题、摘要或来源"
+                  />
                 </label>
                 <label class="content-toolbar-field">
                   <span class="weekly-filter-label">标签</span>
@@ -457,8 +560,15 @@
                 </label>
               </div>
               <div id="science-content-meta" class="content-stream-meta"></div>
-              <div id="science-content-grid" class="content-masonry" aria-live="polite"></div>
-              <div id="science-content-pagination" class="content-pagination"></div>
+              <div
+                id="science-content-grid"
+                class="content-masonry"
+                aria-live="polite"
+              ></div>
+              <div
+                id="science-content-pagination"
+                class="content-pagination"
+              ></div>
             </div>
           </section>
         </section>
@@ -564,7 +674,8 @@
           </div>
         </div>
         <div class="delete-task-dialog-copy">
-          删除后，该任务及其历史记录将无法找回。你可以取消，或先使用卡片上的存档按钮保留 Weekly 记录。
+          删除后，该任务及其历史记录将无法找回。你可以取消，或先使用卡片上的存档按钮保留
+          Weekly 记录。
         </div>
         <div class="delete-task-dialog-actions">
           <button
@@ -600,7 +711,8 @@
           </div>
         </div>
         <div class="delete-task-dialog-copy">
-          存档后，该任务会从 Today 隐藏，但仍会保留在 Weekly 历史记录中。你之后也可以在 Weekly 中恢复它。
+          存档后，该任务会从 Today 隐藏，但仍会保留在 Weekly
+          历史记录中。你之后也可以在 Weekly 中恢复它。
         </div>
         <div class="delete-task-dialog-actions">
           <button
@@ -610,11 +722,7 @@
           >
             取消
           </button>
-          <button
-            type="button"
-            class="task-archive"
-            id="archive-task-confirm"
-          >
+          <button type="button" class="task-archive" id="archive-task-confirm">
             确认存档
           </button>
         </div>
@@ -647,11 +755,7 @@
           >
             取消
           </button>
-          <button
-            type="button"
-            class="settings-save"
-            id="rename-task-confirm"
-          >
+          <button type="button" class="settings-save" id="rename-task-confirm">
             保存
           </button>
         </div>
@@ -761,15 +865,33 @@
         <form id="change-password-form" class="settings-form account-form">
           <label class="settings-field">
             <span class="widget-label">当前密码</span>
-            <input name="currentPassword" type="password" minlength="6" maxlength="128" required />
+            <input
+              name="currentPassword"
+              type="password"
+              minlength="6"
+              maxlength="128"
+              required
+            />
           </label>
           <label class="settings-field">
             <span class="widget-label">新密码</span>
-            <input name="newPassword" type="password" minlength="6" maxlength="128" required />
+            <input
+              name="newPassword"
+              type="password"
+              minlength="6"
+              maxlength="128"
+              required
+            />
           </label>
           <label class="settings-field">
             <span class="widget-label">确认新密码</span>
-            <input name="confirmPassword" type="password" minlength="6" maxlength="128" required />
+            <input
+              name="confirmPassword"
+              type="password"
+              minlength="6"
+              maxlength="128"
+              required
+            />
           </label>
           <p id="change-password-feedback" class="delete-task-dialog-copy"></p>
           <div class="delete-task-dialog-actions">
@@ -780,7 +902,11 @@
             >
               取消
             </button>
-            <button type="submit" class="settings-save" id="change-password-submit">
+            <button
+              type="submit"
+              class="settings-save"
+              id="change-password-submit"
+            >
               保存密码
             </button>
           </div>
@@ -844,7 +970,13 @@
           </div>
           <label class="settings-field">
             <span class="widget-label">当前密码</span>
-            <input name="password" type="password" minlength="6" maxlength="128" required />
+            <input
+              name="password"
+              type="password"
+              minlength="6"
+              maxlength="128"
+              required
+            />
           </label>
           <p id="delete-account-feedback" class="delete-task-dialog-copy"></p>
           <div class="delete-task-dialog-actions">
@@ -855,32 +987,15 @@
             >
               取消
             </button>
-            <button type="submit" class="delete-task is-danger" id="delete-account-submit">
+            <button
+              type="submit"
+              class="delete-task is-danger"
+              id="delete-account-submit"
+            >
               删除账号
             </button>
           </div>
         </form>
-      </div>
-    </div>
-
-    <div id="content-detail-modal" class="settings-modal" hidden>
-      <div class="settings-backdrop" data-content-detail-modal-close></div>
-      <div
-        class="settings-dialog content-detail-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="content-detail-title"
-      >
-        <div class="settings-header">
-          <div>
-            <p class="panel-kicker" id="content-detail-kicker">Article</p>
-            <h2 id="content-detail-title">资讯详情</h2>
-          </div>
-          <button type="button" class="settings-save modal-close" data-content-detail-modal-close>
-            关闭
-          </button>
-        </div>
-        <div id="content-detail-body" class="content-detail-body"></div>
       </div>
     </div>
 
@@ -897,11 +1012,18 @@
             <p class="panel-kicker">Content Sources</p>
             <h2 id="content-source-title">信源管理</h2>
           </div>
-          <button type="button" class="settings-save modal-close" data-content-source-modal-close>
+          <button
+            type="button"
+            class="settings-save modal-close"
+            data-content-source-modal-close
+          >
             关闭
           </button>
         </div>
-        <form id="content-source-form" class="settings-form content-source-form">
+        <form
+          id="content-source-form"
+          class="settings-form content-source-form"
+        >
           <input id="content-source-id" name="sourceId" type="hidden" />
           <div class="content-source-form-grid">
             <label class="settings-field">
@@ -918,11 +1040,22 @@
           </div>
           <label class="settings-field">
             <span class="widget-label">链接</span>
-            <input name="url" type="url" maxlength="500" placeholder="https://example.com/feed.xml" required />
+            <input
+              name="url"
+              type="url"
+              maxlength="500"
+              placeholder="https://example.com/feed.xml"
+              required
+            />
           </label>
           <label class="settings-field">
             <span class="widget-label">解析标识（可选）</span>
-            <input name="parserKey" type="text" maxlength="64" placeholder="默认留空，优先自动识别" />
+            <input
+              name="parserKey"
+              type="text"
+              maxlength="64"
+              placeholder="默认留空，优先自动识别"
+            />
           </label>
           <label class="settings-field">
             <span class="widget-label">启用状态</span>
@@ -940,6 +1073,6 @@
     </div>
 
     <script src="./js/vendor/Sortable.min.js" defer></script>
-    <script src="./js/app.js" defer></script>
+    <script type="module" src="./js/app.js"></script>
   </body>
 </html>

@@ -2,6 +2,7 @@ const AUTH_CONFIG_STORAGE_KEY = "lifeflow-private-dashboard-auth-config";
 const SESSION_STORAGE_KEY = "lifeflow-private-dashboard-session";
 const API_BASE_STORAGE_KEY = "lifeflow-private-dashboard-api-base";
 const DEFAULT_API_BASE = "https://lifeflow-backend-mrs1.onrender.com";
+const API_PROBE_TIMEOUT_MS = 1500;
 
 const authElements = {
   form: document.querySelector("#login-form"),
@@ -16,6 +17,7 @@ const captchaState = {
   id: "",
 };
 let resolvedApiBase = "";
+let apiBasePromise = null;
 
 function loadAuthConfig() {
   try {
@@ -110,35 +112,88 @@ async function detectApiBase() {
   if (resolvedApiBase) {
     return resolvedApiBase;
   }
-  const runtimeBase =
-    typeof window !== "undefined" &&
-    typeof window.LIFEFLOW_API_BASE === "string"
-      ? window.LIFEFLOW_API_BASE
-      : "";
-  const localhostBase =
-    window.location.hostname && window.location.hostname !== "localhost"
-      ? "http://localhost:8787"
-      : `${window.location.protocol}//${window.location.hostname || "localhost"}:8787`;
-  const candidates = [runtimeBase, localhostBase, "http://127.0.0.1:8787", DEFAULT_API_BASE]
-    .map((item) => String(item || "").trim())
-    .filter(Boolean);
+  if (!apiBasePromise) {
+    apiBasePromise = (async () => {
+      const fromStorage = localStorage.getItem(API_BASE_STORAGE_KEY) || "";
+      const runtimeBase =
+        typeof window !== "undefined" &&
+        typeof window.LIFEFLOW_API_BASE === "string"
+          ? window.LIFEFLOW_API_BASE
+          : "";
+      const localhostBase =
+        window.location.hostname && window.location.hostname !== "localhost"
+          ? "http://localhost:8787"
+          : `${window.location.protocol}//${window.location.hostname || "localhost"}:8787`;
+      const isLocalHost = ["localhost", "127.0.0.1"].includes(
+        window.location.hostname,
+      );
+      const isStoredLocalhost =
+        /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(fromStorage);
+      const candidates = (
+        isLocalHost
+          ? [
+              fromStorage,
+              runtimeBase,
+              localhostBase,
+              "http://127.0.0.1:8787",
+              DEFAULT_API_BASE,
+            ]
+          : [
+              isStoredLocalhost ? "" : fromStorage,
+              runtimeBase,
+              DEFAULT_API_BASE,
+              localhostBase,
+              "http://127.0.0.1:8787",
+            ]
+      )
+        .map((item) => String(item || "").trim())
+        .filter(Boolean);
 
-  for (const baseUrl of [...new Set(candidates)]) {
-    try {
-      const response = await fetch(`${baseUrl.replace(/\/$/, "")}/health`, {
-        credentials: "include",
-      });
-      if (response.ok) {
-        resolvedApiBase = baseUrl;
-        return resolvedApiBase;
+      const uniqueCandidates = [...new Set(candidates)];
+      const [preferred, ...fallbacks] = uniqueCandidates;
+      const probe = async (baseUrl) => {
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => controller.abort(), API_PROBE_TIMEOUT_MS);
+        try {
+          const response = await fetch(`${baseUrl.replace(/\/$/, "")}/health`, {
+            credentials: "include",
+            signal: controller.signal,
+          });
+          if (!response.ok) {
+            throw new Error(`Healthcheck failed: ${response.status}`);
+          }
+          return baseUrl;
+        } finally {
+          window.clearTimeout(timeoutId);
+        }
+      };
+
+      if (preferred) {
+        try {
+          resolvedApiBase = await probe(preferred);
+          return resolvedApiBase;
+        } catch (error) {
+          // continue
+        }
       }
-    } catch (error) {
-      // continue
-    }
+
+      if (fallbacks.length) {
+        try {
+          resolvedApiBase = await Promise.any(fallbacks.map((baseUrl) => probe(baseUrl)));
+          return resolvedApiBase;
+        } catch (error) {
+          // continue
+        }
+      }
+
+      resolvedApiBase = DEFAULT_API_BASE;
+      return resolvedApiBase;
+    })().finally(() => {
+      apiBasePromise = null;
+    });
   }
 
-  resolvedApiBase = DEFAULT_API_BASE;
-  return resolvedApiBase;
+  return apiBasePromise;
 }
 
 async function fetchApiJson(path, options = {}) {
@@ -189,6 +244,9 @@ async function bootstrapExistingSession() {
 }
 
 async function refreshCaptcha() {
+  if (authElements.captchaImage) {
+    authElements.captchaImage.textContent = "加载中...";
+  }
   try {
     const payload = await fetchApiJson("/api/auth/captcha");
     captchaState.id = payload?.captcha?.id || "";

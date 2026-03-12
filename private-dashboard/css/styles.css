@@ -84,7 +84,6 @@ button {
 .panel-kicker,
 .summary-badge span,
 .widget-label,
-.placeholder-tag,
 .review-chip,
 .note-time,
 .widget-location {
@@ -649,8 +648,7 @@ body[data-theme="light"] .main-nav .auth-button:active {
 }
 
 .rail-card,
-.content-panel,
-.placeholder-card {
+.content-panel {
   background: transparent;
   border: 1px solid transparent;
 }
@@ -682,13 +680,11 @@ body[data-theme="light"] .main-nav .auth-button:active {
 .task-title,
 .review-title,
 .widget-title,
-.placeholder-card h1,
 .settings-header h2 {
   margin: 0;
 }
 
-.panel-kicker,
-.placeholder-tag {
+.panel-kicker {
   margin: 0 0 6px;
   color: var(--muted-2);
   font-size: 0.68rem;
@@ -1023,7 +1019,7 @@ body[data-theme="light"] .main-nav .auth-button:active {
 
 .weekly-review-controls {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
   padding: 14px;
   border: 1px solid var(--line);
@@ -1632,6 +1628,10 @@ body[data-theme="light"] .main-nav .auth-button:active {
   color: #111111;
 }
 
+body[data-theme="dark"] .task-archive {
+  color: #ffffff;
+}
+
 .task-cancel-action {
   color: var(--muted);
 }
@@ -1776,29 +1776,6 @@ body[data-theme="light"] .main-nav .auth-button:active {
 
 .review-note-date {
   font-size: 0.68rem;
-}
-
-.placeholder-card {
-  min-height: 760px;
-  padding: 10px 0;
-}
-
-.placeholder-view[hidden] {
-  display: none;
-}
-
-.placeholder-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  margin-top: 16px;
-}
-
-.placeholder-block {
-  min-height: 180px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--card);
 }
 
 .widget-card {
@@ -2583,8 +2560,7 @@ body[data-theme="light"] .weather-tooltip {
 }
 
 .content-card-meta,
-.content-card-footer,
-.content-detail-meta {
+.content-card-footer {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -2594,8 +2570,7 @@ body[data-theme="light"] .weather-tooltip {
 }
 
 .content-card-meta span,
-.content-card-footer span,
-.content-detail-meta span {
+.content-card-footer span {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -2727,31 +2702,10 @@ body[data-theme="light"] .weather-tooltip {
   text-align: center;
 }
 
-.content-detail-dialog {
-  width: min(760px, calc(100% - 32px));
-  overscroll-behavior: contain;
-}
-
-.content-detail-body {
-  display: grid;
-  gap: 16px;
-}
-
-.content-detail-summary {
-  display: grid;
-  gap: 8px;
-  padding: 14px 16px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--card-2) 78%, transparent);
-}
-
-.content-detail-summary h3,
 .content-source-item strong {
   margin: 0;
 }
 
-.content-detail-summary p,
 .content-source-item p {
   margin: 0;
   color: var(--muted);
@@ -2766,29 +2720,6 @@ body[data-theme="light"] .weather-tooltip {
 
 .content-source-status.is-error {
   color: var(--danger);
-}
-
-.content-detail-summary p {
-  white-space: pre-wrap;
-}
-
-.content-detail-lead {
-  margin-bottom: 12px !important;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--line);
-  font-weight: 600;
-  color: var(--text) !important;
-}
-
-.content-detail-actions {
-  display: flex;
-  justify-content: flex-start;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.content-link-button {
-  text-decoration: none;
 }
 
 .content-source-dialog {
@@ -2870,10 +2801,6 @@ body[data-theme="light"] textarea:focus-visible {
   .right-rail,
   .center-stage {
     min-width: 0;
-  }
-
-  .placeholder-grid {
-    grid-template-columns: 1fr;
   }
 
   .save-note-row {
