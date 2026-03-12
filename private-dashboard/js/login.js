@@ -55,6 +55,22 @@ function setFeedback(message) {
   authElements.feedback.textContent = message || "";
 }
 
+function renderCaptchaImage(svgMarkup) {
+  if (!authElements.captchaImage) {
+    return;
+  }
+  authElements.captchaImage.innerHTML = "";
+  if (!svgMarkup) {
+    authElements.captchaImage.textContent = "加载失败";
+    return;
+  }
+  const image = document.createElement("img");
+  image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgMarkup)}`;
+  image.alt = "图形验证码";
+  image.decoding = "async";
+  authElements.captchaImage.append(image);
+}
+
 function buildAuthErrorMessage(error, mode) {
   const message = String(error?.message || "").trim();
   if (message.includes("验证码错误或已过期")) {
@@ -165,17 +181,13 @@ async function refreshCaptcha() {
   try {
     const payload = await fetchApiJson("/api/auth/captcha");
     captchaState.id = payload?.captcha?.id || "";
-    if (authElements.captchaImage) {
-      authElements.captchaImage.innerHTML = payload?.captcha?.svg || "<span>加载失败</span>";
-    }
+    renderCaptchaImage(payload?.captcha?.svg || "");
     if (authElements.form?.elements?.captchaText) {
       authElements.form.elements.captchaText.value = "";
     }
   } catch (error) {
     captchaState.id = "";
-    if (authElements.captchaImage) {
-      authElements.captchaImage.textContent = "加载失败";
-    }
+    renderCaptchaImage("");
   }
 }
 
