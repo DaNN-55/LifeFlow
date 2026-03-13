@@ -112,8 +112,12 @@ export function createContentModule(deps) {
     ].join("");
     channelElements.tagFilter.value = contentState.tag;
     channelElements.sourceFilter.value = contentState.sourceId;
-    channelElements.meta.textContent =
-      contentState.meta || getContentMetaText(contentState, formatDateTime);
+    const metaText = contentState.error
+      ? contentState.error
+      : getContentMetaText(contentState, formatDateTime);
+    channelElements.meta.textContent = metaText;
+    channelElements.meta.hidden = !metaText;
+    channelElements.meta.dataset.tone = getContentMetaTone(contentState);
 
     if (contentState.loading && contentState.items.length === 0) {
       channelElements.grid.innerHTML = '<div class="content-empty-state">正在加载资讯...</div>';
@@ -349,7 +353,6 @@ export function createContentModule(deps) {
     }
     contentState.loading = true;
     contentState.error = "";
-    contentState.meta = "正在加载资讯...";
     renderContentChannel(channel);
 
     try {
@@ -373,7 +376,6 @@ export function createContentModule(deps) {
       contentState.lastRefreshStats = payload?.cache?.lastRefreshStats || contentState.lastRefreshStats || null;
       contentState.loaded = true;
       contentState.usingMock = false;
-      contentState.meta = getContentMetaText(contentState, formatDateTime);
     } catch (error) {
       console.warn(`Failed to load ${channel} content.`, error);
       if (isLocalDevelopment() && error?.message === "Request failed: 404") {
@@ -386,7 +388,6 @@ export function createContentModule(deps) {
         contentState.loaded = true;
         contentState.usingMock = true;
         contentState.error = "";
-        contentState.meta = getContentMetaText(contentState, formatDateTime);
       } else {
         contentState.error = error?.message || "资讯加载失败";
       }
@@ -402,7 +403,6 @@ export function createContentModule(deps) {
       return;
     }
     contentState.refreshing = true;
-    contentState.meta = "正在刷新资讯...";
     renderContentChannel(channel);
     try {
       const payload = await fetchApiJson("/api/content/refresh", {
@@ -418,22 +418,28 @@ export function createContentModule(deps) {
       contentState.autoRefreshed = options.markAuto !== false;
       contentState.lastRefreshedAt = payload?.cache?.refreshedAt || payload?.refresh?.refreshedAt || "";
       contentState.lastRefreshStats = payload?.refresh || payload?.cache?.lastRefreshStats || null;
-      if (!options.silent) {
-        const refreshLabel = contentState.lastRefreshStats
-          ? `${contentState.lastRefreshStats.successCount} 个源成功 / ${contentState.lastRefreshStats.failureCount} 个源失败`
-          : "资讯已刷新";
-        setSaveStatus(`${channel === "science" ? "Science" : "Finance"} 已刷新 · ${refreshLabel}`, "success");
-      }
+      renderContentChannel(channel);
     } catch (error) {
       console.warn(`Failed to refresh ${channel} content.`, error);
       contentState.error = error?.message || "资讯刷新失败";
-      if (!options.silent) {
-        setSaveStatus(contentState.error);
-      }
       renderContentChannel(channel);
     } finally {
       contentState.refreshing = false;
+      renderContentChannel(channel);
     }
+  }
+
+  function getContentMetaTone(contentState) {
+    if (contentState.error) {
+      return "error";
+    }
+    if (contentState.refreshing || contentState.loading) {
+      return "progress";
+    }
+    if (contentState.lastRefreshStats) {
+      return "success";
+    }
+    return "default";
   }
 
   async function prefetchContentFeedsOnSessionStart() {

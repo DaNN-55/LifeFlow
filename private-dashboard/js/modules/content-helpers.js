@@ -4,9 +4,6 @@ export function getSafeContentLink(item) {
 }
 
 export function getContentMetaText(contentState, formatDateTime) {
-  const refreshedAt = contentState.lastRefreshedAt
-    ? `最近刷新 ${formatDateTime(contentState.lastRefreshedAt)}`
-    : "";
   const refreshSummary =
     contentState.lastRefreshStats && contentState.lastRefreshStats.totalSources
       ? `${contentState.lastRefreshStats.successCount} 个源成功 / ${contentState.lastRefreshStats.failureCount} 个源失败`
@@ -15,20 +12,20 @@ export function getContentMetaText(contentState, formatDateTime) {
     return "正在同步最新资讯...";
   }
   if (contentState.usingMock) {
-    return [refreshedAt, "当前显示测试资讯", `每页 ${contentState.pageSize} 条`].filter(Boolean).join(" · ");
+    return "当前显示测试资讯";
   }
   if (contentState.favoriteFilter === "favorites") {
     return contentState.total
-      ? [refreshedAt, `共 ${contentState.total} 条收藏资讯`, `每页 ${contentState.pageSize} 条`]
+      ? [`共 ${contentState.total} 条收藏资讯`]
           .filter(Boolean)
           .join(" · ")
-      : [refreshedAt, "当前没有收藏资讯。"].filter(Boolean).join(" · ");
+      : "当前没有收藏资讯。";
   }
   const total = Number(contentState.total || 0);
   if (!total) {
-    return [refreshedAt, "当前暂无缓存资讯，请手动刷新。"].filter(Boolean).join(" · ");
+    return "当前暂无缓存资讯，请手动刷新。";
   }
-  return [refreshedAt, refreshSummary, `共 ${total} 条资讯`, `每页 ${contentState.pageSize} 条`]
+  return [refreshSummary, `共 ${total} 条资讯`]
     .filter(Boolean)
     .join(" · ");
 }

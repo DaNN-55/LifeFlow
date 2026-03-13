@@ -14,6 +14,38 @@ export function createWeeklyModule(deps) {
     getWeeklySummaryDraft,
     getWeeklySummaryMode,
   } = deps;
+  const markdownRenderer =
+    typeof window !== "undefined" && typeof window.markdownit === "function"
+      ? window.markdownit({
+          html: false,
+          breaks: true,
+          linkify: true,
+          typographer: true,
+        })
+      : null;
+
+  function renderWeeklySummaryMarkdown(markdown) {
+    const source = String(markdown || "").replace(/\r\n/g, "\n").trim();
+    if (!source) {
+      return "";
+    }
+
+    const rendered = markdownRenderer
+      ? markdownRenderer.render(source)
+      : `<p>${escapeHtml(source).replace(/\n/g, "<br>")}</p>`;
+
+    if (
+      typeof window !== "undefined" &&
+      window.DOMPurify &&
+      typeof window.DOMPurify.sanitize === "function"
+    ) {
+      return window.DOMPurify.sanitize(rendered, {
+        USE_PROFILES: { html: true },
+      });
+    }
+
+    return rendered;
+  }
 
   function renderWeeklyReview() {
     const aggregation = getSelectedReviewAggregation();
@@ -187,7 +219,7 @@ export function createWeeklyModule(deps) {
 
     elements.weeklySummaryInput.hidden = isViewMode;
     elements.weeklySummaryDisplay.hidden = !isViewMode;
-    elements.weeklySummaryDisplay.textContent = savedContent;
+    elements.weeklySummaryDisplay.innerHTML = renderWeeklySummaryMarkdown(savedContent);
     elements.weeklySummaryEdit.hidden = !hasSavedContent || !isViewMode;
     elements.weeklySummarySave.hidden = isViewMode;
     elements.weeklySummarySave.textContent = "保存总结";
