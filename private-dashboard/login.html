@@ -25,8 +25,20 @@
         <p class="panel-kicker">Cloud Sync</p>
         <h1 id="login-page-title">登录后同步到云端</h1>
         <p class="auth-gate-copy">
-          登录后你的任务与备注会写入云端。首次使用可先创建账号，之后直接用用户名和密码登录。
+          登录后你的任务与备注会写入云端。首次使用可先创建账号，并妥善保存系统生成的恢复码；如果忘记密码，可用恢复码重置。
         </p>
+        <div id="file-open-warning" class="account-profile-item" hidden>
+          <span class="account-profile-label">本地打开提醒</span>
+          <p class="settings-copy">
+            当前页面是通过 `file://` 打开的。登录页可以使用，但 Dashboard 首页会只显示静态壳。
+            请改用 `http://localhost:8000/private-dashboard/login.html` 访问。
+          </p>
+          <div class="data-transfer-actions">
+            <a class="settings-save" href="http://localhost:8000/private-dashboard/login.html">
+              打开本地地址
+            </a>
+          </div>
+        </div>
         <form id="login-form" class="auth-gate-form">
           <label class="settings-field">
             <span class="widget-label">用户名</span>
@@ -39,13 +51,23 @@
             />
           </label>
           <label class="settings-field">
-            <span class="widget-label">密码</span>
+            <span id="password-label" class="widget-label">密码</span>
             <input
               name="password"
               type="password"
               placeholder="输入你的密码"
               autocomplete="current-password"
               required
+            />
+          </label>
+          <label id="recovery-code-field" class="settings-field" hidden>
+            <span class="widget-label">恢复码</span>
+            <input
+              name="recoveryCode"
+              type="text"
+              placeholder="输入形如 ABCD-EFGH-IJKL-MNOP 的恢复码"
+              autocomplete="off"
+              spellcheck="false"
             />
           </label>
           <div class="settings-field captcha-field">
@@ -76,11 +98,61 @@
             <button type="submit" class="auth-button" data-auth-action="signup">
               创建账号
             </button>
+            <button
+              type="submit"
+              class="task-cancel-action auth-recover-action"
+              data-auth-action="recover"
+            >
+              重置密码
+            </button>
           </div>
         </form>
       </section>
     </main>
 
+    <div id="recovery-code-modal" class="settings-modal" hidden>
+      <div class="settings-backdrop"></div>
+      <div
+        class="settings-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="recovery-code-title"
+      >
+        <div class="settings-header">
+          <div>
+            <p class="panel-kicker">Recovery Code</p>
+            <h2 id="recovery-code-title">请保存你的恢复码</h2>
+          </div>
+        </div>
+        <div class="delete-task-dialog-copy">
+          这个恢复码只会展示这一次。忘记密码时，可用它配合验证码重置密码。
+        </div>
+        <pre id="recovery-code-value" class="delete-task-dialog-copy mono"></pre>
+        <div class="delete-task-dialog-actions">
+          <button
+            type="button"
+            id="recovery-code-confirm"
+            class="settings-save"
+          >
+            我已保存
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        if (window.location.protocol !== "file:") {
+          return;
+        }
+        window.addEventListener("DOMContentLoaded", function () {
+          var warning = document.getElementById("file-open-warning");
+          if (warning) {
+            warning.hidden = false;
+          }
+        });
+      })();
+    </script>
     <script src="./js/login.js" defer></script>
   </body>
 </html>

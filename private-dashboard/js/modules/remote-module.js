@@ -34,6 +34,8 @@ export function createRemoteModule(deps) {
     setWeeklySummaryMode,
     refreshFavoriteHighlights,
     prefetchContentFeedsOnSessionStart,
+    recordSyncAttempt,
+    recordSyncSuccess,
   } = deps;
 
   let remoteBootstrapPromise = null;
@@ -96,6 +98,20 @@ export function createRemoteModule(deps) {
     }
 
     return state.pendingSync[scopeKey] || null;
+  }
+
+  function resetPendingBucket() {
+    const scopeKey = getPendingScopeKey();
+    if (!scopeKey) {
+      return;
+    }
+    state.pendingSync[scopeKey] = {
+      taskUpserts: {},
+      taskDeletes: {},
+      dirtyRecords: {},
+      weeklySummaryUpserts: {},
+    };
+    persistPendingSyncStore();
   }
 
   function hasPendingSync() {
@@ -194,6 +210,7 @@ export function createRemoteModule(deps) {
     if (!state.auth.user) {
       return state.data.preferences;
     }
+    recordSyncAttempt();
     const payload = getPreferencesWithoutTheme(structuredClone(state.data.preferences));
     const response = await fetchApiJson("/api/account/preferences", {
       method: "PUT",
@@ -205,16 +222,23 @@ export function createRemoteModule(deps) {
         applyTheme: false,
       });
     }
+    recordSyncSuccess();
     return state.data.preferences;
   }
 
   async function fetchAuthSession() {
     try {
-      return await fetchApiJson("/api/auth/me", { requireAuth: false });
+      return await fetchApiJson("/api/auth/me", {
+        requireAuth: false,
+        timeoutMs: 3500,
+      });
     } catch (error) {
       state.remote.apiBase = "";
       saveApiBase("");
-      return fetchApiJson("/api/auth/me", { requireAuth: false });
+      return fetchApiJson("/api/auth/me", {
+        requireAuth: false,
+        timeoutMs: 3500,
+      });
     }
   }
 
@@ -406,7 +430,7 @@ export function createRemoteModule(deps) {
   }
 
   async function seedRemoteFromLocal(snapshot) {
-    if (!snapshot || !isRemoteReady() || state.auth.user) {
+    if (!snapshot || !isRemoteReady() || !state.auth.user) {
       return;
     }
 
@@ -712,9 +736,84 @@ export function createRemoteModule(deps) {
 
     return {
       tasks,
-      mood: record.mood || "",
-      dailySummary: record.dailySummary || "",
     };
+  }
+
+  function queueAllCurrentDataForSync() {
+    if (!state.auth.user) {
+      return;
+    }
+    state.data.taskTypes.forEach((task) => {
+      markTaskUpsertPending(task);
+    });
+    Object.keys(state.data.dailyRecords || {}).forEach((date) => {
+      const record = ensureRecord(date);
+      if (
+        Object.values(record.tasks || {}).some((taskState) =>
+          Boolean(taskState?.completed) ||
+          (Array.isArray(taskState?.notes) && taskState.notes.length > 0),
+        )
+      ) {
+        markRecordPending(date);
+      }
+    });
+    Object.entries(state.data.weeklySummaries || {}).forEach(([week, summary]) => {
+      if (summary?.content?.trim()) {
+        markWeeklySummaryPending(week, summary);
+      }
+    });
+  }
+
+  async function syncAllDataToRemote(options = {}) {
+    const { replaceRemote = false } = options;
+    if (!state.auth.user) {
+      return { synced: false, mode: "local-only" };
+    }
+
+    resetPendingBucket();
+    queueAllCurrentDataForSync();
+
+    if (!isRemoteReady()) {
+      return { synced: false, mode: "queued" };
+    }
+
+    if (replaceRemote) {
+      recordSyncAttempt();
+      await fetchApiJson("/api/account/clear-data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      clearContentCacheForUser();
+    }
+
+    await flushPendingSync();
+    await syncTasksFromRemote();
+    await Promise.all([
+      syncSelectedDateRecord({ silent: true }),
+      syncSelectedWeekReview({ silent: true }),
+      syncSelectedWeekSummary({ silent: true }),
+    ]);
+    persistStateSilently();
+    recordSyncSuccess();
+    return { synced: true, mode: replaceRemote ? "replace" : "merge" };
+  }
+
+  function clearContentCacheForUser() {
+    state.content.finance.items = [];
+    state.content.finance.featured = [];
+    state.content.finance.total = 0;
+    state.content.finance.loaded = false;
+    state.content.finance.lastRefreshedAt = "";
+    state.content.finance.lastRefreshStats = null;
+    state.content.finance.error = "";
+    state.content.science.items = [];
+    state.content.science.featured = [];
+    state.content.science.total = 0;
+    state.content.science.loaded = false;
+    state.content.science.lastRefreshedAt = "";
+    state.content.science.lastRefreshStats = null;
+    state.content.science.error = "";
   }
 
   async function flushPendingSync() {
@@ -726,6 +825,8 @@ export function createRemoteModule(deps) {
     if (!bucket) {
       return;
     }
+
+    recordSyncAttempt();
 
     for (const task of Object.values(bucket.taskUpserts || {})) {
       await fetchApiJson(`/api/tasks/${task.id}`, {
@@ -777,6 +878,7 @@ export function createRemoteModule(deps) {
       });
       clearWeeklySummaryPending(week);
     }
+    recordSyncSuccess();
   }
 
   async function syncCurrentRecord(successMessage) {
@@ -795,6 +897,7 @@ export function createRemoteModule(deps) {
     }
 
     try {
+      recordSyncAttempt();
       const record = ensureRecord(state.selectedDate);
       const payload = buildRemoteDailyPayload(record);
       const response = await fetchApiJson(
@@ -812,6 +915,7 @@ export function createRemoteModule(deps) {
       clearRecordPending(state.selectedDate);
       await syncSelectedWeekReview({ silent: true });
       persistStateSilently();
+      recordSyncSuccess();
       setSaveStatus(successMessage);
     } catch (error) {
       console.warn("Failed to sync daily record.", error);
@@ -835,6 +939,7 @@ export function createRemoteModule(deps) {
 
     const record = ensureRecord(date);
     const payload = buildRemoteDailyPayload(record);
+    recordSyncAttempt();
     const response = await fetchApiJson(`/api/daily-records/${date}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -843,6 +948,7 @@ export function createRemoteModule(deps) {
     state.data.dailyRecords[date] = normalizeRemoteRecord(response.record, date);
     clearRecordPending(date);
     persistStateSilently();
+    recordSyncSuccess();
   }
 
   async function syncTaskCreate(task, successMessage) {
@@ -861,6 +967,7 @@ export function createRemoteModule(deps) {
     }
 
     try {
+      recordSyncAttempt();
       await fetchApiJson("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -876,6 +983,7 @@ export function createRemoteModule(deps) {
       await syncTasksFromRemote();
       clearTaskPending(task.id);
       await syncCurrentRecord(successMessage);
+      recordSyncSuccess();
       render();
     } catch (error) {
       console.warn("Failed to create task remotely.", error);
@@ -903,11 +1011,13 @@ export function createRemoteModule(deps) {
     }
 
     try {
+      recordSyncAttempt();
       await fetchApiJson(`/api/tasks/${taskId}`, { method: "DELETE" });
       clearTaskPending(taskId);
       await syncTasksFromRemote();
       await syncSelectedWeekReview({ silent: true });
       persistStateSilently();
+      recordSyncSuccess();
       setSaveStatus(successMessage);
     } catch (error) {
       console.warn("Failed to delete task remotely.", error);
@@ -935,6 +1045,7 @@ export function createRemoteModule(deps) {
     }
 
     try {
+      recordSyncAttempt();
       await fetchApiJson(`/api/tasks/${task.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -950,6 +1061,7 @@ export function createRemoteModule(deps) {
       await syncTasksFromRemote();
       persistStateSilently();
       render();
+      recordSyncSuccess();
       setSaveStatus(successMessage);
     } catch (error) {
       console.warn("Failed to update task remotely.", error);
@@ -980,12 +1092,6 @@ export function createRemoteModule(deps) {
       };
     });
 
-    nextRecord.mood =
-      typeof record?.payload?.mood === "string" ? record.payload.mood : "";
-    nextRecord.dailySummary =
-      typeof record?.payload?.dailySummary === "string"
-        ? record.payload.dailySummary
-        : "";
     nextRecord.updatedAt = record?.updatedAt || "";
     return nextRecord;
   }
@@ -1014,6 +1120,8 @@ export function createRemoteModule(deps) {
     normalizeRemoteRecord,
     hasPendingSync,
     flushPendingSync,
+    queueAllCurrentDataForSync,
+    syncAllDataToRemote,
     markWeeklySummaryPending,
     clearWeeklySummaryPending,
   };

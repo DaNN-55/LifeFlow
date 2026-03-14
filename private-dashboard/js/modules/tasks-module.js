@@ -89,6 +89,7 @@ export function createTasksModule(deps) {
                         data-action="delete-note"
                         data-task-id="${task.id}"
                         data-note-id="${note.id}"
+                        title="删除这条备注"
                       >
                         删除
                       </button>
@@ -178,7 +179,8 @@ export function createTasksModule(deps) {
                 class="task-note-input"
                 data-action="draft-note"
                 data-task-id="${task.id}"
-                placeholder="填写备注并提交。已提交备注只保留追加，不支持修改和删除。"
+                maxlength="500"
+                placeholder="填写备注并提交。已提交备注支持删除，不支持直接编辑。"
               >${escapeHtml(draft)}</textarea>
               <button
                 type="button"

@@ -15,13 +15,14 @@
 - 健康检查接口
 - 用户注册 / 登录 / 退出 / 当前用户
 - 图形验证码
-- 账号资料 / 修改密码 / 清空账号数据 / 删除账号
+- 恢复码找回密码
+- 账号资料 / 修改密码 / 修改用户名 / 重新生成恢复码 / 退出全部登录 / 清空账号数据 / 删除账号
 - 任务增删改查
 - 任务存档与恢复
 - 每日记录读写
 - 周复盘聚合
 - 每周总结读写
-- Finance / Science 资讯聚合、信源管理、详情与手动刷新
+- Finance / Science 资讯聚合、信源管理与手动刷新
 - 天气组件代理接口
 
 ## 快速开始
@@ -45,6 +46,12 @@ cp .env.example .env
 npm run dev
 ```
 
+运行测试：
+
+```bash
+npm test
+```
+
 默认运行地址：
 
 ```text
@@ -56,6 +63,7 @@ http://localhost:8787
 认证接口：
 - `POST /api/auth/signup`
 - `POST /api/auth/signin`
+- `POST /api/auth/recover-password`
 - `POST /api/auth/signout`
 - `GET /api/auth/me`
 - `GET /api/auth/captcha`
@@ -71,13 +79,18 @@ http://localhost:8787
 - `GET /api/weekly-summaries/:week`
 - `PUT /api/weekly-summaries/:week`
 - `GET /api/account/profile`
+- `PUT /api/account/preferences`
+- `POST /api/account/username`
 - `POST /api/account/password`
+- `POST /api/account/recovery-code`
+- `POST /api/account/signout-all`
 - `POST /api/account/clear-data`
 - `POST /api/account/delete`
 - `GET /api/content`
 - `GET /api/content/featured`
-- `GET /api/content/:id`
 - `POST /api/content/refresh`
+- `POST /api/content/favorites`
+- `DELETE /api/content/favorites`
 - `GET /api/content-sources`
 - `POST /api/content-sources`
 - `PATCH /api/content-sources/:id`
@@ -97,7 +110,10 @@ http://localhost:8787
    [2026-03-11-add-users-and-sessions.sql](/Users/dan/Programs/LifeFlow/private-dashboard/backend/supabase/migrations/2026-03-11-add-users-and-sessions.sql)
    [2026-03-11-add-weekly-summaries.sql](/Users/dan/Programs/LifeFlow/private-dashboard/backend/supabase/migrations/2026-03-11-add-weekly-summaries.sql)
    [2026-03-11-drop-public-defaults.sql](/Users/dan/Programs/LifeFlow/private-dashboard/backend/supabase/migrations/2026-03-11-drop-public-defaults.sql)
+   [2026-03-12-add-account-preferences-and-content-bodies.sql](/Users/dan/Programs/LifeFlow/private-dashboard/backend/supabase/migrations/2026-03-12-add-account-preferences-and-content-bodies.sql)
    [2026-03-12-add-content-tables.sql](/Users/dan/Programs/LifeFlow/private-dashboard/backend/supabase/migrations/2026-03-12-add-content-tables.sql)
+   [2026-03-12-add-content-favorites.sql](/Users/dan/Programs/LifeFlow/private-dashboard/backend/supabase/migrations/2026-03-12-add-content-favorites.sql)
+   [2026-03-14-add-user-recovery-code.sql](/Users/dan/Programs/LifeFlow/private-dashboard/backend/supabase/migrations/2026-03-14-add-user-recovery-code.sql)
 4. 在项目设置里拿到：
    - `Project URL`
    - `service_role` key
@@ -145,12 +161,13 @@ http://localhost:8787/health
 - `users`：保存账号
 - `user_sessions`：保存后端 session
 - `tasks / daily_records / weekly_summaries / content_sources / content_items`：通过 `user_id` 关联到具体用户
+- `content_favorites`：保存资讯收藏
 
 也就是说：
 - 每个账号登录后只能看到自己的内容
 - 不再依赖 Supabase Auth
 - Supabase 这里只负责数据库存储
-- 左右栏卡片开关、主题和 GitHub 主页网址当前保存在前端账号本地偏好里，不走后端表
+- 账号偏好当前通过 `users.preferences` 保存，包含侧边栏、组件配置、资讯已读/稍后读/隐藏来源，以及轻量同步状态
 
 ## 部署注意
 

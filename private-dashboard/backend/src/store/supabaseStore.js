@@ -206,7 +206,7 @@ class SupabaseStore {
   async findUserByUsername(username) {
     const { data, error } = await this.client
       .from("users")
-      .select("id, username, password_hash, preferences, created_at")
+      .select("id, username, password_hash, recovery_code_hash, preferences, created_at")
       .eq("username", username)
       .maybeSingle();
 
@@ -220,7 +220,7 @@ class SupabaseStore {
   async getUserById(userId) {
     const { data, error } = await this.client
       .from("users")
-      .select("id, username, password_hash, preferences, created_at")
+      .select("id, username, password_hash, recovery_code_hash, preferences, created_at")
       .eq("id", userId)
       .maybeSingle();
 
@@ -235,7 +235,7 @@ class SupabaseStore {
     const { data, error } = await this.client
       .from("users")
       .insert(user)
-      .select("id, username, password_hash, preferences, created_at")
+      .select("id, username, password_hash, recovery_code_hash, preferences, created_at")
       .single();
 
     if (error) {
@@ -250,7 +250,7 @@ class SupabaseStore {
       .from("users")
       .update({ password_hash: passwordHash })
       .eq("id", userId)
-      .select("id, username, password_hash, preferences, created_at")
+      .select("id, username, password_hash, recovery_code_hash, preferences, created_at")
       .maybeSingle();
 
     if (error) {
@@ -265,7 +265,37 @@ class SupabaseStore {
       .from("users")
       .update({ preferences: preferences && typeof preferences === "object" ? preferences : {} })
       .eq("id", userId)
-      .select("id, username, password_hash, preferences, created_at")
+      .select("id, username, password_hash, recovery_code_hash, preferences, created_at")
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    return data;
+  }
+
+  async updateUserUsername(userId, username) {
+    const { data, error } = await this.client
+      .from("users")
+      .update({ username })
+      .eq("id", userId)
+      .select("id, username, password_hash, recovery_code_hash, preferences, created_at")
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    return data;
+  }
+
+  async updateUserRecoveryCode(userId, recoveryCodeHash) {
+    const { data, error } = await this.client
+      .from("users")
+      .update({ recovery_code_hash: recoveryCodeHash })
+      .eq("id", userId)
+      .select("id, username, password_hash, recovery_code_hash, preferences, created_at")
       .maybeSingle();
 
     if (error) {
@@ -425,7 +455,7 @@ class SupabaseStore {
     let query = this.client
       .from("content_items")
       .select(
-        "id, channel, source_id, title, summary_zh, summary_raw, body_zh, body_raw, author, published_at, content_type, source_name, source_url, canonical_url, tags, lang, image_url, is_featured, fetched_at, created_at, updated_at",
+        "id, channel, source_id, title, summary_zh, summary_raw, author, published_at, content_type, source_name, source_url, canonical_url, tags, lang, image_url, is_featured, fetched_at, created_at, updated_at",
         { count: "exact" },
       )
       .eq("user_id", scope.userId || "");
@@ -442,7 +472,7 @@ class SupabaseStore {
     if (filters.q) {
       const escaped = String(filters.q).replace(/[%_,]/g, " ").trim();
       query = query.or(
-        `title.ilike.%${escaped}%,summary_zh.ilike.%${escaped}%,summary_raw.ilike.%${escaped}%,body_zh.ilike.%${escaped}%,body_raw.ilike.%${escaped}%,source_name.ilike.%${escaped}%`,
+        `title.ilike.%${escaped}%,summary_zh.ilike.%${escaped}%,summary_raw.ilike.%${escaped}%,source_name.ilike.%${escaped}%`,
       );
     }
 
@@ -488,7 +518,7 @@ class SupabaseStore {
   async getFeaturedContent(scope = {}, channel = "", limit = 3) {
     const { data, error } = await this.client
       .from("content_items")
-      .select("id, channel, source_id, title, summary_zh, summary_raw, body_zh, body_raw, author, published_at, content_type, source_name, source_url, canonical_url, tags, lang, image_url, is_featured, fetched_at, created_at, updated_at")
+      .select("id, channel, source_id, title, summary_zh, summary_raw, author, published_at, content_type, source_name, source_url, canonical_url, tags, lang, image_url, is_featured, fetched_at, created_at, updated_at")
       .eq("user_id", scope.userId || "")
       .eq("channel", channel)
       .order("is_featured", { ascending: false })
@@ -521,7 +551,7 @@ class SupabaseStore {
     let query = this.client
       .from("content_favorites")
       .select(
-        "id, channel, source_id, title, summary_zh, summary_raw, body_zh, body_raw, author, published_at, content_type, source_name, source_url, canonical_url, tags, lang, image_url, favorited_at, created_at, updated_at",
+        "id, channel, source_id, title, summary_zh, summary_raw, author, published_at, content_type, source_name, source_url, canonical_url, tags, lang, image_url, favorited_at, created_at, updated_at",
         { count: "exact" },
       )
       .eq("user_id", scope.userId || "");
@@ -538,7 +568,7 @@ class SupabaseStore {
     if (filters.q) {
       const escaped = String(filters.q).replace(/[%_,]/g, " ").trim();
       query = query.or(
-        `title.ilike.%${escaped}%,summary_zh.ilike.%${escaped}%,summary_raw.ilike.%${escaped}%,body_zh.ilike.%${escaped}%,body_raw.ilike.%${escaped}%,source_name.ilike.%${escaped}%`,
+        `title.ilike.%${escaped}%,summary_zh.ilike.%${escaped}%,summary_raw.ilike.%${escaped}%,source_name.ilike.%${escaped}%`,
       );
     }
 
@@ -662,7 +692,7 @@ class SupabaseStore {
   async getSessionWithUser(sessionId) {
     const { data, error } = await this.client
       .from("user_sessions")
-      .select("id, user_id, expires_at, created_at, users!inner(id, username, password_hash, preferences, created_at)")
+      .select("id, user_id, expires_at, created_at, users!inner(id, username, password_hash, recovery_code_hash, preferences, created_at)")
       .eq("id", sessionId)
       .maybeSingle();
 
@@ -687,6 +717,14 @@ class SupabaseStore {
 
   async deleteSession(sessionId) {
     const { error } = await this.client.from("user_sessions").delete().eq("id", sessionId);
+
+    if (error) {
+      throw error;
+    }
+  }
+
+  async deleteSessionsByUser(userId) {
+    const { error } = await this.client.from("user_sessions").delete().eq("user_id", userId);
 
     if (error) {
       throw error;

@@ -24,12 +24,22 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./css/styles.css" />
+    <script>
+      (function () {
+        if (window.location.protocol !== "file:") {
+          return;
+        }
+        document.documentElement.setAttribute("data-file-protocol", "true");
+      })();
+    </script>
   </head>
   <body>
     <div class="app-frame">
       <header class="main-nav">
         <div class="nav-brand">
-          <div class="brand-mark" aria-label="用户名称">Dan</div>
+          <div class="brand-mark" aria-label="LifeFlow 标志">
+            <img src="./assets/logo.png" alt="LifeFlow" />
+          </div>
           <div class="brand-copy">
             <strong>Dashboard</strong>
             <span>Personal execution console</span>
@@ -49,45 +59,50 @@
         </nav>
 
         <div class="nav-actions">
-          <div class="sync-indicators">
-            <div class="account-menu-wrap">
+          <div class="account-menu-wrap">
+            <button
+              type="button"
+              id="auth-status-chip"
+              class="status-chip account-chip"
+            >
+              未登录
+            </button>
+            <div id="account-menu" class="account-menu" hidden>
               <button
                 type="button"
-                id="auth-status-chip"
-                class="status-chip account-chip"
+                class="account-menu-item"
+                data-account-action="profile"
               >
-                未登录
+                当前账号资料
               </button>
-              <div id="account-menu" class="account-menu" hidden>
-                <button
-                  type="button"
-                  class="account-menu-item"
-                  data-account-action="profile"
-                >
-                  当前账号资料
-                </button>
-                <button
-                  type="button"
-                  class="account-menu-item"
-                  data-account-action="password"
-                >
-                  修改密码
-                </button>
-                <button
-                  type="button"
-                  class="account-menu-item"
-                  data-account-action="clear-data"
-                >
-                  清空本账号数据
-                </button>
-                <button
-                  type="button"
-                  class="account-menu-item is-danger"
-                  data-account-action="delete-account"
-                >
-                  删除账号
-                </button>
-              </div>
+              <button
+                type="button"
+                class="account-menu-item"
+                data-account-action="sync-center"
+              >
+                同步中心
+              </button>
+              <button
+                type="button"
+                class="account-menu-item"
+                data-account-action="password"
+              >
+                修改密码
+              </button>
+              <button
+                type="button"
+                class="account-menu-item"
+                data-account-action="clear-data"
+              >
+                清空本账号数据
+              </button>
+              <button
+                type="button"
+                class="account-menu-item is-danger"
+                data-account-action="delete-account"
+              >
+                删除账号
+              </button>
             </div>
           </div>
           <button type="button" id="auth-action" class="auth-button">
@@ -248,13 +263,22 @@
                   Weekly
                 </button>
               </div>
-              <button
-                type="button"
-                id="export-data-button"
-                class="settings-save"
-              >
-                导出 JSON
-              </button>
+              <div class="stage-toolbar-actions">
+                <button
+                  type="button"
+                  id="import-data-button"
+                  class="settings-save stage-toolbar-button"
+                >
+                  导入数据
+                </button>
+                <button
+                  type="button"
+                  id="export-data-button"
+                  class="settings-save stage-toolbar-button"
+                >
+                  导出数据
+                </button>
+              </div>
             </div>
 
             <section
@@ -477,6 +501,8 @@
                   <select id="finance-favorite-filter">
                     <option value="all">全部资讯</option>
                     <option value="favorites">仅看收藏</option>
+                    <option value="unread">未读</option>
+                    <option value="read">已读</option>
                   </select>
                 </label>
                 <label class="content-toolbar-field">
@@ -550,6 +576,8 @@
                   <select id="science-favorite-filter">
                     <option value="all">全部资讯</option>
                     <option value="favorites">仅看收藏</option>
+                    <option value="unread">未读</option>
+                    <option value="read">已读</option>
                   </select>
                 </label>
                 <label class="content-toolbar-field">
@@ -848,6 +876,56 @@
       </div>
     </div>
 
+    <div id="data-transfer-modal" class="settings-modal" hidden>
+      <div class="settings-backdrop" data-data-transfer-modal-close></div>
+      <div
+        class="settings-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="data-transfer-title"
+      >
+        <div class="settings-header">
+          <div>
+            <p class="panel-kicker">Data Transfer</p>
+            <h2 id="data-transfer-title">数据导入 / 恢复</h2>
+          </div>
+          <button
+            type="button"
+            class="settings-save modal-close"
+            data-data-transfer-modal-close
+          >
+            关闭
+          </button>
+        </div>
+        <div id="data-transfer-body" class="account-profile-body"></div>
+      </div>
+    </div>
+
+    <div id="sync-center-modal" class="settings-modal" hidden>
+      <div class="settings-backdrop" data-sync-center-modal-close></div>
+      <div
+        class="settings-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="sync-center-title"
+      >
+        <div class="settings-header">
+          <div>
+            <p class="panel-kicker">Cloud Sync</p>
+            <h2 id="sync-center-title">同步中心</h2>
+          </div>
+          <button
+            type="button"
+            class="settings-save modal-close"
+            data-sync-center-modal-close
+          >
+            关闭
+          </button>
+        </div>
+        <div id="sync-center-body" class="account-profile-body"></div>
+      </div>
+    </div>
+
     <div id="change-password-modal" class="settings-modal" hidden>
       <div class="settings-backdrop" data-change-password-modal-close></div>
       <div
@@ -1071,6 +1149,61 @@
         <div id="content-source-list" class="content-source-list"></div>
       </div>
     </div>
+
+    <div id="app-boot-overlay" class="app-boot-overlay">
+      <div class="app-boot-card">
+        <p class="panel-kicker">Cloud Sync</p>
+        <h2 id="app-boot-title">正在进入 Dashboard</h2>
+        <p id="app-boot-detail" class="settings-copy">
+          正在验证登录状态并连接云端数据。如果长时间停留在这里，请确认你是通过本地静态服务访问，而不是直接打开文件。
+        </p>
+        <div id="app-boot-actions" class="data-transfer-actions" hidden>
+          <button type="button" class="settings-save" data-boot-action="retry">
+            重试连接
+          </button>
+          <button type="button" class="task-cancel-action" data-boot-action="login">
+            返回登录页
+          </button>
+          <button type="button" class="task-cancel-action" data-boot-action="local">
+            改用本地模式
+          </button>
+        </div>
+      </div>
+    </div>
+    <div id="file-protocol-overlay" class="app-boot-overlay" hidden>
+      <div class="app-boot-card">
+        <p class="panel-kicker">Local Setup</p>
+        <h2>请改用本地静态服务打开</h2>
+        <p class="settings-copy">
+          当前页面是通过本地文件 `file://` 打开的。登录页可以工作，但 Dashboard 首页依赖 ES Module，
+          用这种方式会只显示静态壳，看起来像“未登录”。
+        </p>
+        <p class="settings-copy">
+          请在项目根目录运行 `python3 -m http.server 8000`，然后打开
+          `http://localhost:8000/private-dashboard/login.html`
+        </p>
+        <div class="data-transfer-actions">
+          <a class="settings-save" href="http://localhost:8000/private-dashboard/login.html">
+            打开本地地址
+          </a>
+        </div>
+      </div>
+    </div>
+    <script>
+      (function () {
+        if (window.location.protocol !== "file:") {
+          return;
+        }
+        var appFrame = document.querySelector(".app-frame");
+        var overlay = document.getElementById("file-protocol-overlay");
+        if (appFrame) {
+          appFrame.style.visibility = "hidden";
+        }
+        if (overlay) {
+          overlay.hidden = false;
+        }
+      })();
+    </script>
 
     <script src="./js/vendor/Sortable.min.js" defer></script>
     <script src="./js/vendor/markdown-it.min.js" defer></script>

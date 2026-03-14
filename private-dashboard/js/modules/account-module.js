@@ -18,6 +18,8 @@ export function createAccountModule(deps) {
     signOutAuth,
     resetCurrentAccountLocalState,
     setAppVisibility,
+    showAppBootOverlay,
+    hideAppBootOverlay,
     render,
     renderControls,
     renderWidgets,
@@ -156,6 +158,27 @@ export function createAccountModule(deps) {
           <button type="submit" class="settings-save">保存面板设置</button>
         </div>
       </form>
+      <form id="account-recovery-code-form" class="account-form">
+        <div class="account-profile-item">
+          <span class="account-profile-label">密码找回</span>
+          <p class="settings-copy">恢复码仅展示一次。请保存在安全位置，忘记密码时可在登录页配合验证码重置。</p>
+          ${
+            state.accountRecoveryFeedback
+              ? `<p class="settings-copy">${escapeHtml(state.accountRecoveryFeedback)}</p>`
+              : ""
+          }
+          ${
+            state.accountRecoveryCode
+              ? `<pre class="delete-task-dialog-copy mono">${escapeHtml(state.accountRecoveryCode)}</pre>`
+              : ""
+          }
+        </div>
+        <div class="delete-task-dialog-actions">
+          <button type="submit" class="task-cancel-action" ${state.accountRecoveryCodeBusy ? "disabled" : ""}>
+            ${state.accountRecoveryCodeBusy ? "生成中..." : "生成新的恢复码"}
+          </button>
+        </div>
+      </form>
     `;
   }
 
@@ -256,12 +279,18 @@ export function createAccountModule(deps) {
     closeAccountMenu();
     state.accountProfileModalOpen = true;
     state.accountProfile = null;
+    state.accountRecoveryCode = "";
+    state.accountRecoveryCodeBusy = false;
+    state.accountRecoveryFeedback = "";
     renderAccountProfileModal();
     void loadAccountProfile();
   }
 
   function closeAccountProfileModal() {
     state.accountProfileModalOpen = false;
+    state.accountRecoveryCode = "";
+    state.accountRecoveryCodeBusy = false;
+    state.accountRecoveryFeedback = "";
     renderAccountProfileModal();
   }
 
@@ -297,6 +326,37 @@ export function createAccountModule(deps) {
       renderWidgets();
     }
     setSaveStatus("已保存账号面板设置", "success");
+  }
+
+  async function handleAccountRecoveryCodeSubmit(event) {
+    const form = event.target.closest("#account-recovery-code-form");
+    if (!form || !state.auth.user) {
+      return;
+    }
+    event.preventDefault();
+    state.accountRecoveryCodeBusy = true;
+    state.accountRecoveryFeedback = "正在生成新的恢复码...";
+    renderAccountProfileModal();
+    try {
+      const payload = await fetchApiJson("/api/account/recovery-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      state.accountRecoveryCode = payload?.recoveryCode || "";
+      state.accountRecoveryCodeBusy = false;
+      state.accountRecoveryFeedback = state.accountRecoveryCode
+        ? "新的恢复码已生成，请立即保存。"
+        : "恢复码已更新。";
+      renderAccountProfileModal();
+      setSaveStatus("新的恢复码已生成，请立即保存", "success");
+    } catch (error) {
+      console.warn("Failed to generate recovery code.", error);
+      state.accountRecoveryCodeBusy = false;
+      state.accountRecoveryFeedback = error?.message || "生成恢复码失败";
+      renderAccountProfileModal();
+      setSaveStatus(error?.message || "生成恢复码失败");
+    }
   }
 
   function openChangePasswordModal() {
@@ -343,10 +403,15 @@ export function createAccountModule(deps) {
 
   async function initAuthClient() {
     state.auth.status = "authenticating";
+    showAppBootOverlay({
+      title: "正在进入 Dashboard",
+      detail: "正在验证登录状态并连接云端数据...",
+      actionsVisible: false,
+    });
     renderControls();
 
     try {
-      const payload = await fetchAuthSession();
+      const payload = await fetchAuthSessionWithRetry();
       state.auth.user = payload.user || null;
       saveSessionId(payload?.session?.id || loadSessionId());
       if (state.auth.user?.id) {
@@ -364,23 +429,60 @@ export function createAccountModule(deps) {
 
       if (!state.auth.user) {
         saveSessionId("");
-        window.location.href = "./login.html";
+        window.location.replace("./login.html");
         return null;
       }
 
       renderControls();
-      setAppVisibility(true);
       void bootstrapRemoteData();
       return state.auth.user;
     } catch (error) {
+      const hasStoredSession = Boolean(loadSessionId());
       state.auth.user = null;
       state.auth.status = "idle";
-      state.auth.feedback = "请先登录你的账号。";
-      saveSessionId("");
+      state.auth.feedback = hasStoredSession
+        ? "会话验证失败，请重试连接。"
+        : "请先登录你的账号。";
+      if (!hasStoredSession) {
+        saveSessionId("");
+      }
       renderControls();
-      window.location.href = "./login.html";
+      if (hasStoredSession) {
+        showAppBootOverlay({
+          title: "云端连接超时",
+          detail: "已保留当前登录会话。你可以重试连接，或返回登录页重新进入。",
+          actionsVisible: true,
+        });
+        return null;
+      }
+      window.location.replace("./login.html");
       return null;
     }
+  }
+
+  async function fetchAuthSessionWithRetry() {
+    let lastError = null;
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        const payload = await fetchAuthSession();
+        if (payload?.user || !loadSessionId()) {
+          return payload;
+        }
+        lastError = new Error("Session not ready");
+      } catch (error) {
+        lastError = error;
+      }
+      if (attempt < maxAttempts) {
+        showAppBootOverlay({
+          title: "正在连接云端",
+          detail: `正在验证登录状态（第 ${attempt + 1} 次尝试）... 单次请求最长等待约 3.5 秒。`,
+          actionsVisible: false,
+        });
+        await new Promise((resolve) => window.setTimeout(resolve, attempt * 500));
+      }
+    }
+    throw lastError || new Error("Authentication bootstrap failed");
   }
 
   async function handleChangePasswordSubmit(event) {
@@ -504,6 +606,7 @@ export function createAccountModule(deps) {
     openAccountProfileModal,
     closeAccountProfileModal,
     handleAccountProfilePreferencesSubmit,
+    handleAccountRecoveryCodeSubmit,
     openChangePasswordModal,
     closeChangePasswordModal,
     openClearAccountDataModal,

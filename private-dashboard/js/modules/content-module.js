@@ -15,6 +15,8 @@ export function createContentModule(deps) {
     fetchApiJson,
     isLocalDevelopment,
     getSidebarPreferences,
+    persistStateSilently,
+    saveAccountPreferencesRemote,
     renderTopTabs,
     renderWidgets,
     setSaveStatus,
@@ -81,6 +83,132 @@ export function createContentModule(deps) {
     return channel === "science" ? state.content.science : state.content.finance;
   }
 
+  function getContentPreferences() {
+    if (!state.data.preferences.content) {
+      state.data.preferences.content = {
+        readItems: {},
+        hiddenSources: {},
+      };
+    }
+    if (state.data.preferences.content.laterItems) {
+      delete state.data.preferences.content.laterItems;
+    }
+    return state.data.preferences.content;
+  }
+
+  function getContentItemKey(item) {
+    return String(item?.canonical_url || item?.id || "").trim();
+  }
+
+  function getContentTagTone(label = "", fallbackTone = "neutral") {
+    const normalized = String(label || "").trim().toLowerCase();
+    if (!normalized) {
+      return fallbackTone;
+    }
+    if (
+      /ecology|environment|climate|sustainability|biodiversity|conservation|生态|环境|气候|可持续|生物多样性/.test(
+        normalized,
+      )
+    ) {
+      return "ecology";
+    }
+    if (
+      /mathematics|math|algebra|geometry|statistics|probability|拓扑|数学|统计|概率|几何/.test(
+        normalized,
+      )
+    ) {
+      return "mathematics";
+    }
+    if (
+      /plants|animals|biology|botany|zoology|wildlife|species|植物|动物|生物|物种|野生/.test(
+        normalized,
+      )
+    ) {
+      return "biology";
+    }
+    if (/ai|artificial intelligence|machine learning|llm|芯片|人工智能|机器学习/.test(normalized)) {
+      return "ai";
+    }
+    if (/space|astronomy|cosmos|nasa|rocket|宇宙|航天|天文|火箭/.test(normalized)) {
+      return "space";
+    }
+    if (
+      /finance|market|stock|earnings|economy|investment|trading|macro|基金|股票|市场|财经|金融|证券|投资/.test(
+        normalized,
+      )
+    ) {
+      return "finance";
+    }
+    if (/business|company|startup|enterprise|merger|收购|公司|企业|商业|创业/.test(normalized)) {
+      return "business";
+    }
+    if (
+      /science|research|nature|cell|biology|medical|medicine|health|ai|tech|space|科研|科学|研究|医学|技术|太空/.test(
+        normalized,
+      )
+    ) {
+      return "science";
+    }
+    if (/policy|government|fed|regulation|law|politics|政策|监管|政府|法律|政治/.test(normalized)) {
+      return "policy";
+    }
+    if (/energy|climate|oil|gas|battery|电力|能源|气候|石油|天然气|电池/.test(normalized)) {
+      return "energy";
+    }
+    return fallbackTone;
+  }
+
+  function renderContentTag(label, fallbackTone = "neutral") {
+    const tone = getContentTagTone(label, fallbackTone);
+    return `<span class="content-tag is-${tone}">${escapeHtml(label)}</span>`;
+  }
+
+  function isContentItemRead(item) {
+    const key = getContentItemKey(item);
+    return Boolean(key && getContentPreferences().readItems[key]);
+  }
+
+  function isSourceHidden(channel, sourceId) {
+    return Boolean(sourceId && getContentPreferences().hiddenSources?.[`${channel}:${sourceId}`]);
+  }
+
+  async function persistContentPreferences(successMessage, tone = "success") {
+    persistStateSilently();
+    if (state.auth.user) {
+      try {
+        await saveAccountPreferencesRemote();
+      } catch (error) {
+        console.warn("Failed to sync content preferences remotely.", error);
+        if (successMessage) {
+          setSaveStatus(`${successMessage}，已保存在本地，云端同步稍后重试`);
+        }
+        return;
+      }
+    }
+    if (successMessage) {
+      setSaveStatus(successMessage, tone);
+    }
+  }
+
+  function getFilteredItems(channel, items = []) {
+    const contentState = state.content[channel];
+    if (!["all", "favorites", "unread", "read"].includes(contentState.favoriteFilter)) {
+      contentState.favoriteFilter = "all";
+    }
+    return items.filter((item) => {
+      if (isSourceHidden(channel, item.source_id || "")) {
+        return false;
+      }
+      if (contentState.favoriteFilter === "read" && !isContentItemRead(item)) {
+        return false;
+      }
+      if (contentState.favoriteFilter === "unread" && isContentItemRead(item)) {
+        return false;
+      }
+      return true;
+    });
+  }
+
   function scrollContentChannelToTop(channel) {
     const view = channel === "science" ? elements.scienceView : elements.financeView;
     const shell = view?.querySelector(".content-stream-shell");
@@ -114,7 +242,7 @@ export function createContentModule(deps) {
     channelElements.sourceFilter.value = contentState.sourceId;
     const metaText = contentState.error
       ? contentState.error
-      : getContentMetaText(contentState, formatDateTime);
+      : getContentMetaText(contentState);
     channelElements.meta.textContent = metaText;
     channelElements.meta.hidden = !metaText;
     channelElements.meta.dataset.tone = getContentMetaTone(contentState);
@@ -140,7 +268,7 @@ export function createContentModule(deps) {
     channelElements.grid.innerHTML = contentState.items
       .map(
         (item) => `
-          <article class="content-card ${item.is_favorite ? "is-favorited" : ""}">
+          <article class="content-card ${item.is_favorite ? "is-favorited" : ""} ${isContentItemRead(item) ? "is-read" : ""}">
             <div class="content-card-main">
               <h3>${escapeHtml(item.title)}</h3>
               <p>${escapeHtml(getContentCardExcerpt(item))}</p>
@@ -155,11 +283,18 @@ export function createContentModule(deps) {
                 Array.isArray(item.tags) && item.tags.length
                   ? `<div class="content-card-tags">${item.tags
                       .slice(0, 4)
-                      .map((tag) => `<span class="content-tag">${escapeHtml(tag)}</span>`)
+                      .map((tag) => renderContentTag(tag, item.channel))
                       .join("")}</div>`
-                  : '<div class="content-card-tags"><span class="content-tag">资讯</span></div>'
+                  : `<div class="content-card-tags">${renderContentTag("资讯", item.channel)}</div>`
               }
               <div class="content-card-actions">
+                <button
+                  type="button"
+                  class="content-read-button ${isContentItemRead(item) ? "is-active" : ""}"
+                  data-content-read-toggle="${escapeAttribute(item.id)}"
+                >
+                  ${isContentItemRead(item) ? "已读" : "未读"}
+                </button>
                 <button
                   type="button"
                   class="content-favorite-button ${item.is_favorite ? "is-active" : ""}"
@@ -174,6 +309,7 @@ export function createContentModule(deps) {
                         type="button"
                         class="content-link-inline"
                         data-content-open-link="${escapeAttribute(getSafeContentLink(item))}"
+                        data-content-item-id="${escapeAttribute(item.id)}"
                       >
                         查看原文
                       </button>`
@@ -215,6 +351,7 @@ export function createContentModule(deps) {
     const channelLabel = channel === "science" ? "Science" : "Finance";
     elements.contentSourceTitle.textContent = `${channelLabel} 信源管理`;
     const sources = state.content[channel].sources || [];
+    const hiddenSources = sources.filter((source) => isSourceHidden(channel, source.id));
     const refreshFailures = state.content[channel].lastRefreshStats?.failures || [];
     const editingSource = sources.find((source) => source.id === state.content.sourceEditingId) || null;
     if (elements.contentSourceForm) {
@@ -228,8 +365,33 @@ export function createContentModule(deps) {
         typeof editingSource?.enabled === "boolean" ? editingSource.enabled : true,
       );
     }
-    elements.contentSourceList.innerHTML = sources.length
-      ? sources
+    elements.contentSourceList.innerHTML = `
+      ${
+        hiddenSources.length
+          ? `<section class="content-source-muted-list">
+              <h3>已隐藏来源</h3>
+              ${hiddenSources
+                .map(
+                  (source) => `
+                    <article class="content-source-item">
+                      <div>
+                        <strong>${escapeHtml(source.name)}</strong>
+                        <p>${escapeHtml(source.url)}</p>
+                      </div>
+                      <div class="content-source-item-actions">
+                        <button type="button" class="task-cancel-action" data-content-source-unhide="${escapeAttribute(source.id)}">恢复显示</button>
+                      </div>
+                    </article>
+                  `,
+                )
+                .join("")}
+            </section>`
+          : ""
+      }
+      ${
+        sources.length
+          ? sources
+          .filter((source) => !isSourceHidden(channel, source.id))
           .map((source) => {
             const recentFailure = refreshFailures.find((item) => item.sourceId === source.id);
             return `
@@ -246,6 +408,7 @@ export function createContentModule(deps) {
                 </div>
                 <div class="content-source-item-actions">
                   <button type="button" class="task-cancel-action" data-content-source-edit="${escapeAttribute(source.id)}">编辑</button>
+                  <button type="button" class="task-cancel-action" data-content-source-hide="${escapeAttribute(source.id)}">隐藏来源</button>
                   ${
                     source.is_default
                       ? ""
@@ -256,7 +419,9 @@ export function createContentModule(deps) {
             `;
           })
           .join("")
-      : '<div class="content-empty-state">当前没有可用信源。</div>';
+          : '<div class="content-empty-state">当前没有可用信源。</div>'
+      }
+    `;
   }
 
   async function loadFeaturedContent(channel) {
@@ -356,20 +521,38 @@ export function createContentModule(deps) {
     renderContentChannel(channel);
 
     try {
+      const usesRemoteFavoriteFilter = contentState.favoriteFilter === "favorites";
+      const requestedPageSize = usesRemoteFavoriteFilter
+        ? Math.max(1, Math.min(Number(contentState.pageSize) || 10, 40))
+        : 40;
       const params = new URLSearchParams({
         channel,
-        page: String(contentState.page),
-        pageSize: String(contentState.pageSize),
+        page: String(usesRemoteFavoriteFilter ? contentState.page : 1),
+        pageSize: String(requestedPageSize),
         sort: contentState.sort,
       });
       if (contentState.search) params.set("q", contentState.search);
       if (contentState.tag !== "all") params.set("tag", contentState.tag);
       if (contentState.sourceId !== "all") params.set("sourceId", contentState.sourceId);
-      if (contentState.favoriteFilter !== "all") params.set("favorite", contentState.favoriteFilter);
+      if (usesRemoteFavoriteFilter) params.set("favorite", contentState.favoriteFilter);
       const payload = await fetchApiJson(`/api/content?${params.toString()}`);
-      contentState.items = Array.isArray(payload?.items) ? payload.items : [];
-      contentState.total = Number(payload?.total || 0);
-      contentState.page = Number(payload?.page || contentState.page);
+      const remoteItems = Array.isArray(payload?.items) ? payload.items : [];
+      const filteredItems = usesRemoteFavoriteFilter ? remoteItems : getFilteredItems(channel, remoteItems);
+      const startIndex = (contentState.page - 1) * contentState.pageSize;
+      contentState.items = usesRemoteFavoriteFilter
+        ? filteredItems
+        : filteredItems.slice(startIndex, startIndex + contentState.pageSize);
+      contentState.total = usesRemoteFavoriteFilter ? Number(payload?.total || 0) : filteredItems.length;
+      if (contentState.total > 0) {
+        const maxPage = Math.max(1, Math.ceil(contentState.total / contentState.pageSize));
+        contentState.page = Math.min(Math.max(1, Number(contentState.page || 1)), maxPage);
+        if (!usesRemoteFavoriteFilter) {
+          const localStart = (contentState.page - 1) * contentState.pageSize;
+          contentState.items = filteredItems.slice(localStart, localStart + contentState.pageSize);
+        }
+      } else {
+        contentState.page = 1;
+      }
       contentState.tags = Array.isArray(payload?.tags) ? payload.tags : [];
       contentState.sources = Array.isArray(payload?.sources) ? payload.sources : [];
       contentState.lastRefreshedAt = payload?.cache?.refreshedAt || contentState.lastRefreshedAt || "";
@@ -446,10 +629,19 @@ export function createContentModule(deps) {
     if (!state.auth.user) {
       return;
     }
-    await Promise.all([
-      refreshChannelContentManually("finance", { silent: true, markAuto: true, featuredOnly: true }),
-      refreshChannelContentManually("science", { silent: true, markAuto: true, featuredOnly: true }),
-    ]);
+    const sidebar = getSidebarPreferences();
+    const jobs = [];
+    if (sidebar.financeFeed && state.content.finance.featured.length === 0) {
+      jobs.push(refreshChannelContentManually("finance", { silent: true, markAuto: true, featuredOnly: true }));
+    }
+    if (sidebar.scienceFeed && state.content.science.featured.length === 0) {
+      jobs.push(refreshChannelContentManually("science", { silent: true, markAuto: true, featuredOnly: true }));
+    }
+    if (!jobs.length) {
+      return;
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 900));
+    await Promise.allSettled(jobs);
   }
 
   function findLocalContentItem(itemId) {
@@ -511,6 +703,59 @@ export function createContentModule(deps) {
       console.warn("Failed to toggle content favorite.", error);
       setSaveStatus(error?.message || "收藏操作失败");
     }
+  }
+
+  async function toggleContentRead(itemId, options = {}) {
+    const item = findLocalContentItem(itemId);
+    if (!item) {
+      return;
+    }
+    const key = getContentItemKey(item);
+    if (!key) {
+      return;
+    }
+    const preferences = getContentPreferences();
+    if (isContentItemRead(item)) {
+      delete preferences.readItems[key];
+      await persistContentPreferences("已标记为未读");
+    } else {
+      preferences.readItems[key] = new Date().toISOString();
+      await persistContentPreferences(options.silent ? "" : "已标记为已读");
+    }
+    const contentState = getContentChannelState(item.channel);
+    if (contentState.favoriteFilter === "read" || contentState.favoriteFilter === "unread") {
+      await loadChannelContent(item.channel, { page: 1 });
+      return;
+    }
+    renderContentChannel(item.channel);
+  }
+
+  async function hideContentSource(channel, sourceId) {
+    if (!channel || !sourceId) {
+      return;
+    }
+    const preferences = getContentPreferences();
+    preferences.hiddenSources[`${channel}:${sourceId}`] = new Date().toISOString();
+    await persistContentPreferences("该来源已隐藏");
+    await Promise.all([
+      loadChannelContent(channel, { page: 1 }),
+      loadFeaturedContent(channel),
+      refreshFavoriteHighlights(),
+    ]);
+  }
+
+  async function unhideContentSource(channel, sourceId) {
+    if (!channel || !sourceId) {
+      return;
+    }
+    const preferences = getContentPreferences();
+    delete preferences.hiddenSources[`${channel}:${sourceId}`];
+    await persistContentPreferences("该来源已恢复显示");
+    await Promise.all([
+      openContentSourceModal(channel),
+      loadChannelContent(channel, { page: 1 }),
+      loadFeaturedContent(channel),
+    ]);
   }
 
   async function openContentSourceModal(channel) {
@@ -710,9 +955,33 @@ export function createContentModule(deps) {
       return;
     }
 
+    const sourceUnhideTarget = event.target.closest("[data-content-source-unhide]");
+    if (sourceUnhideTarget && state.content.sourceModalChannel) {
+      void unhideContentSource(
+        state.content.sourceModalChannel,
+        sourceUnhideTarget.dataset.contentSourceUnhide || "",
+      );
+      return;
+    }
+
+    const sourceHideTarget = event.target.closest("[data-content-source-hide]");
+    if (sourceHideTarget && state.content.sourceModalChannel) {
+      void hideContentSource(
+        state.content.sourceModalChannel,
+        sourceHideTarget.dataset.contentSourceHide || "",
+      );
+      return;
+    }
+
     const favoriteTarget = event.target.closest("[data-content-favorite]");
     if (favoriteTarget) {
       void toggleContentFavorite(favoriteTarget.dataset.contentFavorite || "");
+      return;
+    }
+
+    const readToggleTarget = event.target.closest("[data-content-read-toggle]");
+    if (readToggleTarget) {
+      void toggleContentRead(readToggleTarget.dataset.contentReadToggle || "");
       return;
     }
 
@@ -720,6 +989,7 @@ export function createContentModule(deps) {
     if (linkTarget) {
       const link = String(linkTarget.dataset.contentOpenLink || "").trim();
       if (link) {
+        void toggleContentRead(linkTarget.dataset.contentItemId || "", { silent: true });
         window.open(link, "_blank", "noopener,noreferrer");
       }
       return;

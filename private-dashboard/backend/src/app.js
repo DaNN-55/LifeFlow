@@ -3,6 +3,13 @@ const cors = require("cors");
 const express = require("express");
 const svgCaptcha = require("svg-captcha");
 const { z } = require("zod");
+const {
+  hashPassword,
+  verifyPassword,
+  generateRecoveryCode,
+  buildRecoveryCodeHash,
+  verifyRecoveryCode,
+} = require("./lib/auth");
 const { formatDateKey, getWeekRangeFromWeekValue } = require("./lib/date");
 const {
   CHANNELS,
@@ -12,7 +19,6 @@ const {
   listCachedContent,
   getCachedContentFacets,
   getCachedFeaturedContent,
-  getCachedContentItem,
   getChannelCacheStatus,
   clearContentCache,
 } = require("./lib/content");
@@ -40,7 +46,7 @@ const dailyRecordSchema = z.object({
         .array(
           z.object({
             id: z.string().min(1),
-            text: z.string().min(1),
+            text: z.string().min(1).max(500),
             createdAt: z.string().min(1),
           })
         )
@@ -48,8 +54,6 @@ const dailyRecordSchema = z.object({
         .default([]),
     })
   ),
-  mood: z.string().optional().default(""),
-  dailySummary: z.string().optional().default(""),
 });
 
 const weeklySummarySchema = z.object({
@@ -66,9 +70,22 @@ const authRequestSchema = credentialsSchema.extend({
   captchaText: z.string().min(4).max(16),
 });
 
+const passwordRecoverySchema = z.object({
+  username: z.string().min(3).max(64).regex(/^[^\s]+$/),
+  recoveryCode: z.string().min(8).max(64),
+  newPassword: z.string().min(6).max(128),
+  captchaId: z.string().min(1).max(128),
+  captchaText: z.string().min(4).max(16),
+});
+
 const passwordChangeSchema = z.object({
   currentPassword: z.string().min(6).max(128),
   newPassword: z.string().min(6).max(128),
+});
+
+const usernameChangeSchema = z.object({
+  currentPassword: z.string().min(6).max(128),
+  username: z.string().min(3).max(64).regex(/^[^\s]+$/),
 });
 
 const deleteAccountSchema = z.object({
@@ -82,11 +99,31 @@ const accountPreferencesSchema = z.object({
     github: z.boolean().optional(),
     financeFeed: z.boolean().optional(),
     scienceFeed: z.boolean().optional(),
+    favorites: z.boolean().optional(),
     weather: z.boolean().optional(),
     stock: z.boolean().optional(),
   }).optional(),
+  content: z.object({
+    readItems: z.record(z.string()).optional(),
+    hiddenSources: z.record(z.string()).optional(),
+  }).optional(),
+  sync: z.object({
+    lastSyncAttemptAt: z.string().optional(),
+    lastSuccessfulSyncAt: z.string().optional(),
+    notices: z.array(z.object({
+      id: z.string().optional(),
+      message: z.string().max(200),
+      tone: z.string().max(32).optional(),
+      createdAt: z.string().optional(),
+    })).max(12).optional(),
+  }).optional(),
   widgets: z.object({
+    favorites: z.object({
+      title: z.string().max(80).optional(),
+      channel: z.string().max(40).optional(),
+    }).optional(),
     github: z.object({
+      owner: z.string().max(120).optional(),
       profileUrl: z.string().max(300).optional(),
     }).optional(),
     weather: z.object({
@@ -273,10 +310,12 @@ function createApp({ config, store }) {
         return;
       }
 
+      const recoveryCode = generateRecoveryCode();
       const user = await store.createUser({
         id: crypto.randomUUID(),
         username: parsed.username,
         password_hash: await hashPassword(parsed.password),
+        recovery_code_hash: await buildRecoveryCodeHash(recoveryCode),
         preferences: {},
       });
       const session = await store.createSession(createSessionPayload(user.id));
@@ -290,6 +329,7 @@ function createApp({ config, store }) {
         session: {
           id: session.id,
         },
+        recoveryCode,
       });
     } catch (error) {
       next(error);
@@ -334,6 +374,37 @@ function createApp({ config, store }) {
       }
       clearSessionCookie(request, response);
       response.status(204).send();
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/auth/recover-password", async (request, response, next) => {
+    try {
+      const parsed = passwordRecoverySchema.parse(request.body || {});
+      if (!verifyCaptcha(captchaStore, parsed.captchaId, parsed.captchaText)) {
+        response.status(400).json({ error: "验证码错误或已过期" });
+        return;
+      }
+      const user = await store.findUserByUsername(parsed.username);
+      const matched =
+        user &&
+        user.recovery_code_hash &&
+        (await verifyRecoveryCode(parsed.recoveryCode, user.recovery_code_hash));
+      if (!matched) {
+        response.status(401).json({ error: "恢复码错误" });
+        return;
+      }
+      const nextRecoveryCode = generateRecoveryCode();
+      await store.updateUserPassword(user.id, await hashPassword(parsed.newPassword));
+      await store.updateUserRecoveryCode(
+        user.id,
+        await buildRecoveryCodeHash(nextRecoveryCode),
+      );
+      response.json({
+        ok: true,
+        recoveryCode: nextRecoveryCode,
+      });
     } catch (error) {
       next(error);
     }
@@ -394,6 +465,32 @@ function createApp({ config, store }) {
     }
   });
 
+  app.post("/api/account/username", requireAuthenticated, async (request, response, next) => {
+    try {
+      const parsed = usernameChangeSchema.parse(request.body || {});
+      const user = await store.getUserById(request.userContext.userId);
+      if (!user || !(await verifyPassword(parsed.currentPassword, user.password_hash))) {
+        response.status(401).json({ error: "当前密码错误" });
+        return;
+      }
+      const existing = await store.findUserByUsername(parsed.username);
+      if (existing && existing.id !== user.id) {
+        response.status(409).json({ error: "该用户名已被使用" });
+        return;
+      }
+      const updated = await store.updateUserUsername(user.id, parsed.username);
+      response.json({
+        user: {
+          id: updated?.id || user.id,
+          username: updated?.username || parsed.username,
+          preferences: updated?.preferences || user.preferences || {},
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.post("/api/account/password", requireAuthenticated, async (request, response, next) => {
     try {
       const parsed = passwordChangeSchema.parse(request.body);
@@ -407,6 +504,29 @@ function createApp({ config, store }) {
         return;
       }
       await store.updateUserPassword(user.id, await hashPassword(parsed.newPassword));
+      response.json({ ok: true });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/account/recovery-code", requireAuthenticated, async (request, response, next) => {
+    try {
+      const recoveryCode = generateRecoveryCode();
+      await store.updateUserRecoveryCode(
+        request.userContext.userId,
+        await buildRecoveryCodeHash(recoveryCode),
+      );
+      response.json({ recoveryCode });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/account/signout-all", requireAuthenticated, async (request, response, next) => {
+    try {
+      await store.deleteSessionsByUser(request.userContext.userId);
+      clearSessionCookie(request, response);
       response.json({ ok: true });
     } catch (error) {
       next(error);
@@ -505,7 +625,7 @@ function createApp({ config, store }) {
         record:
           record || {
             date,
-            payload: { tasks: {}, mood: "", dailySummary: "" },
+            payload: { tasks: {} },
             updatedAt: "",
           },
       });
@@ -664,22 +784,6 @@ function createApp({ config, store }) {
         favoriteUrls,
       );
       response.json({ items });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get("/api/content/:itemId", requireAuthenticated, async (request, response, next) => {
-    try {
-      const favoriteUrls = await store.listFavoriteContentUrls(request.userContext);
-      const item =
-        getCachedContentItem(request.userContext.userId, request.params.itemId, favoriteUrls) ||
-        (await store.getFavoriteContentItem(request.userContext, request.params.itemId));
-      if (!item) {
-        response.status(404).json({ error: "Content not found" });
-        return;
-      }
-      response.json({ item });
     } catch (error) {
       next(error);
     }
@@ -1120,37 +1224,6 @@ async function fetchJsonWithTimeout(url, timeoutMs, options = {}) {
   } finally {
     clearTimeout(timeoutId);
   }
-}
-
-async function hashPassword(password) {
-  const salt = crypto.randomBytes(16).toString("hex");
-  const derivedKey = await scryptAsync(password, salt);
-  return `${salt}:${derivedKey.toString("hex")}`;
-}
-
-async function verifyPassword(password, passwordHash) {
-  const [salt, storedHash] = String(passwordHash || "").split(":");
-  if (!salt || !storedHash) {
-    return false;
-  }
-  const derivedKey = await scryptAsync(password, salt);
-  const storedBuffer = Buffer.from(storedHash, "hex");
-  return (
-    storedBuffer.length === derivedKey.length &&
-    crypto.timingSafeEqual(storedBuffer, derivedKey)
-  );
-}
-
-function scryptAsync(password, salt) {
-  return new Promise((resolve, reject) => {
-    crypto.scrypt(password, salt, 64, (error, derivedKey) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-      resolve(derivedKey);
-    });
-  });
 }
 
 function normalizeDateParam(dateValue) {

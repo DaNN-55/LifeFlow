@@ -155,6 +155,16 @@ class MemoryStore {
     return next;
   }
 
+  async updateUserRecoveryCode(userId, recoveryCodeHash) {
+    const user = await this.getUserById(userId);
+    if (!user) {
+      return null;
+    }
+    const next = { ...user, recovery_code_hash: recoveryCodeHash };
+    this.usersByUsername.set(next.username, next);
+    return next;
+  }
+
   async updateUserPreferences(userId, preferences) {
     const user = await this.getUserById(userId);
     if (!user) {
@@ -164,6 +174,17 @@ class MemoryStore {
       ...user,
       preferences: preferences && typeof preferences === "object" ? preferences : {},
     };
+    this.usersByUsername.set(next.username, next);
+    return next;
+  }
+
+  async updateUserUsername(userId, username) {
+    const user = await this.getUserById(userId);
+    if (!user) {
+      return null;
+    }
+    this.usersByUsername.delete(user.username);
+    const next = { ...user, username };
     this.usersByUsername.set(next.username, next);
     return next;
   }
@@ -282,7 +303,7 @@ class MemoryStore {
 
     if (q) {
       items = items.filter((item) =>
-        [item.title, item.summary_zh, item.summary_raw, item.body_zh, item.body_raw, item.source_name, item.author]
+        [item.title, item.summary_zh, item.summary_raw, item.source_name, item.author]
           .join(" ")
           .toLowerCase()
           .includes(q),
@@ -353,7 +374,7 @@ class MemoryStore {
 
     if (q) {
       items = items.filter((item) =>
-        [item.title, item.summary_zh, item.summary_raw, item.body_zh, item.body_raw, item.source_name, item.author]
+        [item.title, item.summary_zh, item.summary_raw, item.source_name, item.author]
           .join(" ")
           .toLowerCase()
           .includes(q),
@@ -456,6 +477,14 @@ class MemoryStore {
 
   async deleteSession(sessionId) {
     this.sessionsById.delete(sessionId);
+  }
+
+  async deleteSessionsByUser(userId) {
+    for (const [sessionId, session] of this.sessionsById.entries()) {
+      if (session?.user_id === userId) {
+        this.sessionsById.delete(sessionId);
+      }
+    }
   }
 
   async clearUserData(userId) {

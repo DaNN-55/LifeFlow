@@ -8,6 +8,11 @@ const authElements = {
   form: document.querySelector("#login-form"),
   feedback: document.querySelector("#login-feedback"),
   captchaImage: document.querySelector("#captcha-image"),
+  recoveryCodeField: document.querySelector("#recovery-code-field"),
+  passwordLabel: document.querySelector("#password-label"),
+  recoveryCodeModal: document.querySelector("#recovery-code-modal"),
+  recoveryCodeValue: document.querySelector("#recovery-code-value"),
+  recoveryCodeConfirm: document.querySelector("#recovery-code-confirm"),
 };
 
 const SIGNUP_REQUIREMENTS_TEXT =
@@ -15,6 +20,10 @@ const SIGNUP_REQUIREMENTS_TEXT =
 
 const captchaState = {
   id: "",
+};
+const authUiState = {
+  mode: "signin",
+  pendingRedirect: false,
 };
 let resolvedApiBase = "";
 let apiBasePromise = null;
@@ -88,6 +97,15 @@ function buildAuthErrorMessage(error, mode) {
   if (message.includes("验证码错误或已过期")) {
     return "验证码错误或已过期，请重新输入。";
   }
+  if (mode === "recover") {
+    if (message.includes("恢复码错误")) {
+      return "恢复码错误，请检查后重试。";
+    }
+    if (message.includes("Validation failed")) {
+      return "重置失败。请填写用户名、恢复码、新密码和验证码。";
+    }
+    return message ? `重置失败：${message}` : "重置失败，请检查恢复码和新密码。";
+  }
   if (mode === "signup") {
     if (message.includes("用户名已存在")) {
       return "创建账号失败：该用户名已存在。";
@@ -101,7 +119,59 @@ function buildAuthErrorMessage(error, mode) {
 }
 
 function redirectToDashboard() {
+  if (window.location.protocol === "file:") {
+    setFeedback(
+      "当前是本地文件打开模式。请改用 http://localhost:8000/private-dashboard/login.html 访问，再进入 Dashboard。",
+    );
+    return;
+  }
   window.location.href = "./index.html";
+}
+
+function setAuthMode(mode) {
+  authUiState.mode = mode;
+  const isRecoveryMode = mode === "recover";
+  if (authElements.recoveryCodeField) {
+    authElements.recoveryCodeField.hidden = !isRecoveryMode;
+  }
+  if (authElements.passwordLabel) {
+    authElements.passwordLabel.textContent = isRecoveryMode ? "新密码" : "密码";
+  }
+  if (authElements.form?.elements?.password) {
+    authElements.form.elements.password.placeholder = isRecoveryMode
+      ? "输入新的登录密码"
+      : "输入你的密码";
+    authElements.form.elements.password.autocomplete = isRecoveryMode
+      ? "new-password"
+      : "current-password";
+  }
+}
+
+function openRecoveryCodeModal(recoveryCode, nextStep = "redirect") {
+  if (!authElements.recoveryCodeModal || !authElements.recoveryCodeValue) {
+    window.alert(`请保存恢复码：${recoveryCode}`);
+    if (nextStep === "redirect") {
+      redirectToDashboard();
+    }
+    return;
+  }
+  authUiState.pendingRedirect = nextStep === "redirect";
+  authElements.recoveryCodeValue.textContent = String(recoveryCode || "").trim();
+  authElements.recoveryCodeModal.hidden = false;
+}
+
+function closeRecoveryCodeModal() {
+  if (authElements.recoveryCodeModal) {
+    authElements.recoveryCodeModal.hidden = true;
+  }
+  if (authElements.recoveryCodeValue) {
+    authElements.recoveryCodeValue.textContent = "";
+  }
+  const shouldRedirect = authUiState.pendingRedirect;
+  authUiState.pendingRedirect = false;
+  if (shouldRedirect) {
+    redirectToDashboard();
+  }
 }
 
 function wait(ms) {
@@ -263,10 +333,15 @@ async function refreshCaptcha() {
 async function handlePasswordAuth(formData, mode = "signin") {
   const username = String(formData.get("username") || "").trim();
   const password = String(formData.get("password") || "");
+  const recoveryCode = String(formData.get("recoveryCode") || "").trim();
   const captchaText = String(formData.get("captchaText") || "").trim();
 
-  if (!username || !password || !captchaText) {
-    setFeedback("请填写用户名、密码和验证码。");
+  if (!username || !password || !captchaText || (mode === "recover" && !recoveryCode)) {
+    setFeedback(
+      mode === "recover"
+        ? "请填写用户名、新密码、恢复码和验证码。"
+        : "请填写用户名、密码和验证码。",
+    );
     return;
   }
 
@@ -275,19 +350,53 @@ async function handlePasswordAuth(formData, mode = "signin") {
     return;
   }
 
+  setAuthMode(mode);
   saveAuthConfig({ username });
-  setFeedback(mode === "signup" ? "正在创建账号..." : "正在登录...");
+  setFeedback(
+    mode === "signup"
+      ? "正在创建账号..."
+      : mode === "recover"
+        ? "正在重置密码..."
+        : "正在登录...",
+  );
 
   try {
-    await fetchApiJson(`/api/auth/${mode === "signup" ? "signup" : "signin"}`, {
+    const path =
+      mode === "signup"
+        ? "/api/auth/signup"
+        : mode === "recover"
+          ? "/api/auth/recover-password"
+          : "/api/auth/signin";
+    const payload = await fetchApiJson(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password, captchaId: captchaState.id, captchaText }),
-    }).then((payload) => {
-      saveSessionId(payload?.session?.id || "");
-      return payload;
+      body: JSON.stringify(
+        mode === "recover"
+          ? {
+              username,
+              newPassword: password,
+              recoveryCode,
+              captchaId: captchaState.id,
+              captchaText,
+            }
+          : { username, password, captchaId: captchaState.id, captchaText },
+      ),
     });
-    setFeedback(mode === "signup" ? "创建成功，正在进入 Dashboard..." : "登录成功，正在进入 Dashboard...");
+    if (payload?.session?.id) {
+      saveSessionId(payload.session.id);
+    }
+    if (mode === "recover") {
+      setFeedback("密码已重置，请保存新的恢复码。");
+      openRecoveryCodeModal(payload?.recoveryCode || "", "stay");
+      await refreshCaptcha();
+      return;
+    }
+    if (payload?.recoveryCode) {
+      setFeedback("创建成功，请先保存恢复码。");
+      openRecoveryCodeModal(payload.recoveryCode, "redirect");
+      return;
+    }
+    setFeedback("登录成功，正在进入 Dashboard...");
     await wait(500);
     redirectToDashboard();
   } catch (error) {
@@ -300,6 +409,17 @@ async function handlePasswordAuth(formData, mode = "signin") {
 function handleLoginSubmit(event) {
   event.preventDefault();
   const action = event.submitter?.dataset.authAction || "signin";
+  if (action === "recover") {
+    setAuthMode("recover");
+    const recoveryValue = String(new FormData(authElements.form).get("recoveryCode") || "").trim();
+    if (!recoveryValue) {
+      setFeedback("已切换为恢复模式，请填写恢复码和新密码后再次提交。");
+      authElements.form.elements.recoveryCode?.focus();
+      return;
+    }
+  } else {
+    setAuthMode(action);
+  }
   void handlePasswordAuth(new FormData(authElements.form), action);
 }
 
@@ -309,6 +429,8 @@ if (authElements.captchaImage) {
     void refreshCaptcha();
   });
 }
+authElements.recoveryCodeConfirm?.addEventListener("click", closeRecoveryCodeModal);
+setAuthMode("signin");
 setFeedback(SIGNUP_REQUIREMENTS_TEXT);
 void refreshCaptcha();
 void bootstrapExistingSession();

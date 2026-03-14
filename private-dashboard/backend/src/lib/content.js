@@ -262,9 +262,8 @@ async function normalizeContentItem(item, source, channel) {
   const fetchedAt = new Date().toISOString();
   const summaryRaw = String(item.summaryRaw || "").trim();
   const summaryZh = localizeSummary(summaryRaw, item.title);
-  const excerpt = await buildBodyExcerpt(item.canonicalUrl, summaryRaw, item.title);
-  const bodyRaw = excerpt.raw || summaryRaw;
-  const bodyZh = localizeBody(bodyRaw, summaryZh, item.title);
+  const bodyRaw = truncate(summaryRaw || item.title || "", 320);
+  const bodyZh = truncate(summaryZh || item.title || "", 320);
   return {
     id: createContentId(channel, item.canonicalUrl),
     channel,
@@ -430,13 +429,13 @@ function localizeSummary(summaryRaw, title) {
 
 function localizeBody(bodyRaw, summaryZh, title) {
   if (containsChinese(bodyRaw)) {
-    return truncate(bodyRaw, 2200);
+    return truncate(bodyRaw, 320);
   }
   const fallback = bodyRaw || summaryZh || title;
   if (!fallback) {
     return "暂无正文摘录。";
   }
-  return `英文正文摘录：${truncate(fallback, 2200)}`;
+  return `英文正文摘录：${truncate(fallback, 320)}`;
 }
 
 function inferLanguage(title, summary) {
@@ -488,27 +487,6 @@ async function fetchText(url) {
     return response.text();
   } finally {
     clearTimeout(timeoutId);
-  }
-}
-
-async function buildBodyExcerpt(url, summaryRaw, title) {
-  const baseText = cleanText(summaryRaw || title || "");
-  if (baseText.length >= 260) {
-    return { raw: truncate(baseText, 2200) };
-  }
-  try {
-    const html = await fetchText(url);
-    const $ = cheerio.load(html);
-    $("script, style, noscript, header, footer, nav, aside").remove();
-    const candidate = [
-      cleanText($("article").text()),
-      cleanText($("main").text()),
-      cleanText($(".article-body, .entry-content, .post-content, .story-body").text()),
-      cleanText($("body").text()),
-    ].find((text) => text && text.length >= 220);
-    return { raw: truncate(candidate || baseText, 2200) };
-  } catch (error) {
-    return { raw: truncate(baseText, 2200) };
   }
 }
 

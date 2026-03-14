@@ -7,6 +7,7 @@ import {
   DEFAULT_REMOTE_API_BASE,
   LOCAL_SCOPE_KEY,
   PENDING_SYNC_STORAGE_KEY,
+  SAFETY_BACKUP_STORAGE_KEY,
   SESSION_STORAGE_KEY,
   STORAGE_KEY,
   STORAGE_VERSION,
@@ -62,7 +63,9 @@ import {
   loadData,
   loadPendingSyncStore,
   loadWeatherCache,
+  mergeDashboardData,
   migrateTaskRecord,
+  normalizeDataPayload,
   persistScopedData,
   sanitizeTaskTypes,
   saveWeatherCache,
@@ -75,10 +78,10 @@ import { createWidgetsModule } from "./modules/widgets-module.js";
 
 const elements = {
   body: document.body,
+  appFrame: document.querySelector(".app-frame"),
   topTabs: document.querySelectorAll(".top-tab"),
   centerTabs: document.querySelectorAll(".center-tab"),
   themeOptions: document.querySelectorAll(".theme-option"),
-  cloudStatusChip: document.querySelector("#cloud-status-chip"),
   authStatusChip: document.querySelector("#auth-status-chip"),
   accountMenu: document.querySelector("#account-menu"),
   authAction: document.querySelector("#auth-action"),
@@ -97,6 +100,7 @@ const elements = {
   weeklyTaskFilter: document.querySelector("#weekly-task-filter"),
   weeklyCompletionFilter: document.querySelector("#weekly-completion-filter"),
   weeklyArchiveFilter: document.querySelector("#weekly-archive-filter"),
+  importDataButton: document.querySelector("#import-data-button"),
   exportDataButton: document.querySelector("#export-data-button"),
   saveStatus: document.querySelector("#save-status"),
   saveStatusUndo: document.querySelector("#save-status-undo"),
@@ -155,6 +159,15 @@ const elements = {
   taskTimelineBody: document.querySelector("#task-timeline-body"),
   accountProfileModal: document.querySelector("#account-profile-modal"),
   accountProfileBody: document.querySelector("#account-profile-body"),
+  dataTransferModal: document.querySelector("#data-transfer-modal"),
+  dataTransferTitle: document.querySelector("#data-transfer-title"),
+  dataTransferBody: document.querySelector("#data-transfer-body"),
+  syncCenterModal: document.querySelector("#sync-center-modal"),
+  syncCenterBody: document.querySelector("#sync-center-body"),
+  appBootOverlay: document.querySelector("#app-boot-overlay"),
+  appBootTitle: document.querySelector("#app-boot-title"),
+  appBootDetail: document.querySelector("#app-boot-detail"),
+  appBootActions: document.querySelector("#app-boot-actions"),
   changePasswordModal: document.querySelector("#change-password-modal"),
   changePasswordForm: document.querySelector("#change-password-form"),
   changePasswordFeedback: document.querySelector("#change-password-feedback"),
@@ -199,7 +212,14 @@ const state = {
   accountMenuOpen: false,
   accountProfile: null,
   accountProfileLoading: false,
+  accountRecoveryCode: "",
+  accountRecoveryCodeBusy: false,
+  accountRecoveryFeedback: "",
   accountProfileModalOpen: false,
+  dataTransferModalOpen: false,
+  dataTransferMode: "import",
+  dataTransferBusy: false,
+  syncCenterModalOpen: false,
   changePasswordModalOpen: false,
   clearAccountDataModalOpen: false,
   deleteAccountModalOpen: false,
@@ -207,6 +227,12 @@ const state = {
   clearAccountDataSubmitting: false,
   deleteAccountSubmitting: false,
   saveStatusTone: "default",
+  appBoot: {
+    visible: true,
+    title: "正在进入 Dashboard",
+    detail: "正在验证登录状态并连接云端数据...",
+    actionsVisible: false,
+  },
   undoAction: null,
   remote: {
     status: "idle",
@@ -245,6 +271,7 @@ const state = {
 };
 
 let undoActionTimer = null;
+let externalRefreshTimer = null;
 
 const storageModule = createStorageModule({
   state,
@@ -444,6 +471,8 @@ const remoteModule = createRemoteModule({
   refreshFavoriteHighlights: (...args) => refreshFavoriteHighlights(...args),
   prefetchContentFeedsOnSessionStart: (...args) =>
     prefetchContentFeedsOnSessionStart(...args),
+  recordSyncAttempt,
+  recordSyncSuccess,
 });
 
 const {
@@ -470,6 +499,8 @@ const {
   normalizeRemoteRecord,
   hasPendingSync,
   flushPendingSync,
+  queueAllCurrentDataForSync,
+  syncAllDataToRemote,
   markWeeklySummaryPending,
   clearWeeklySummaryPending,
 } = remoteModule;
@@ -516,11 +547,14 @@ const accountModule = createAccountModule({
   signOutAuth: (...args) => signOutAuth(...args),
   resetCurrentAccountLocalState: (...args) => resetCurrentAccountLocalState(...args),
   setAppVisibility,
+  showAppBootOverlay,
+  hideAppBootOverlay,
   render,
   renderControls: (...args) => renderControls(...args),
   renderWidgets: (...args) => renderWidgets(...args),
   refreshGitHubRepo: (...args) => refreshGitHubRepo(...args),
   setSaveStatus,
+  exportDashboardData,
 });
 
 const {
@@ -535,6 +569,7 @@ const {
   openAccountProfileModal,
   closeAccountProfileModal,
   handleAccountProfilePreferencesSubmit,
+  handleAccountRecoveryCodeSubmit,
   openChangePasswordModal,
   closeChangePasswordModal,
   openClearAccountDataModal,
@@ -589,6 +624,8 @@ const contentModule = createContentModule({
   fetchApiJson,
   isLocalDevelopment,
   getSidebarPreferences: (...args) => getSidebarPreferences(...args),
+  persistStateSilently,
+  saveAccountPreferencesRemote: (...args) => saveAccountPreferencesRemote(...args),
   renderTopTabs: (...args) => renderTopTabs(...args),
   renderWidgets,
   setSaveStatus,
@@ -652,6 +689,12 @@ const handlersModule = createHandlersModule({
   openWeeklySummarySaveModal,
   editWeeklySummary,
   exportDashboardData,
+  openDataTransferModal,
+  closeDataTransferModal,
+  handleDataTransferSubmit,
+  openSyncCenterModal: openSyncCenterPanel,
+  closeSyncCenterModal: closeSyncCenterPanel,
+  handleSyncCenterClick,
   ensureContentChannelLoaded,
   scrollContentChannelToTop,
   loadChannelContent,
@@ -659,6 +702,8 @@ const handlersModule = createHandlersModule({
   handleContentToolbarInput,
   handleContentToolbarChange,
   refreshWeather,
+  refreshGitHubRepo,
+  refreshStocks,
   openWidgetSettings,
   toggleAccountMenu,
   openAccountProfileModal,
@@ -685,14 +730,15 @@ const handlersModule = createHandlersModule({
   isRemoteReady,
   flushPendingSync,
   bootstrapRemoteData,
-  updateTaskNameDraft,
-  handleAuthAction,
-  handleAccountProfilePreferencesSubmit,
-  handleChangePasswordSubmit,
-  clearAccountData,
-  handleDeleteAccountSubmit,
-  handleGitHubProfileSubmit,
-  handleContentSourceSubmit,
+    updateTaskNameDraft,
+    handleAuthAction,
+    handleAccountProfilePreferencesSubmit,
+    handleAccountRecoveryCodeSubmit,
+    handleChangePasswordSubmit,
+    clearAccountData,
+    handleDeleteAccountSubmit,
+    handleGitHubProfileSubmit,
+    handleContentSourceSubmit,
   formatWeekRangeText,
   formatMonthRangeText,
   hasPendingSync,
@@ -703,15 +749,84 @@ const {
 } = handlersModule;
 
 function setAppVisibility(isVisible) {
-  elements.body.style.visibility = isVisible ? "" : "hidden";
+  if (!elements.appFrame) {
+    return;
+  }
+  elements.appFrame.style.visibility = isVisible ? "" : "hidden";
+}
+
+function renderAppBootOverlay() {
+  if (!elements.appBootOverlay || !elements.appBootTitle || !elements.appBootDetail || !elements.appBootActions) {
+    return;
+  }
+  elements.appBootOverlay.hidden = !state.appBoot.visible;
+  elements.appBootTitle.textContent = state.appBoot.title || "正在进入 Dashboard";
+  elements.appBootDetail.textContent = state.appBoot.detail || "";
+  elements.appBootActions.hidden = !state.appBoot.actionsVisible;
+}
+
+function showAppBootOverlay(options = {}) {
+  state.appBoot = {
+    ...state.appBoot,
+    visible: true,
+    title: options.title || state.appBoot.title || "正在进入 Dashboard",
+    detail: options.detail || state.appBoot.detail || "",
+    actionsVisible: Boolean(options.actionsVisible),
+  };
+  setAppVisibility(false);
+  renderAppBootOverlay();
+}
+
+function hideAppBootOverlay() {
+  state.appBoot.visible = false;
+  state.appBoot.actionsVisible = false;
+  renderAppBootOverlay();
+  setAppVisibility(true);
+}
+
+function redirectToLoginPage() {
+  window.location.replace("./login.html");
+}
+
+function retryAppBootstrap() {
+  showAppBootOverlay({
+    title: "正在重试连接",
+    detail: "正在重新验证登录状态并恢复云端数据...",
+    actionsVisible: false,
+  });
+  void initAuthClient().then((user) => {
+    if (!user) {
+      renderAppBootOverlay();
+      return;
+    }
+    render();
+    hideAppBootOverlay();
+    scheduleExternalRefresh();
+  });
+}
+
+function continueInLocalMode() {
+  state.appBoot.visible = false;
+  state.appBoot.actionsVisible = false;
+  state.auth.user = null;
+  state.auth.status = "idle";
+  state.remote.status = "offline";
+  render();
+  hideAppBootOverlay();
+}
+
+function scheduleExternalRefresh(delayMs = 480) {
+  if (externalRefreshTimer) {
+    window.clearTimeout(externalRefreshTimer);
+  }
+  externalRefreshTimer = window.setTimeout(() => {
+    externalRefreshTimer = null;
+    void refreshExternalData();
+  }, delayMs);
 }
 
 function isLocalDevelopment() {
   return ["localhost", "127.0.0.1"].includes(window.location.hostname || "");
-}
-
-function redirectToLoginPage() {
-  window.location.href = "./login.html";
 }
 
 function render() {
@@ -734,6 +849,8 @@ function render() {
   renderTaskTimelineModal();
   renderAccountMenu();
   renderAccountProfileModal();
+  renderDataTransferModal();
+  renderSyncCenterModal();
   renderChangePasswordModal();
   renderClearAccountDataModal();
   renderDeleteAccountModal();
@@ -844,9 +961,41 @@ function clearUndoAction() {
   setUndoAction(null);
 }
 
-function setSaveStatus(message, tone) {
+function trimSyncNotices(notices = []) {
+  return notices
+    .filter((item) => item && typeof item.message === "string" && item.message.trim())
+    .slice(0, 12);
+}
+
+function addSyncNotice(message, tone) {
+  if (!message || /^已自动保存 /.test(message)) {
+    return;
+  }
+  const nextMessage = String(message).trim().slice(0, 200);
+  if (!nextMessage) {
+    return;
+  }
+  const current = Array.isArray(state.data.preferences?.sync?.notices)
+    ? state.data.preferences.sync.notices
+    : [];
+  state.data.preferences.sync.notices = trimSyncNotices([
+    {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      message: nextMessage,
+      tone: resolveSaveStatusTone(message, tone),
+      createdAt: new Date().toISOString(),
+    },
+    ...current,
+  ]);
+  persistStateSilently();
+}
+
+function setSaveStatus(message, tone, options = {}) {
   state.saveStatusTone = resolveSaveStatusTone(message, tone);
   elements.saveStatus.textContent = message;
+  if (!options.skipNotice) {
+    addSyncNotice(message, tone);
+  }
   renderSaveStatusState();
 }
 
@@ -864,23 +1013,445 @@ function themeLabel(theme) {
   return theme === "light" ? "Light 模式" : "Dark 模式";
 }
 
-function exportDashboardData() {
-  const payload = {
+function buildExportPayload(data = state.data) {
+  return {
     exportedAt: new Date().toISOString(),
-    data: state.data,
+    data,
   };
+}
+
+function downloadJsonPayload(filename, payload) {
   const blob = new Blob([JSON.stringify(payload, null, 2)], {
     type: "application/json",
   });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `lifeflow-dashboard-${formatDateKey(new Date())}.json`;
+  link.download = filename;
   document.body.append(link);
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
-  setSaveStatus("已导出当前 Dashboard 数据");
+}
+
+function getSafetyBackupSnapshot() {
+  try {
+    const raw = localStorage.getItem(SAFETY_BACKUP_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || !parsed.data) {
+      return null;
+    }
+    return parsed;
+  } catch (error) {
+    return null;
+  }
+}
+
+function saveSafetyBackup(reason = "manual") {
+  const payload = {
+    id: `backup-${Date.now()}`,
+    reason,
+    createdAt: new Date().toISOString(),
+    scopeKey: getCurrentScopeKey(),
+    username: state.auth.user?.username || "",
+    data: structuredClone(state.data),
+  };
+  localStorage.setItem(SAFETY_BACKUP_STORAGE_KEY, JSON.stringify(payload));
+  return payload;
+}
+
+function restoreSafetyBackupLocally(snapshot) {
+  if (!snapshot?.data) {
+    throw new Error("当前没有可恢复的安全备份");
+  }
+  state.data = normalizeDataPayload(snapshot.data, state.data.preferences);
+  persistStateSilently();
+  render();
+}
+
+function exportDashboardData(options = {}) {
+  const {
+    data = state.data,
+    filename = `lifeflow-dashboard-${formatDateKey(new Date())}.json`,
+    statusMessage = "已导出当前 Dashboard 数据",
+    skipStatus = false,
+  } = options;
+  const payload = buildExportPayload(data);
+  downloadJsonPayload(filename, payload);
+  if (!skipStatus) {
+    setSaveStatus(statusMessage, "success");
+  }
+  return payload;
+}
+
+function getPendingSyncCounts() {
+  const bucket = state.pendingSync[state.auth.user?.id || ""] || {};
+  return {
+    tasks: Object.keys(bucket.taskUpserts || {}).length + Object.keys(bucket.taskDeletes || {}).length,
+    records: Object.keys(bucket.dirtyRecords || {}).length,
+    summaries: Object.keys(bucket.weeklySummaryUpserts || {}).length,
+  };
+}
+
+function recordSyncAttempt() {
+  state.data.preferences.sync.lastSyncAttemptAt = new Date().toISOString();
+  persistStateSilently();
+}
+
+function recordSyncSuccess() {
+  const now = new Date().toISOString();
+  state.data.preferences.sync.lastSyncAttemptAt = now;
+  state.data.preferences.sync.lastSuccessfulSyncAt = now;
+  persistStateSilently();
+}
+
+function renderSyncCenterModal() {
+  const modal = elements.syncCenterModal;
+  if (!modal || !elements.syncCenterBody) {
+    return;
+  }
+  modal.hidden = !state.syncCenterModalOpen;
+  if (!state.syncCenterModalOpen) {
+    elements.syncCenterBody.innerHTML = "";
+    return;
+  }
+  const backup = getSafetyBackupSnapshot();
+  const counts = getPendingSyncCounts();
+  const totalPending = counts.tasks + counts.records + counts.summaries;
+  const syncPreferences = state.data.preferences?.sync || {};
+  const notices = Array.isArray(syncPreferences.notices) ? syncPreferences.notices : [];
+  elements.syncCenterBody.innerHTML = `
+    <div class="account-profile-grid">
+      <div class="account-profile-item">
+        <span class="account-profile-label">当前模式</span>
+        <strong>${escapeHtml(state.remote.status === "ready" ? "云端已连接" : state.auth.user ? "待连接 / 待同步" : "本地模式")}</strong>
+      </div>
+      <div class="account-profile-item">
+        <span class="account-profile-label">待同步内容</span>
+        <strong>${totalPending} 项</strong>
+      </div>
+      <div class="account-profile-item">
+        <span class="account-profile-label">最近同步尝试</span>
+        <strong>${escapeHtml(syncPreferences.lastSyncAttemptAt ? formatDateTime(syncPreferences.lastSyncAttemptAt) : "--")}</strong>
+      </div>
+      <div class="account-profile-item">
+        <span class="account-profile-label">最近同步成功</span>
+        <strong>${escapeHtml(syncPreferences.lastSuccessfulSyncAt ? formatDateTime(syncPreferences.lastSuccessfulSyncAt) : "--")}</strong>
+      </div>
+    </div>
+    <div class="account-profile-item">
+      <span class="account-profile-label">同步操作</span>
+      <div class="data-transfer-actions">
+        <button type="button" class="settings-save" data-sync-action="retry" ${!state.auth.user ? "disabled" : ""}>重试待同步</button>
+        <button type="button" class="task-cancel-action" data-sync-action="full-sync" ${!state.auth.user ? "disabled" : ""}>全量同步当前数据</button>
+      </div>
+      <p class="settings-copy">任务 ${counts.tasks} 项 · 每日记录 ${counts.records} 项 · 周总结 ${counts.summaries} 项</p>
+    </div>
+    <div class="account-profile-item">
+      <span class="account-profile-label">最近安全备份</span>
+      <p class="settings-copy">${
+        backup
+          ? `${escapeHtml(formatDateTime(backup.createdAt))} · ${escapeHtml(backup.reason || "manual")}`
+          : "当前还没有安全备份。"
+      }</p>
+      <div class="data-transfer-actions">
+        <button type="button" class="settings-save" data-sync-action="download-backup" ${backup ? "" : "disabled"}>导出最近安全备份</button>
+        <button type="button" class="task-cancel-action" data-sync-action="restore-backup" ${backup ? "" : "disabled"}>恢复最近安全备份</button>
+      </div>
+    </div>
+    <div class="account-profile-item">
+      <span class="account-profile-label">最近状态</span>
+      ${
+        notices.length
+          ? `<div class="sync-notice-list">${notices
+              .map(
+                (item) => `
+                  <article class="sync-notice" data-tone="${escapeAttribute(item.tone || "default")}">
+                    <strong>${escapeHtml(item.message)}</strong>
+                    <span>${escapeHtml(item.createdAt ? formatDateTime(item.createdAt) : "--")}</span>
+                  </article>
+                `,
+              )
+              .join("")}</div>`
+          : '<div class="content-empty-state">最近还没有同步或恢复记录。</div>'
+      }
+    </div>
+  `;
+}
+
+function openSyncCenterPanel() {
+  state.syncCenterModalOpen = true;
+  renderSyncCenterModal();
+}
+
+function closeSyncCenterPanel() {
+  state.syncCenterModalOpen = false;
+  renderSyncCenterModal();
+}
+
+async function handleSyncCenterClick(event) {
+  const action = event.target.closest("[data-sync-action]")?.dataset.syncAction;
+  if (!action) {
+    return;
+  }
+  if (action === "retry") {
+    if (!state.auth.user) {
+      setSaveStatus("请先登录账号后再使用同步中心");
+      return;
+    }
+    if (!isRemoteReady()) {
+      void bootstrapRemoteData();
+      return;
+    }
+    try {
+      await flushPendingSync();
+      setSaveStatus("待同步内容已重新提交", "success");
+      render();
+    } catch (error) {
+      console.warn("Retry sync failed from sync center.", error);
+      setSaveStatus(error?.message || "重新同步失败，请稍后再试");
+    }
+    renderSyncCenterModal();
+    return;
+  }
+  if (action === "full-sync") {
+    if (!state.auth.user) {
+      setSaveStatus("请先登录账号后再使用同步中心");
+      return;
+    }
+    try {
+      saveSafetyBackup("full-sync-before-push");
+      const result = await syncAllDataToRemote({ replaceRemote: false });
+      setSaveStatus(result.synced ? "当前数据已执行全量同步" : "当前数据已排队，等待云端同步", result.synced ? "success" : undefined);
+    } catch (error) {
+      console.warn("Full sync failed from sync center.", error);
+      setSaveStatus(error?.message || "全量同步失败");
+    }
+    renderSyncCenterModal();
+    return;
+  }
+  const backup = getSafetyBackupSnapshot();
+  if (action === "download-backup") {
+    if (!backup?.data) {
+      setSaveStatus("当前没有可导出的安全备份");
+      return;
+    }
+    exportDashboardData({
+      data: backup.data,
+      filename: `lifeflow-safety-backup-${formatDateKey(new Date(backup.createdAt || Date.now()))}.json`,
+      statusMessage: "已导出最近安全备份",
+    });
+    return;
+  }
+  if (action === "restore-backup") {
+    if (!backup?.data) {
+      setSaveStatus("当前没有可恢复的安全备份");
+      return;
+    }
+    if (!window.confirm("确认用最近的安全备份覆盖当前本地数据吗？")) {
+      return;
+    }
+    try {
+      saveSafetyBackup("before-restore-safety-backup");
+      restoreSafetyBackupLocally(backup);
+      setSaveStatus("最近安全备份已恢复到本地", "success");
+    } catch (error) {
+      console.warn("Failed to restore safety backup.", error);
+      setSaveStatus(error?.message || "恢复安全备份失败");
+    }
+    renderSyncCenterModal();
+  }
+}
+
+function renderDataTransferModal() {
+  const modal = elements.dataTransferModal;
+  if (!modal || !elements.dataTransferBody || !elements.dataTransferTitle) {
+    return;
+  }
+
+  modal.hidden = !state.dataTransferModalOpen;
+  if (!state.dataTransferModalOpen) {
+    elements.dataTransferBody.innerHTML = "";
+    return;
+  }
+
+  if (state.dataTransferMode === "export") {
+    elements.dataTransferTitle.textContent = "导出数据";
+    elements.dataTransferBody.innerHTML = `
+      <form id="data-export-form" class="account-form">
+        <div class="account-profile-item">
+          <span class="account-profile-label">导出 JSON 备份</span>
+          <p class="settings-copy">会导出当前 Dashboard 的任务、每日记录、周总结和偏好设置，文件格式为 JSON。</p>
+          <p class="settings-copy">${
+            state.auth.user
+              ? "建议在执行覆盖恢复前先导出一份最新备份。"
+              : "当前处于本地模式，导出内容仅包含本机当前数据。"
+          }</p>
+        </div>
+        <div class="delete-task-dialog-actions">
+          <button type="button" class="task-cancel-action" data-data-transfer-modal-close>
+            取消
+          </button>
+          <button type="submit" class="settings-save">
+            开始导出
+          </button>
+        </div>
+      </form>
+    `;
+    return;
+  }
+
+  elements.dataTransferTitle.textContent = "数据导入 / 恢复";
+  const backup = getSafetyBackupSnapshot();
+  elements.dataTransferBody.innerHTML = `
+    <form id="data-import-form" class="account-form">
+      <div class="account-profile-item">
+        <span class="account-profile-label">数据导入 / 恢复</span>
+        <p class="settings-copy">支持导入当前 Dashboard 导出的 JSON。合并会保留现有数据；覆盖会用备份完整替换当前数据。</p>
+        <label class="settings-field">
+          <span class="widget-label">备份文件</span>
+          <input name="backupFile" type="file" accept="application/json,.json" required />
+        </label>
+        <label class="settings-field">
+          <span class="widget-label">恢复方式</span>
+          <select name="importStrategy">
+            <option value="merge">合并到当前数据</option>
+            <option value="replace">完整覆盖当前数据</option>
+          </select>
+        </label>
+        <div class="settings-field">
+          <span class="widget-label">恢复确认</span>
+          <label class="settings-inline-checkbox">
+            <input name="replaceConfirmed" type="checkbox" />
+            <span>导入前自动保存当前数据，并确认我了解覆盖会替换当前数据</span>
+          </label>
+        </div>
+        <p class="settings-copy">${
+          state.auth.user
+            ? "登录账号后，导入结果会同步到当前云端账号。覆盖恢复要求云端当前已连接。"
+            : "当前处于本地模式，导入只会影响本机数据。"
+        }</p>
+        <p class="settings-copy">${
+          backup
+            ? `最近安全备份：${escapeHtml(formatDateTime(backup.createdAt))}。`
+            : "导入前会自动生成一份最近安全备份，便于回退。"
+        }</p>
+      </div>
+      <div class="delete-task-dialog-actions">
+        <button type="button" class="task-cancel-action" data-data-transfer-modal-close>
+          取消
+        </button>
+        <button type="submit" class="settings-save" ${state.dataTransferBusy ? "disabled" : ""}>
+          ${state.dataTransferBusy ? "恢复中..." : "开始恢复"}
+        </button>
+      </div>
+    </form>
+  `;
+}
+
+function openDataTransferModal(mode) {
+  state.dataTransferMode = mode === "export" ? "export" : "import";
+  state.dataTransferBusy = false;
+  state.dataTransferModalOpen = true;
+  renderDataTransferModal();
+}
+
+function closeDataTransferModal() {
+  state.dataTransferModalOpen = false;
+  state.dataTransferBusy = false;
+  renderDataTransferModal();
+}
+
+async function handleDataTransferSubmit(event) {
+  const importForm = event.target.closest("#data-import-form");
+  if (importForm) {
+    event.preventDefault();
+
+    const formData = new FormData(importForm);
+    const backupFile = formData.get("backupFile");
+    const importStrategy = String(formData.get("importStrategy") || "merge");
+    const replaceConfirmed = formData.has("replaceConfirmed");
+    if (!(backupFile instanceof File) || !backupFile.size) {
+      setSaveStatus("请选择要恢复的 JSON 备份文件");
+      return;
+    }
+    if (importStrategy === "replace" && !replaceConfirmed) {
+      setSaveStatus("请先勾选恢复确认，再执行完整覆盖");
+      return;
+    }
+    if (state.auth.user && importStrategy === "replace" && !isRemoteReady()) {
+      setSaveStatus("云端未连接时不能执行覆盖恢复，请先连上云端后再试");
+      return;
+    }
+
+    state.dataTransferBusy = true;
+    renderDataTransferModal();
+
+    try {
+      const raw = JSON.parse(await backupFile.text());
+      const normalized = normalizeDataPayload(raw?.data || raw, state.data.preferences);
+      if (
+        normalized.taskTypes.length === 0 &&
+        Object.keys(normalized.dailyRecords || {}).length === 0 &&
+        Object.keys(normalized.weeklySummaries || {}).length === 0
+      ) {
+        throw new Error("备份文件中没有可恢复的数据");
+      }
+
+      saveSafetyBackup(importStrategy === "replace" ? "before-replace-import" : "before-merge-import");
+      state.data =
+        importStrategy === "replace"
+          ? normalized
+          : mergeDashboardData(state.data, normalized);
+      persistStateSilently();
+      render();
+
+      if (!state.auth.user) {
+        closeDataTransferModal();
+        setSaveStatus(
+          importStrategy === "replace" ? "本地数据已覆盖恢复" : "备份内容已合并到本地数据",
+          "success",
+        );
+        return;
+      }
+
+      if (importStrategy === "replace") {
+        const result = await syncAllDataToRemote({ replaceRemote: true });
+        closeDataTransferModal();
+        setSaveStatus(
+          result.synced ? "当前账号数据已按备份完整恢复" : "本地已恢复，等待云端同步",
+          result.synced ? "success" : undefined,
+        );
+      } else {
+        queueAllCurrentDataForSync();
+        const result = await syncAllDataToRemote({ replaceRemote: false });
+        closeDataTransferModal();
+        setSaveStatus(
+          result.synced ? "备份内容已合并并同步到当前账号" : "备份内容已合并，待云端同步",
+          result.synced ? "success" : undefined,
+        );
+      }
+      void accountModule.loadAccountProfile();
+    } catch (error) {
+      console.warn("Failed to import dashboard data.", error);
+      state.dataTransferBusy = false;
+      renderDataTransferModal();
+      setSaveStatus(error?.message || "导入备份失败，请检查 JSON 文件内容");
+    }
+    return;
+  }
+
+  const exportForm = event.target.closest("#data-export-form");
+  if (!exportForm) {
+    return;
+  }
+
+  event.preventDefault();
+  exportDashboardData();
+  closeDataTransferModal();
 }
 
 
@@ -902,24 +1473,65 @@ async function fetchJson(url, options = {}) {
       window.clearTimeout(timeoutId);
     }
   });
+  let payload = null;
+  if (response.status !== 204) {
+    const raw = await response.text();
+    if (raw) {
+      try {
+        payload = JSON.parse(raw);
+      } catch (error) {
+        const normalizedText = raw
+          .replace(/<[^>]+>/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+        payload = normalizedText || raw;
+      }
+    }
+  }
   if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
+    let message =
+      typeof payload === "string" && payload.trim()
+        ? payload.trim()
+        : payload && typeof payload === "object" && payload.error
+          ? String(payload.error)
+          : `Request failed: ${response.status}`;
+    if (/^Cannot (GET|POST|PUT|PATCH|DELETE)\s+\/api\//i.test(message)) {
+      message = "当前运行的后端不支持这个接口，请重启本地后端到最新代码。";
+    }
+    const error = new Error(message);
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
   }
-  if (response.status === 204) {
-    return null;
-  }
-  return response.json();
+  return payload;
 }
 
-setAppVisibility(false);
+showAppBootOverlay({
+  title: "正在进入 Dashboard",
+  detail: "正在验证登录状态并连接云端数据...",
+  actionsVisible: false,
+});
 bindEvents();
 ensureRecord(state.selectedDate);
 persistStateSilently();
+elements.appBootOverlay?.addEventListener("click", (event) => {
+  const action = event.target.closest("[data-boot-action]")?.dataset.bootAction;
+  if (action === "retry") {
+    retryAppBootstrap();
+    return;
+  }
+  if (action === "login") {
+    redirectToLoginPage();
+    return;
+  }
+  if (action === "local") {
+    continueInLocalMode();
+  }
+});
 void initAuthClient().then((user) => {
   if (user) {
     render();
-    refreshExternalData();
-    return;
+    hideAppBootOverlay();
+    scheduleExternalRefresh();
   }
-  setAppVisibility(true);
 });

@@ -2,6 +2,7 @@ create table if not exists public.users (
   id text not null primary key,
   username text not null unique,
   password_hash text not null,
+  recovery_code_hash text not null default '',
   preferences jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default timezone('utc', now())
 );

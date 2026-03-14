@@ -71,45 +71,6 @@ export function createUiModule(deps) {
       .classList.toggle("is-active", state.activeCenterTab === "weekly");
   }
 
-  function renderCloudStatusChip() {
-    const chip = elements.cloudStatusChip;
-    if (!chip) {
-      return;
-    }
-    chip.className = "status-chip";
-
-    if (
-      state.auth.user &&
-      state.remote.connectedThisSession &&
-      state.remote.status !== "offline"
-    ) {
-      chip.classList.add("is-cloud");
-      chip.textContent = "云端已连接";
-      return;
-    }
-
-    if (state.remote.status === "ready") {
-      chip.classList.add("is-cloud");
-      chip.textContent = "云端已连接";
-      return;
-    }
-
-    if (state.remote.status === "connecting") {
-      chip.classList.add("is-syncing");
-      chip.textContent = "正在连接";
-      return;
-    }
-
-    if (state.remote.status === "sync-error") {
-      chip.classList.add("is-error");
-      chip.textContent = "云端异常";
-      return;
-    }
-
-    chip.classList.add("is-local");
-    chip.textContent = "本地模式";
-  }
-
   function renderAuthStatusChip() {
     const chip = elements.authStatusChip;
     chip.className = "status-chip";
@@ -245,7 +206,6 @@ export function createUiModule(deps) {
         button.dataset.theme === state.data.preferences.theme,
       );
     });
-    renderCloudStatusChip();
     renderAuthStatusChip();
     renderAccountMenu();
   }
@@ -254,7 +214,6 @@ export function createUiModule(deps) {
     applyButtonTooltips,
     renderTopTabs,
     renderCenterTabs,
-    renderCloudStatusChip,
     renderAuthStatusChip,
     getSidebarPreferences,
     renderSidebarCards,

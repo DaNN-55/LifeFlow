@@ -7,6 +7,7 @@ export const AUTH_CONFIG_STORAGE_KEY = "lifeflow-private-dashboard-auth-config";
 export const SESSION_STORAGE_KEY = "lifeflow-private-dashboard-session";
 export const PENDING_SYNC_STORAGE_KEY = "lifeflow-private-dashboard-pending-sync";
 export const WEATHER_CACHE_STORAGE_KEY = "lifeflow-private-dashboard-weather-cache";
+export const SAFETY_BACKUP_STORAGE_KEY = "lifeflow-private-dashboard-safety-backup";
 export const API_PROBE_TIMEOUT_MS = 1500;
 export const LOCAL_SCOPE_KEY = "__local__";
 export const CONTENT_PAGE_SIZE = 10;

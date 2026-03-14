@@ -1,15 +1,19 @@
-# 个人执行 Dashboard V1
+# 个人执行 Dashboard
 
-一个纯前端的个人执行面板，用于每日打卡、任务备注记录和周复盘。
+一个以任务执行、周复盘、资讯阅读和云同步为核心的个人控制台。
 
 ## 功能
 
-- 四类固定任务：找工作、健身、吉他、仲裁
-- 按日期记录每天的完成情况和备注
-- 自动保存到浏览器 `localStorage`
-- 按周查看完成天数和任务备注聚合
-- 支持显示“云端已连接 / 本地模式”状态
-- 支持登录页覆盖层与试用模式切换
+- 自定义任务、任务颜色、排序、存档与恢复
+- 每日完成状态和任务备注记录
+- 周/月复盘、周总结与任务时间线
+- 本地保存、云同步、待同步重试
+- 同步中心、最近同步记录、最近安全备份恢复
+- 用户注册、登录、密码修改、恢复码找回密码
+- 账号面板设置、用户名修改、退出全部登录
+- 首页导入数据 / 导出数据按钮、JSON 导入/恢复
+- Finance / Science 资讯流、收藏、稍后读、已读/未读、信源隐藏
+- GitHub / Weather / A 股组件
 - 适配桌面端和手机端
 
 ## 目录结构
@@ -29,7 +33,7 @@ private-dashboard/
 
 最简单的方式：
 
-1. 直接在浏览器中打开 `private-dashboard/index.html`
+1. 不要直接双击打开 `private-dashboard/index.html`
 
 如果你更希望通过本地静态服务访问，可以在项目根目录运行任一命令：
 
@@ -37,46 +41,49 @@ private-dashboard/
 python3 -m http.server 8000
 ```
 
+或者：
+
+```bash
+cd private-dashboard
+npm run serve
+```
+
 然后访问：
 
 ```text
-http://localhost:8000/private-dashboard/
+http://localhost:8000/private-dashboard/login.html
 ```
+
+说明：
+
+- `login.html` 是普通脚本，直接用 `file://` 打开也许还能工作
+- `index.html` 依赖 ES Module，直接用 `file://` 打开时浏览器通常只会显示静态壳，表现成“未登录”
+- 本地调试请统一使用 `http://localhost:8000/private-dashboard/login.html`
 
 ## 数据存储
 
-- 存储方式：`localStorage`
-- 存储 key：`lifeflow-private-dashboard-v1`
+- 本地：`localStorage`
+- 云端：当前实现为后端 API + Supabase 数据库存储
 
-刷新页面后数据会保留在当前浏览器中。
+刷新页面后，本地数据会保留在当前浏览器中。
 
 当后端已连接时：
 
-- 页面会优先通过 API 读写 Render + Supabase
-- 如果后端不可用，会回退到本地保存
+- 页面会优先通过 API 读写云端数据
+- 如果后端不可用，会回退到本地保存，并把变更标记为待同步
 - 顶部会显示当前是“云端已连接”还是“本地模式”
+- 点击顶部云端状态按钮可打开同步中心，查看最近同步尝试、最近成功时间、待同步数量和最近安全备份
 
 ## 云端登录准备
 
 当前版本的登录流是：
 
-- 未登录时进入登录覆盖层
-- 可选择“试用模式”直接进入页面
-- 试用模式下只使用 `localStorage`
-- 登录成功后才会连接 Render + Supabase 云端数据
+- 未登录时进入独立登录页
+- 可创建账号，也可用恢复码重置密码
+- 登录成功后才会连接云端数据
+- 当前账号资料弹窗中可修改用户名、导出当前数据、退出全部登录，并重新生成恢复码
 
-为了不在页面上暴露配置输入框，前端会从 [index.html](/Users/dan/Programs/LifeFlow/private-dashboard/index.html) 中读取：
-
-```html
-window.LIFEFLOW_AUTH_CONFIG = {
-  supabaseUrl: "",
-  supabaseAnonKey: "",
-};
-```
-
-你需要把这里填成自己的 Supabase 项目信息。它们属于前端公开配置，不是敏感密钥。
-
-登录成功后，前端会自动把 `access_token` 带给后端，为后续按 `user_id` 同步数据做准备。
+前端可选读取运行时变量 `window.LIFEFLOW_API_BASE` 作为后端地址；如果未提供，会按已缓存地址、同机本地地址和默认后端地址顺序探测。
 
 ## GitHub Pages 部署
 
@@ -89,20 +96,9 @@ window.LIFEFLOW_AUTH_CONFIG = {
 
 如果后续要单独部署这个页面，也可以把 `private-dashboard/` 提取成独立仓库。
 
-## V1 已做 / 未做
+## 当前边界
 
-已做：
-
-- 每日打卡
-- 备注自动保存
-- 周复盘聚合
-- 基础统计
-- 响应式布局
-
-未做：
-
-- 自定义任务
-- 导出 JSON / Markdown
-- 连续打卡天数
-- 云同步
-- 用户系统
+- 当前只支持 JSON 导出和 JSON 导入/恢复，不支持 Markdown 导出
+- 当前保留摘要型资讯阅读，不提供站内内容详情页
+- 当前没有游客试用模式，进入 Dashboard 需要登录
+- 资讯已读/稍后读/来源隐藏属于轻量偏好，保存在账号偏好中

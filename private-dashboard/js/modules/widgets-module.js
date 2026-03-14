@@ -1,4 +1,5 @@
 export function createWidgetsModule(deps) {
+  const MAX_STOCK_WIDGET_ITEMS = 8;
   const {
     state,
     elements,
@@ -112,7 +113,9 @@ export function createWidgetsModule(deps) {
           </div>
         </article>
       `;
-    return `<div class="github-stream">${list}</div>`;
+    return `
+      <div class="github-stream">${list}</div>
+    `;
   }
 
   function renderWeatherWidget() {
@@ -188,6 +191,9 @@ export function createWidgetsModule(deps) {
   function renderStockWidget() {
     const widget = state.data.preferences.widgets.stock;
     const stock = state.widgetData.stock;
+    const statusText = stock.updatedAt
+      ? `${stock.message || "A 股实时行情"} · ${formatDateTime(stock.updatedAt)}`
+      : stock.message || "尝试获取实时行情，失败时显示占位信息。";
     const list = stock.symbols.length
       ? stock.symbols
           .map(
@@ -195,7 +201,7 @@ export function createWidgetsModule(deps) {
               <div class="widget-symbol market-row">
                 <div class="market-meta">
                   <strong>${escapeHtml(item.name || item.symbol)}</strong>
-                  <span>${escapeHtml(item.symbol)} ${escapeHtml(item.price)}</span>
+                  <span>${escapeHtml(formatDisplayStockCode(item.symbol))} ${escapeHtml(item.price)}</span>
                 </div>
                 <div class="market-trend market-trend-${escapeHtml(item.trend)}">
                   <svg viewBox="0 0 80 18" class="market-sparkline" preserveAspectRatio="none">
@@ -219,10 +225,18 @@ export function createWidgetsModule(deps) {
         <div>
           <h3 class="widget-title">${escapeHtml(widget.title)}</h3>
         </div>
-        <span class="material-symbols-outlined">finance_mode</span>
+        <button
+          type="button"
+          class="widget-refresh-button"
+          data-stock-refresh
+          title="刷新行情"
+          aria-label="刷新行情"
+        >
+          <span class="material-symbols-outlined">refresh</span>
+        </button>
       </div>
       <div class="widget-symbol-list market-list">${list}</div>
-      <p class="widget-status">${escapeHtml(stock.message || "尝试获取实时行情，失败时显示占位信息。")}</p>
+      <p class="widget-status">${escapeHtml(statusText)}</p>
     `;
   }
 
@@ -294,7 +308,7 @@ export function createWidgetsModule(deps) {
 
     const config = state.data.preferences.widgets.stock;
     return `
-      <p class="settings-copy">输入 A 股股票代码或股票名称，支持逗号或换行分隔，例如：贵州茅台、000001。</p>
+      <p class="settings-copy">输入 A 股股票代码或股票名称，支持逗号或换行分隔，例如：贵州茅台、000001。当前最多展示 ${MAX_STOCK_WIDGET_ITEMS} 条。</p>
       <label class="settings-field">
         <span class="widget-label">代码列表</span>
         <textarea name="symbols" placeholder="贵州茅台, 宁德时代, 000001">${escapeHtml(config.symbols)}</textarea>
@@ -336,9 +350,7 @@ export function createWidgetsModule(deps) {
           setSaveStatus("Weather 设置已保存在本地，云端同步稍后重试");
         });
       }
-      void refreshWeather().finally(() => {
-        renderWidgets();
-      });
+      void refreshWeather();
       return;
     }
 
@@ -358,7 +370,6 @@ export function createWidgetsModule(deps) {
         });
       }
       void refreshStocks();
-      renderWidgets();
     }
   }
 
@@ -368,7 +379,7 @@ export function createWidgetsModule(deps) {
       return;
     }
     event.preventDefault();
-    const profileUrl = String(new FormData(form).get("githubProfileUrl") || "").trim();
+      const profileUrl = String(new FormData(form).get("githubProfileUrl") || "").trim();
     state.data.preferences.widgets.github.profileUrl = profileUrl;
     if (state.auth.user) {
       try {
@@ -378,9 +389,7 @@ export function createWidgetsModule(deps) {
         setSaveStatus("GitHub 主页网址已保存在本地，云端同步稍后重试");
       }
     }
-    renderWidgets();
     await refreshGitHubRepo();
-    renderWidgets();
     setSaveStatus(profileUrl ? "已保存 GitHub 主页网址" : "已清空 GitHub 主页网址", "success");
   }
 
@@ -440,6 +449,7 @@ export function createWidgetsModule(deps) {
         url: profileUrl,
         message: "等待配置 GitHub 主页",
       };
+      renderWidgets();
       return;
     }
     state.widgetData.github = {
@@ -482,6 +492,7 @@ export function createWidgetsModule(deps) {
         status: "ready",
         repos: repos.length ? repos : fallback.repos,
         url: profileUrl,
+        updatedAt: new Date().toISOString(),
         message: "最近活跃仓库",
       };
     } catch (error) {
@@ -492,6 +503,7 @@ export function createWidgetsModule(deps) {
         message: "GitHub 预览暂时不可用",
       };
     }
+    renderWidgets();
   }
 
   async function refreshWeather() {
@@ -547,6 +559,7 @@ export function createWidgetsModule(deps) {
           detail: cachedWeather.detail || "已展示最近一次天气结果",
           message: "定位暂时不可用，当前展示最近一次成功结果",
         };
+        renderWidgets();
         return;
       }
       state.widgetData.weather = {
@@ -558,6 +571,7 @@ export function createWidgetsModule(deps) {
         message: "定位与天气接口均失败，请点击刷新重试",
       };
     }
+    renderWidgets();
   }
 
   async function refreshStocks() {
@@ -565,7 +579,7 @@ export function createWidgetsModule(deps) {
       .split(",")
       .map((item) => item.trim())
       .filter(Boolean)
-      .slice(0, 4);
+      .slice(0, MAX_STOCK_WIDGET_ITEMS);
 
     state.widgetData.stock = {
       status: "loading",
@@ -579,7 +593,7 @@ export function createWidgetsModule(deps) {
       if (!resolved.length) {
         throw new Error("No stock resolved");
       }
-      const quotes = await fetchSinaQuotes(resolved.map((item) => item.symbol));
+      const quotes = await fetchTencentQuotes(resolved.map((item) => item.symbol));
 
       state.widgetData.stock = {
         status: "ready",
@@ -602,6 +616,7 @@ export function createWidgetsModule(deps) {
             trend: quote.trend,
           };
         }),
+        updatedAt: new Date().toISOString(),
         message: "A 股实时行情",
       };
     } catch (error) {
@@ -614,9 +629,11 @@ export function createWidgetsModule(deps) {
           change: "--",
           trend: "flat",
         })),
+        updatedAt: "",
         message: "A 股行情获取失败，请检查代码或名称",
       };
     }
+    renderWidgets();
   }
 
   function getAutoLocation() {
@@ -644,6 +661,12 @@ export function createWidgetsModule(deps) {
       .map((item) => item.trim())
       .filter(Boolean)
       .join(",");
+  }
+
+  function formatDisplayStockCode(symbol) {
+    const raw = String(symbol || "").trim();
+    const matched = raw.match(/(?:sh|sz)?(\d{6})$/i);
+    return matched ? matched[1] : raw.toUpperCase();
   }
 
   async function resolveAStockQueries(queries) {
@@ -714,22 +737,22 @@ export function createWidgetsModule(deps) {
     });
   }
 
-  async function fetchSinaQuotes(symbols) {
+  async function fetchTencentQuotes(symbols) {
     if (!symbols.length) {
       return [];
     }
 
-    await loadRemoteScript(`https://hq.sinajs.cn/list=${symbols.join(",")}`);
+    await loadRemoteScript(`https://qt.gtimg.cn/q=${symbols.join(",")}`);
     return symbols
       .map((symbol) => {
-        const raw = window[`hq_str_${symbol}`];
+        const raw = window[`v_${symbol}`];
         if (!raw) {
           return null;
         }
-        const parts = String(raw).split(",");
-        const name = parts[0] || symbol.toUpperCase();
-        const prevClose = Number(parts[2]) || 0;
+        const parts = String(raw).split("~");
+        const name = parts[1] || symbol.toUpperCase();
         const price = Number(parts[3]) || 0;
+        const prevClose = Number(parts[4]) || 0;
         const changeValue = prevClose
           ? ((price - prevClose) / prevClose) * 100
           : 0;

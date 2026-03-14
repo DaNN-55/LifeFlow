@@ -31,6 +31,12 @@ export function createHandlersModule(deps) {
     openWeeklySummarySaveModal,
     editWeeklySummary,
     exportDashboardData,
+    openDataTransferModal,
+    closeDataTransferModal,
+    handleDataTransferSubmit,
+    openSyncCenterModal,
+    closeSyncCenterModal,
+    handleSyncCenterClick,
     ensureContentChannelLoaded,
     scrollContentChannelToTop,
     loadChannelContent,
@@ -38,6 +44,8 @@ export function createHandlersModule(deps) {
     handleContentToolbarInput,
     handleContentToolbarChange,
     refreshWeather,
+    refreshGitHubRepo,
+    refreshStocks,
     openWidgetSettings,
     toggleAccountMenu,
     openAccountProfileModal,
@@ -67,6 +75,7 @@ export function createHandlersModule(deps) {
     updateTaskNameDraft,
     handleAuthAction,
     handleAccountProfilePreferencesSubmit,
+    handleAccountRecoveryCodeSubmit,
     handleChangePasswordSubmit,
     clearAccountData,
     handleDeleteAccountSubmit,
@@ -136,7 +145,6 @@ export function createHandlersModule(deps) {
 
     const nextWeek = String(elements.weeklyRangePicker.value || "").trim();
     if (!nextWeek || nextWeek === state.selectedWeek) {
-      renderControls();
       return;
     }
 
@@ -287,8 +295,12 @@ export function createHandlersModule(deps) {
     setSaveStatus(`已切换到 ${formatMonthRangeText(state.selectedMonth)} 的复盘`, "success");
   }
 
+  function handleImportData() {
+    openDataTransferModal("import");
+  }
+
   function handleExportData() {
-    exportDashboardData();
+    openDataTransferModal("export");
   }
 
   function handleShowMoreClick(event) {
@@ -323,6 +335,16 @@ export function createHandlersModule(deps) {
       void refreshWeather();
       return;
     }
+    const githubRefreshButton = event.target.closest("[data-github-refresh]");
+    if (githubRefreshButton) {
+      void refreshGitHubRepo();
+      return;
+    }
+    const stockRefreshButton = event.target.closest("[data-stock-refresh]");
+    if (stockRefreshButton) {
+      void refreshStocks();
+      return;
+    }
     const button = event.target.closest("[data-widget-toggle]");
     if (!button) {
       return;
@@ -344,6 +366,11 @@ export function createHandlersModule(deps) {
     }
     if (action === "profile") {
       openAccountProfileModal();
+      return;
+    }
+    if (action === "sync-center") {
+      closeAccountMenu();
+      openSyncCenterModal();
       return;
     }
     if (action === "password") {
@@ -380,6 +407,12 @@ export function createHandlersModule(deps) {
     }
     if (event.target.closest("[data-account-profile-modal-close]")) {
       closeAccountProfileModal();
+    }
+    if (event.target.closest("[data-data-transfer-modal-close]")) {
+      closeDataTransferModal();
+    }
+    if (event.target.closest("[data-sync-center-modal-close]")) {
+      closeSyncCenterModal();
     }
     if (event.target.closest("[data-change-password-modal-close]")) {
       closeChangePasswordModal();
@@ -523,6 +556,7 @@ export function createHandlersModule(deps) {
     elements.authStatusChip.addEventListener("click", handleAccountChipClick);
     elements.accountMenu?.addEventListener("click", handleAccountMenuClick);
     elements.authAction.addEventListener("click", handleAuthAction);
+    elements.importDataButton?.addEventListener("click", handleImportData);
     elements.exportDataButton.addEventListener("click", handleExportData);
     elements.calendarGrid.addEventListener("click", handleCalendarClick);
     elements.weeklyModeWeek.addEventListener("click", handleReviewModeClick);
@@ -583,6 +617,15 @@ export function createHandlersModule(deps) {
     elements.accountProfileModal?.addEventListener("click", handleModalClick);
     elements.accountProfileModal?.addEventListener("submit", (event) => {
       void handleAccountProfilePreferencesSubmit(event);
+      void handleAccountRecoveryCodeSubmit(event);
+    });
+    elements.dataTransferModal?.addEventListener("click", handleModalClick);
+    elements.dataTransferModal?.addEventListener("submit", (event) => {
+      void handleDataTransferSubmit(event);
+    });
+    elements.syncCenterModal?.addEventListener("click", handleModalClick);
+    elements.syncCenterModal?.addEventListener("click", (event) => {
+      void handleSyncCenterClick(event);
     });
     elements.changePasswordModal?.addEventListener("click", handleModalClick);
     elements.changePasswordForm?.addEventListener("submit", handleChangePasswordSubmit);

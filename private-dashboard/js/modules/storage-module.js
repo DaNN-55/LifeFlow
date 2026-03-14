@@ -63,8 +63,6 @@ export function createEmptyDailyRecord(date, taskTypes) {
   return {
     date,
     tasks: createEmptyTaskState(taskTypes),
-    mood: "",
-    dailySummary: "",
     updatedAt: "",
   };
 }
@@ -86,6 +84,15 @@ export function createInitialData() {
         weather: true,
         stock: true,
       },
+      content: {
+        readItems: {},
+        hiddenSources: {},
+      },
+      sync: {
+        lastSyncAttemptAt: "",
+        lastSuccessfulSyncAt: "",
+        notices: [],
+      },
       widgets: structuredClone(defaultWidgets),
     },
   };
@@ -101,6 +108,25 @@ function mergePreferences(
     sidebar: {
       ...createInitialData().preferences.sidebar,
       ...(basePreferences?.sidebar || {}),
+    },
+    content: {
+      ...createInitialData().preferences.content,
+      ...(basePreferences?.content || {}),
+      readItems: {
+        ...createInitialData().preferences.content.readItems,
+        ...(basePreferences?.content?.readItems || {}),
+      },
+      hiddenSources: {
+        ...createInitialData().preferences.content.hiddenSources,
+        ...(basePreferences?.content?.hiddenSources || {}),
+      },
+    },
+    sync: {
+      ...createInitialData().preferences.sync,
+      ...(basePreferences?.sync || {}),
+      notices: Array.isArray(basePreferences?.sync?.notices)
+        ? basePreferences.sync.notices.slice(0, 12)
+        : [],
     },
     widgets: {
       github: {
@@ -126,6 +152,25 @@ function mergePreferences(
     sidebar: {
       ...base.sidebar,
       ...(preferences?.sidebar || {}),
+    },
+    content: {
+      ...base.content,
+      ...(preferences?.content || {}),
+      readItems: {
+        ...base.content.readItems,
+        ...(preferences?.content?.readItems || {}),
+      },
+      hiddenSources: {
+        ...base.content.hiddenSources,
+        ...(preferences?.content?.hiddenSources || {}),
+      },
+    },
+    sync: {
+      ...base.sync,
+      ...(preferences?.sync || {}),
+      notices: Array.isArray(preferences?.sync?.notices)
+        ? preferences.sync.notices.slice(0, 12)
+        : base.sync.notices,
     },
     widgets: {
       github: {
@@ -376,13 +421,63 @@ function migrateDailyRecords(dailyRecords, taskTypes) {
       });
     }
     nextRecord.updatedAt = record?.updatedAt || "";
-    nextRecord.mood = typeof record?.mood === "string" ? record.mood : "";
-    nextRecord.dailySummary =
-      typeof record?.dailySummary === "string" ? record.dailySummary : "";
     migrated[date] = nextRecord;
   });
 
   return migrated;
+}
+
+export function normalizeDataPayload(
+  rawData = {},
+  basePreferences = createInitialData().preferences,
+) {
+  const parsed = rawData && typeof rawData === "object" ? rawData : {};
+  const taskTypes = sanitizeTaskTypes(parsed.taskTypes);
+  return {
+    version: STORAGE_VERSION,
+    taskTypes,
+    dailyRecords: migrateDailyRecords(parsed.dailyRecords, taskTypes),
+    weeklySummaries: migrateWeeklySummaries(parsed.weeklySummaries),
+    preferences: mergePreferences(parsed.preferences, basePreferences),
+  };
+}
+
+export function mergeDashboardData(currentData, importedData) {
+  const taskMap = new Map();
+  sanitizeTaskTypes(currentData?.taskTypes || []).forEach((task) => {
+    taskMap.set(task.id, structuredClone(task));
+  });
+  sanitizeTaskTypes(importedData?.taskTypes || []).forEach((task) => {
+    taskMap.set(task.id, structuredClone(task));
+  });
+
+  const mergedTasks = sanitizeTaskTypes(
+    [...taskMap.values()]
+      .sort((left, right) => left.order - right.order)
+      .map((task, index) => ({
+        ...task,
+        order: index + 1,
+      })),
+  );
+
+  return normalizeDataPayload(
+    {
+      taskTypes: mergedTasks,
+      dailyRecords: {
+        ...(currentData?.dailyRecords || {}),
+        ...(importedData?.dailyRecords || {}),
+      },
+      weeklySummaries: {
+        ...(currentData?.weeklySummaries || {}),
+        ...(importedData?.weeklySummaries || {}),
+      },
+      preferences: mergePreferences(
+        importedData?.preferences || {},
+        currentData?.preferences || createInitialData().preferences,
+      ),
+    },
+    currentData?.preferences || createInitialData().preferences,
+  );
 }
 
 export function loadData(scopeKey = LOCAL_SCOPE_KEY) {
@@ -392,16 +487,7 @@ export function loadData(scopeKey = LOCAL_SCOPE_KEY) {
       return createInitialData();
     }
 
-    const parsed = JSON.parse(raw);
-    const taskTypes = sanitizeTaskTypes(parsed.taskTypes);
-
-    return {
-      version: STORAGE_VERSION,
-      taskTypes,
-      dailyRecords: migrateDailyRecords(parsed.dailyRecords, taskTypes),
-      weeklySummaries: migrateWeeklySummaries(parsed.weeklySummaries),
-      preferences: mergePreferences(parsed.preferences, createInitialData().preferences),
-    };
+    return normalizeDataPayload(JSON.parse(raw), createInitialData().preferences);
   } catch (error) {
     console.warn("Failed to load dashboard data, resetting state.", error);
     return createInitialData();
@@ -564,6 +650,8 @@ export function createStorageModule(deps) {
     state.accountMenuOpen = false;
     state.accountProfile = null;
     state.accountProfileLoading = false;
+    state.accountRecoveryCodeBusy = false;
+    state.accountRecoveryFeedback = "";
     state.accountProfileModalOpen = false;
     state.changePasswordModalOpen = false;
     state.clearAccountDataModalOpen = false;

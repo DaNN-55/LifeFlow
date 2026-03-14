@@ -37,7 +37,7 @@ export function buildMockContent(channel) {
       title: item[0],
       summary_zh: item[1],
       summary_raw: `${item[1]} 这是用于前端联调的完整示例内容，后续接入真实 RSS 后，这里会替换成更长的正文摘要、原始描述或正文摘录。`,
-      body_zh: `${item[1]}\n\n这是用于前端联调的完整示例内容，后续接入真实 RSS 后，这里会替换成更长的正文摘录，用于详情页阅读。`,
+      body_zh: `${item[1]}\n\n这是用于前端联调的完整示例内容，后续接入真实 RSS 后，这里会替换成摘要型内容展示。`,
       body_raw: `${item[1]} This is a mock long-form body used for frontend integration testing before the real RSS pipeline is fully connected.`,
       source_name: item[2],
       source_url: externalUrl,
