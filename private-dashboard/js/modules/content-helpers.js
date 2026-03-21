@@ -54,3 +54,35 @@ export function getContentCardExcerpt(item) {
     .replace(/\s+/g, " ")
     .trim();
 }
+
+export function getContentThumbnailUrl(item) {
+  const value = String(item?.image_url || "").trim();
+  return /^https?:\/\//i.test(value) ? value : "";
+}
+
+export function getContentThumbnailLabel(item) {
+  const source = String(item?.source_name || item?.channel || "LF")
+    .replace(/[^a-zA-Z0-9\u4e00-\u9fff]+/g, " ")
+    .trim();
+  if (!source) {
+    return "LF";
+  }
+  const parts = source.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0][0]}${parts[1][0]}`.slice(0, 2).toUpperCase();
+  }
+  return source.slice(0, 2).toUpperCase();
+}
+
+export function getContentSourceIconUrl(item) {
+  const candidate = String(item?.source_url || item?.canonical_url || "").trim();
+  if (!/^https?:\/\//i.test(candidate)) {
+    return "";
+  }
+  try {
+    const url = new URL(candidate);
+    return `${url.origin}/favicon.ico`;
+  } catch (error) {
+    return "";
+  }
+}

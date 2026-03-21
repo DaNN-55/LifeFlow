@@ -2,6 +2,7 @@ export function createHandlersModule(deps) {
   const {
     state,
     elements,
+    contentChannelIds,
     ensureRecord,
     formatDisplayDate,
     parseLocalDate,
@@ -93,7 +94,7 @@ export function createHandlersModule(deps) {
     }
     state.activeAppTab = button.dataset.appTab;
     renderTopTabs();
-    if (state.activeAppTab === "finance" || state.activeAppTab === "science") {
+    if (contentChannelIds.includes(state.activeAppTab)) {
       void ensureContentChannelLoaded(state.activeAppTab);
     }
   }
@@ -310,7 +311,7 @@ export function createHandlersModule(deps) {
     }
     state.activeAppTab = button.dataset.appTabTarget;
     renderTopTabs();
-    if (state.activeAppTab === "finance" || state.activeAppTab === "science") {
+    if (contentChannelIds.includes(state.activeAppTab)) {
       void ensureContentChannelLoaded(state.activeAppTab);
     }
   }
@@ -318,8 +319,8 @@ export function createHandlersModule(deps) {
   function handleWidgetClick(event) {
     const favoritesJump = event.target.closest("[data-favorites-jump]");
     if (favoritesJump) {
-      const channel = favoritesJump.dataset.favoritesJump || "finance";
-      if (channel === "finance" || channel === "science") {
+      const channel = favoritesJump.dataset.favoritesJump || contentChannelIds[0] || "finance";
+      if (contentChannelIds.includes(channel)) {
         state.activeAppTab = channel;
         renderTopTabs();
         scrollContentChannelToTop(channel);
@@ -591,12 +592,12 @@ export function createHandlersModule(deps) {
       ?.addEventListener("submit", (event) => {
         void handleGitHubProfileSubmit(event);
       });
-    elements.financeView?.addEventListener("click", handleContentClick);
-    elements.scienceView?.addEventListener("click", handleContentClick);
-    elements.financeView?.addEventListener("input", handleContentToolbarInput);
-    elements.scienceView?.addEventListener("input", handleContentToolbarInput);
-    elements.financeView?.addEventListener("change", handleContentToolbarChange);
-    elements.scienceView?.addEventListener("change", handleContentToolbarChange);
+    contentChannelIds.forEach((channel) => {
+      const view = elements.contentByChannel?.[channel]?.view;
+      view?.addEventListener("click", handleContentClick);
+      view?.addEventListener("input", handleContentToolbarInput);
+      view?.addEventListener("change", handleContentToolbarChange);
+    });
     elements.contentSourceModal?.addEventListener("click", handleContentClick);
     elements.contentSourceForm?.addEventListener("submit", handleContentSourceSubmit);
     document

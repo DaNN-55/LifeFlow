@@ -10,26 +10,62 @@ const parser = new Parser({
   },
 });
 
-const CHANNELS = ["finance", "science"];
 const FETCH_TIMEOUT_MS = 10000;
+const ARTICLE_IMAGE_TIMEOUT_MS = 4000;
 const DEFAULT_PAGE_SIZE = 10;
 const DEFAULT_REFRESH_LIMIT = 30;
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const cacheByChannel = new Map();
 const refreshInFlight = new Map();
+const articleImageCache = new Map();
 
-const DEFAULT_SOURCES = {
-  finance: [
-    { name: "Reuters Markets", type: "rss", url: "https://feeds.reuters.com/reuters/marketsNews" },
-    { name: "CNBC Top News", type: "rss", url: "https://www.cnbc.com/id/100003114/device/rss/rss.html" },
-    { name: "Yahoo Finance", type: "rss", url: "https://finance.yahoo.com/news/rssindex" },
-  ],
-  science: [
-    { name: "Nature", type: "rss", url: "https://www.nature.com/nature.rss" },
-    { name: "ScienceDaily", type: "rss", url: "https://www.sciencedaily.com/rss/top/science.xml" },
-    { name: "Phys.org", type: "rss", url: "https://phys.org/rss-feed/" },
-  ],
+const EXTRA_CHANNEL_CONFIGS = [
+  {
+    id: "ai",
+    defaultSources: [
+      { name: "OpenAI News", type: "rss", url: "https://openai.com/news/rss.xml" },
+      { name: "Hugging Face Blog", type: "rss", url: "https://huggingface.co/blog/feed.xml" },
+      { name: "arXiv AI", type: "rss", url: "https://rss.arxiv.org/rss/cs.AI" },
+      { name: "Google AI", type: "rss", url: "https://blog.google/innovation-and-ai/technology/ai/rss/" },
+    ],
+  },
+];
+
+const CHANNEL_CONFIGS = {
+  finance: {
+    defaultSources: [
+      { name: "Federal Reserve Monetary Policy", type: "rss", url: "https://www.federalreserve.gov/feeds/press_monetary.xml" },
+      { name: "SEC Press Releases", type: "rss", url: "https://www.sec.gov/news/pressreleases.rss" },
+      { name: "ECB Press Releases", type: "rss", url: "https://www.ecb.europa.eu/rss/press.html" },
+      { name: "ECB Market Operations", type: "rss", url: "https://www.ecb.europa.eu/rss/operations.html" },
+      { name: "St. Louis Fed On the Economy", type: "rss", url: "https://www.stlouisfed.org/rss/page%20resources/publications/blog-entries" },
+      { name: "BIS Press Releases", type: "rss", url: "https://www.bis.org/doclist/all_pressrels.rss" },
+    ],
+  },
+  science: {
+    defaultSources: [
+      { name: "Nature", type: "rss", url: "https://www.nature.com/nature.rss" },
+      { name: "Science Magazine", type: "rss", url: "https://www.science.org/action/showFeed?type=etoc&feed=rss&jc=science" },
+      { name: "ScienceDaily Top Science", type: "rss", url: "https://www.sciencedaily.com/rss/top/science.xml" },
+      { name: "NASA News Releases", type: "rss", url: "https://www.nasa.gov/news-release/feed/" },
+      { name: "ESA Science", type: "rss", url: "https://sci.esa.int/web/newssyndication/rss/sciweb.xml" },
+      { name: "Nature Astronomy & Astrophysics", type: "rss", url: "https://www.nature.com/subjects/astronomy-and-astrophysics.rss" },
+    ],
+  },
+  ...Object.fromEntries(
+    EXTRA_CHANNEL_CONFIGS.map((config) => [
+      config.id,
+      {
+        defaultSources: Array.isArray(config.defaultSources) ? config.defaultSources : [],
+      },
+    ]),
+  ),
 };
+
+const CHANNELS = Object.keys(CHANNEL_CONFIGS);
+const DEFAULT_SOURCES = Object.fromEntries(
+  Object.entries(CHANNEL_CONFIGS).map(([channel, config]) => [channel, config.defaultSources || []]),
+);
 
 function getCacheKey(userId, channel) {
   return `${userId}:${channel}`;
@@ -45,11 +81,15 @@ function createContentId(channel, canonicalUrl) {
 async function ensureDefaultSources(store, userId, channel) {
   const scope = { userId };
   const existing = await store.listContentSources(scope, channel);
-  if (existing.length > 0) {
-    return existing;
-  }
   const defaults = DEFAULT_SOURCES[channel] || [];
+  const existingKeys = new Set(
+    existing.map((source) => `${String(source.type || "").trim()}::${String(source.url || "").trim()}`),
+  );
   for (const [index, source] of defaults.entries()) {
+    const dedupeKey = `${String(source.type || "").trim()}::${String(source.url || "").trim()}`;
+    if (existingKeys.has(dedupeKey)) {
+      continue;
+    }
     await store.createContentSource(scope, {
       id: crypto.randomUUID(),
       channel,
@@ -63,6 +103,7 @@ async function ensureDefaultSources(store, userId, channel) {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     });
+    existingKeys.add(dedupeKey);
   }
   return store.listContentSources(scope, channel);
 }
@@ -214,10 +255,18 @@ async function fetchSiteSource(source, channel, limit) {
     }
     const canonicalUrl = new URL(href, source.url).toString();
     const summaryRaw = cleanText(root.find("p").first().text()) || cleanText(root.text()).slice(0, 240);
+    const imageUrl = normalizeUrl(
+      root.find("img").first().attr("src") ||
+        root.find("img").first().attr("data-src") ||
+        root.find("img").first().attr("data-original") ||
+        "",
+      canonicalUrl,
+    );
     items.push({
       title,
       canonicalUrl,
       summaryRaw,
+      imageUrl,
       author: "",
       publishedAt: "",
       tags: [],
@@ -249,6 +298,7 @@ async function normalizeFeedItem(item, source, channel) {
       tags: normalizeTags(item.categories || item.category || []),
       type: inferContentType(channel, item),
       lang: inferLanguage(item.title || "", summaryRaw),
+      imageUrl: extractFeedItemImage(item, source.url, canonicalUrl),
     },
     source,
     channel,
@@ -264,6 +314,7 @@ async function normalizeContentItem(item, source, channel) {
   const summaryZh = localizeSummary(summaryRaw, item.title);
   const bodyRaw = truncate(summaryRaw || item.title || "", 320);
   const bodyZh = truncate(summaryZh || item.title || "", 320);
+  const imageUrl = await resolveContentImageUrl(item.imageUrl || "", item.canonicalUrl, source.url);
   return {
     id: createContentId(channel, item.canonicalUrl),
     channel,
@@ -281,7 +332,7 @@ async function normalizeContentItem(item, source, channel) {
     canonical_url: item.canonicalUrl,
     tags: item.tags || [],
     lang: item.lang || "unknown",
-    image_url: "",
+    image_url: imageUrl,
     fetched_at: fetchedAt,
     updated_at: fetchedAt,
     created_at: fetchedAt,
@@ -416,6 +467,136 @@ function cleanText(value) {
     .trim();
 }
 
+function extractFeedItemImage(item, sourceUrl, canonicalUrl) {
+  const htmlCandidates = [
+    item?.["content:encoded"],
+    item?.content,
+    item?.summary,
+    item?.description,
+  ];
+  const candidates = [
+    getImageCandidateFromValue(item?.enclosure),
+    getImageCandidateFromValue(item?.image),
+    getImageCandidateFromValue(item?.thumbnail),
+    getImageCandidateFromValue(item?.["media:thumbnail"]),
+    getImageCandidateFromValue(item?.["media:content"]),
+    getImageCandidateFromValue(item?.["media:group"]),
+    getImageCandidateFromValue(item?.["itunes:image"]),
+    ...htmlCandidates.map((value) => extractFirstImageFromHtml(value, canonicalUrl || sourceUrl)),
+  ];
+  return firstValidImageUrl(candidates, canonicalUrl || sourceUrl);
+}
+
+function getImageCandidateFromValue(value) {
+  if (!value) {
+    return "";
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const candidate = getImageCandidateFromValue(item);
+      if (candidate) {
+        return candidate;
+      }
+    }
+    return "";
+  }
+  if (typeof value === "object") {
+    const attributes = value.$ || value._attrs || {};
+    return (
+      value.url ||
+      value.href ||
+      value.src ||
+      value.link ||
+      value.image ||
+      attributes.url ||
+      attributes.href ||
+      attributes.src ||
+      ""
+    );
+  }
+  return "";
+}
+
+function extractFirstImageFromHtml(html, baseUrl) {
+  const markup = String(html || "").trim();
+  if (!markup || !/<img[\s>]/i.test(markup)) {
+    return "";
+  }
+  const $ = cheerio.load(markup);
+  const image = $("img").first();
+  return normalizeUrl(
+    image.attr("src") || image.attr("data-src") || image.attr("data-original") || "",
+    baseUrl,
+  );
+}
+
+function firstValidImageUrl(candidates, baseUrl) {
+  for (const candidate of candidates) {
+    const normalized = normalizeUrl(candidate, baseUrl);
+    if (normalized) {
+      return normalized;
+    }
+  }
+  return "";
+}
+
+function normalizeUrl(value, baseUrl) {
+  const raw = String(value || "").trim();
+  if (!raw || /^data:/i.test(raw)) {
+    return "";
+  }
+  try {
+    const normalized = new URL(raw, baseUrl).toString();
+    return /\.(?:jpe?g|png|webp|gif|avif|svg)(?:[?#].*)?$/i.test(normalized) ||
+      /\/image(?:[/?#]|$)/i.test(normalized) ||
+      /\/thumbnail(?:[/?#]|$)/i.test(normalized) ||
+      /format=|width=|height=|fit=|crop=/i.test(normalized)
+      ? normalized
+      : normalized;
+  } catch (error) {
+    return "";
+  }
+}
+
+async function resolveContentImageUrl(imageUrl, canonicalUrl, sourceUrl) {
+  const directImage = normalizeUrl(imageUrl, canonicalUrl || sourceUrl);
+  if (directImage) {
+    return directImage;
+  }
+  const articleUrl = normalizeUrl(canonicalUrl, sourceUrl);
+  if (!articleUrl) {
+    return "";
+  }
+  return fetchArticleImage(articleUrl);
+}
+
+async function fetchArticleImage(articleUrl) {
+  if (articleImageCache.has(articleUrl)) {
+    return articleImageCache.get(articleUrl);
+  }
+  const job = (async () => {
+    const html = await fetchText(articleUrl, ARTICLE_IMAGE_TIMEOUT_MS);
+    const $ = cheerio.load(html);
+    const imageCandidates = [
+      $('meta[property="og:image"]').attr("content"),
+      $('meta[name="twitter:image"]').attr("content"),
+      $('meta[property="twitter:image"]').attr("content"),
+      $('link[rel="image_src"]').attr("href"),
+      $("article img").first().attr("src"),
+      $("main img").first().attr("src"),
+      $("img").first().attr("src"),
+    ];
+    return firstValidImageUrl(imageCandidates, articleUrl);
+  })().catch(() => "");
+  articleImageCache.set(articleUrl, job);
+  const resolved = await job;
+  articleImageCache.set(articleUrl, Promise.resolve(resolved));
+  return resolved;
+}
+
 function localizeSummary(summaryRaw, title) {
   if (containsChinese(summaryRaw)) {
     return truncate(summaryRaw, 180);
@@ -458,7 +639,10 @@ function inferContentType(channel, item) {
   if (text.includes("earnings") || text.includes("markets")) {
     return "市场新闻";
   }
-  return "财经资讯";
+  if (channel === "finance") {
+    return "财经资讯";
+  }
+  return "资讯";
 }
 
 function truncate(text, length) {
@@ -470,9 +654,9 @@ function normalizeDateString(value) {
   return Number.isNaN(date.getTime()) ? "" : date.toISOString();
 }
 
-async function fetchText(url) {
+async function fetchText(url, timeoutMs = FETCH_TIMEOUT_MS) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(url, {
       signal: controller.signal,
@@ -505,4 +689,5 @@ module.exports = {
   getChannelCacheStatus,
   clearContentCache,
   createContentId,
+  extractFeedItemImage,
 };

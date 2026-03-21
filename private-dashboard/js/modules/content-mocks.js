@@ -23,10 +23,22 @@ const mockContentCatalog = {
     ["类器官模型应用拓展", "疾病筛选与药效验证更加可控。", "Cell Notes", "快讯"],
     ["量子误差校正新策略", "更低冗余开销提升实际部署可行性。", "Quantum Weekly", "分析"],
   ],
+  ai: [
+    ["开源推理框架继续提速", "端侧与云侧部署的成本曲线都在往下压。", "Hugging Face Blog", "模型"],
+    ["多模态模型评测维度扩展", "图文理解与工具调用被拉到同一基线上比较。", "OpenAI News", "评测"],
+    ["AI Agent 基础设施演进", "编排、记忆和长期任务执行开始成为主战场。", "Google AI", "产品"],
+    ["论文刷新生成式方法上限", "训练配方和数据治理仍然是效果差异的关键变量。", "arXiv AI", "论文"],
+    ["推理芯片生态继续洗牌", "模型侧优化开始深度反向影响算力选型。", "Model Systems", "芯片"],
+    ["企业知识库接入策略升级", "检索、权限和审计成为落地阶段的重点。", "Enterprise AI", "应用"],
+  ],
 };
 
 export function buildMockContent(channel) {
-  const base = mockContentCatalog[channel] || [];
+  const fallback = [
+    ["频道观察", "这是一个待接入真实 RSS 的自定义频道示例。", "Custom Feed", "资讯"],
+    ["新增频道已准备好", "你可以在配置中继续添加专属信源。", "LifeFlow", "更新"],
+  ];
+  const base = mockContentCatalog[channel] || fallback;
   return Array.from({ length: 30 }, (_, index) => {
     const item = base[index % base.length];
     const publishedAt = new Date(Date.now() - index * 6 * 60 * 60 * 1000).toISOString();
@@ -42,11 +54,11 @@ export function buildMockContent(channel) {
       source_name: item[2],
       source_url: externalUrl,
       canonical_url: externalUrl,
-      author: channel === "science" ? "编辑部" : "市场编辑",
+      author: channel === "science" ? "编辑部" : channel === "ai" ? "模型情报台" : "市场编辑",
       published_at: publishedAt,
       fetched_at: publishedAt,
       content_type: item[3],
-      tags: [channel === "science" ? "研究" : "市场", item[3]],
+      tags: [channel === "science" ? "研究" : channel === "ai" ? "AI" : "市场", item[3]],
       lang: "zh",
       is_featured: index < 3,
       is_favorite: false,

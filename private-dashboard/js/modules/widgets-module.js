@@ -3,6 +3,7 @@ export function createWidgetsModule(deps) {
   const {
     state,
     elements,
+    contentTabs,
     defaultWidgets,
     escapeHtml,
     escapeAttribute,
@@ -278,13 +279,18 @@ export function createWidgetsModule(deps) {
   function renderSettingsForm(widget) {
     if (widget === "favorites") {
       const config = state.data.preferences.widgets.favorites;
+      const channelOptions = [
+        `<option value="all" ${config.channel === "all" ? "selected" : ""}>全部频道</option>`,
+        ...contentTabs.map(
+          (tab) =>
+            `<option value="${escapeAttribute(tab.id)}" ${config.channel === tab.id ? "selected" : ""}>仅 ${escapeHtml(tab.label)}</option>`,
+        ),
+      ].join("");
       return `
         <label class="settings-field">
           <span class="widget-label">显示范围</span>
           <select name="favoritesChannel">
-            <option value="all" ${config.channel === "all" ? "selected" : ""}>Finance + Science</option>
-            <option value="finance" ${config.channel === "finance" ? "selected" : ""}>仅 Finance</option>
-            <option value="science" ${config.channel === "science" ? "selected" : ""}>仅 Science</option>
+            ${channelOptions}
           </select>
         </label>
         <div class="settings-actions">

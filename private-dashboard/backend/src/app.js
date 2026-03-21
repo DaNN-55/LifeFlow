@@ -143,7 +143,11 @@ const weatherQuerySchema = z.object({
   query: z.string().min(1).max(120).optional(),
 });
 
-const contentChannelSchema = z.enum(CHANNELS);
+const contentChannelSchema = z
+  .string()
+  .min(1)
+  .max(40)
+  .refine((channel) => CHANNELS.includes(channel), "Invalid content channel");
 
 const contentListQuerySchema = z.object({
   channel: contentChannelSchema,

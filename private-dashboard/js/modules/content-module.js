@@ -3,12 +3,18 @@ import {
   getContentCardExcerpt,
   getContentMetaText,
   getSafeContentLink,
+  getContentSourceIconUrl,
+  getContentThumbnailLabel,
+  getContentThumbnailUrl,
 } from "./content-helpers.js";
 
 export function createContentModule(deps) {
   const {
     state,
     elements,
+    contentChannelIds,
+    contentTabs,
+    getContentTabConfig,
     escapeHtml,
     escapeAttribute,
     formatDateTime,
@@ -24,28 +30,7 @@ export function createContentModule(deps) {
   let contentSearchDebounceTimer = null;
 
   function getContentElements(channel) {
-    if (channel === "finance") {
-      return {
-        search: elements.financeSearch,
-        tagFilter: elements.financeTagFilter,
-        sourceFilter: elements.financeSourceFilter,
-        favoriteFilter: elements.financeFavoriteFilter,
-        sortFilter: elements.financeSortFilter,
-        meta: elements.financeContentMeta,
-        grid: elements.financeContentGrid,
-        pagination: elements.financeContentPagination,
-      };
-    }
-    return {
-      search: elements.scienceSearch,
-      tagFilter: elements.scienceTagFilter,
-      sourceFilter: elements.scienceSourceFilter,
-      favoriteFilter: elements.scienceFavoriteFilter,
-      sortFilter: elements.scienceSortFilter,
-      meta: elements.scienceContentMeta,
-      grid: elements.scienceContentGrid,
-      pagination: elements.scienceContentPagination,
-    };
+    return elements.contentByChannel?.[channel] || null;
   }
 
   function renderFeedInto(container, items, channel) {
@@ -75,12 +60,16 @@ export function createContentModule(deps) {
   }
 
   function renderFeeds() {
-    renderFeedInto(elements.financeFeed, state.content.finance.featured, "finance");
-    renderFeedInto(elements.scienceFeed, state.content.science.featured, "science");
+    if (elements.financeFeed && state.content.finance) {
+      renderFeedInto(elements.financeFeed, state.content.finance.featured, "finance");
+    }
+    if (elements.scienceFeed && state.content.science) {
+      renderFeedInto(elements.scienceFeed, state.content.science.featured, "science");
+    }
   }
 
   function getContentChannelState(channel) {
-    return channel === "science" ? state.content.science : state.content.finance;
+    return state.content[channel] || null;
   }
 
   function getContentPreferences() {
@@ -210,7 +199,7 @@ export function createContentModule(deps) {
   }
 
   function scrollContentChannelToTop(channel) {
-    const view = channel === "science" ? elements.scienceView : elements.financeView;
+    const view = getContentElements(channel)?.view;
     const shell = view?.querySelector(".content-stream-shell");
     if (!shell) {
       return;
@@ -221,7 +210,7 @@ export function createContentModule(deps) {
   function renderContentChannel(channel) {
     const contentState = state.content[channel];
     const channelElements = getContentElements(channel);
-    if (!channelElements.grid) {
+    if (!contentState || !channelElements?.grid) {
       return;
     }
 
@@ -267,58 +256,83 @@ export function createContentModule(deps) {
 
     channelElements.grid.innerHTML = contentState.items
       .map(
-        (item) => `
+        (item) => {
+          const thumbnailUrl = getContentThumbnailUrl(item);
+          const contentLink = getSafeContentLink(item);
+          const sourceLabel = item.source_name || "未知来源";
+          const sourceIconUrl = getContentSourceIconUrl(item);
+          const publishedAt = formatDateTime(item.published_at || item.fetched_at);
+          return `
           <article class="content-card ${item.is_favorite ? "is-favorited" : ""} ${isContentItemRead(item) ? "is-read" : ""}">
-            <div class="content-card-main">
-              <h3>${escapeHtml(item.title)}</h3>
-              <p>${escapeHtml(getContentCardExcerpt(item))}</p>
-              <div class="content-card-footer">
-                <span>${escapeHtml(item.source_name || "未知来源")}</span>
-                <span>${escapeHtml(item.author || "未知作者")}</span>
-                <span>${escapeHtml(formatDateTime(item.published_at || item.fetched_at))}</span>
-              </div>
-            </div>
-            <div class="content-card-side">
+            <div class="content-card-thumb ${thumbnailUrl ? "has-image" : "is-fallback"}" aria-hidden="true">
               ${
-                Array.isArray(item.tags) && item.tags.length
-                  ? `<div class="content-card-tags">${item.tags
-                      .slice(0, 4)
-                      .map((tag) => renderContentTag(tag, item.channel))
-                      .join("")}</div>`
-                  : `<div class="content-card-tags">${renderContentTag("资讯", item.channel)}</div>`
+                thumbnailUrl
+                  ? `<img src="${escapeAttribute(thumbnailUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer" />`
+                  : `<span class="content-card-thumb-badge">${escapeHtml(getContentThumbnailLabel(item))}</span>`
               }
-              <div class="content-card-actions">
-                <button
-                  type="button"
-                  class="content-read-button ${isContentItemRead(item) ? "is-active" : ""}"
-                  data-content-read-toggle="${escapeAttribute(item.id)}"
-                >
-                  ${isContentItemRead(item) ? "已读" : "未读"}
-                </button>
-                <button
-                  type="button"
-                  class="content-favorite-button ${item.is_favorite ? "is-active" : ""}"
-                  data-content-favorite="${escapeAttribute(item.id)}"
-                  aria-label="${item.is_favorite ? "取消收藏" : "收藏资讯"}"
-                >
-                  ${item.is_favorite ? "取消收藏" : "收藏"}
-                </button>
+            </div>
+            <div class="content-card-body">
+              <div class="content-card-main">
+                <h3>
+                  ${
+                    contentLink
+                      ? `<a
+                          href="${escapeAttribute(contentLink)}"
+                          target="_blank"
+                          rel="noreferrer"
+                          class="content-title-link"
+                          data-content-open-link="${escapeAttribute(contentLink)}"
+                          data-content-item-id="${escapeAttribute(item.id)}"
+                        >${escapeHtml(item.title)}</a>`
+                      : escapeHtml(item.title)
+                  }
+                </h3>
+                <p class="content-card-summary">${escapeHtml(getContentCardExcerpt(item))}</p>
+                <div class="content-card-meta-row">
+                  <div class="content-card-meta">
+                    <span class="content-card-source">
+                      ${
+                        sourceIconUrl
+                          ? `<img class="content-source-icon" src="${escapeAttribute(sourceIconUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.hidden=true" />`
+                          : ""
+                      }
+                      <span>${escapeHtml(sourceLabel)}</span>
+                    </span>
+                    <span>${escapeHtml(publishedAt)}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="content-card-footer">
                 ${
-                  getSafeContentLink(item)
-                    ? `<button
-                        type="button"
-                        class="content-link-inline"
-                        data-content-open-link="${escapeAttribute(getSafeContentLink(item))}"
-                        data-content-item-id="${escapeAttribute(item.id)}"
-                      >
-                        查看原文
-                      </button>`
-                    : ""
+                  Array.isArray(item.tags) && item.tags.length
+                    ? `<div class="content-card-tags">${item.tags
+                        .slice(0, 4)
+                        .map((tag) => renderContentTag(tag, item.channel))
+                        .join("")}</div>`
+                    : `<div class="content-card-tags">${renderContentTag("资讯", item.channel)}</div>`
                 }
+                <div class="content-card-actions">
+                  <button
+                    type="button"
+                    class="content-read-button ${isContentItemRead(item) ? "is-active" : ""}"
+                    data-content-read-toggle="${escapeAttribute(item.id)}"
+                  >
+                    ${isContentItemRead(item) ? "已读" : "未读"}
+                  </button>
+                  <button
+                    type="button"
+                    class="content-favorite-button ${item.is_favorite ? "is-active" : ""}"
+                    data-content-favorite="${escapeAttribute(item.id)}"
+                    aria-label="${item.is_favorite ? "取消收藏" : "收藏资讯"}"
+                  >
+                    ${item.is_favorite ? "取消收藏" : "收藏"}
+                  </button>
+                </div>
               </div>
             </div>
           </article>
-        `,
+        `;
+        },
       )
       .join("");
 
@@ -335,8 +349,7 @@ export function createContentModule(deps) {
   }
 
   function renderContentStreams() {
-    renderContentChannel("finance");
-    renderContentChannel("science");
+    contentChannelIds.forEach((channel) => renderContentChannel(channel));
   }
 
   function renderContentSourceModal() {
@@ -348,7 +361,7 @@ export function createContentModule(deps) {
     if (!channel) {
       return;
     }
-    const channelLabel = channel === "science" ? "Science" : "Finance";
+    const channelLabel = getContentTabConfig(channel)?.label || channel;
     elements.contentSourceTitle.textContent = `${channelLabel} 信源管理`;
     const sources = state.content[channel].sources || [];
     const hiddenSources = sources.filter((source) => isSourceHidden(channel, source.id));
@@ -463,11 +476,13 @@ export function createContentModule(deps) {
       return;
     }
     try {
-      const [financePayload, sciencePayload] = await Promise.all([
-        fetchApiJson("/api/content?channel=finance&page=1&pageSize=3&favorite=favorites&sort=latest"),
-        fetchApiJson("/api/content?channel=science&page=1&pageSize=3&favorite=favorites&sort=latest"),
-      ]);
-      const merged = [...(financePayload?.items || []), ...(sciencePayload?.items || [])]
+      const payloads = await Promise.all(
+        contentChannelIds.map((channel) =>
+          fetchApiJson(`/api/content?channel=${encodeURIComponent(channel)}&page=1&pageSize=3&favorite=favorites&sort=latest`),
+        ),
+      );
+      const merged = payloads
+        .flatMap((payload) => payload?.items || [])
         .sort((left, right) => {
           const leftTime = new Date(left.published_at || left.favorited_at || left.created_at || 0).getTime();
           const rightTime = new Date(right.published_at || right.favorited_at || right.created_at || 0).getTime();
@@ -631,10 +646,10 @@ export function createContentModule(deps) {
     }
     const sidebar = getSidebarPreferences();
     const jobs = [];
-    if (sidebar.financeFeed && state.content.finance.featured.length === 0) {
+    if (sidebar.financeFeed && state.content.finance?.featured.length === 0) {
       jobs.push(refreshChannelContentManually("finance", { silent: true, markAuto: true, featuredOnly: true }));
     }
-    if (sidebar.scienceFeed && state.content.science.featured.length === 0) {
+    if (sidebar.scienceFeed && state.content.science?.featured.length === 0) {
       jobs.push(refreshChannelContentManually("science", { silent: true, markAuto: true, featuredOnly: true }));
     }
     if (!jobs.length) {
@@ -645,12 +660,12 @@ export function createContentModule(deps) {
   }
 
   function findLocalContentItem(itemId) {
-    return [
-      ...state.content.finance.items,
-      ...state.content.finance.featured,
-      ...state.content.science.items,
-      ...state.content.science.featured,
-    ].find((item) => item.id === itemId);
+    return contentChannelIds
+      .flatMap((channel) => [
+        ...(state.content[channel]?.items || []),
+        ...(state.content[channel]?.featured || []),
+      ])
+      .find((item) => item.id === itemId);
   }
 
   async function toggleContentFavorite(itemId) {
@@ -717,9 +732,11 @@ export function createContentModule(deps) {
     const preferences = getContentPreferences();
     if (isContentItemRead(item)) {
       delete preferences.readItems[key];
+      renderContentChannel(item.channel);
       await persistContentPreferences("已标记为未读");
     } else {
       preferences.readItems[key] = new Date().toISOString();
+      renderContentChannel(item.channel);
       await persistContentPreferences(options.silent ? "" : "已标记为已读");
     }
     const contentState = getContentChannelState(item.channel);
@@ -822,7 +839,7 @@ export function createContentModule(deps) {
   }
 
   async function ensureContentChannelLoaded(channel, options = {}) {
-    if (!state.auth.user || !["finance", "science"].includes(channel)) {
+    if (!state.auth.user || !contentChannelIds.includes(channel)) {
       return;
     }
     const contentState = getContentChannelState(channel);
@@ -865,23 +882,17 @@ export function createContentModule(deps) {
   }
 
   function getContentChannelFromControl(control) {
-    if (
-      control === elements.financeSearch ||
-      control === elements.financeTagFilter ||
-      control === elements.financeSourceFilter ||
-      control === elements.financeFavoriteFilter ||
-      control === elements.financeSortFilter
-    ) {
-      return "finance";
-    }
-    if (
-      control === elements.scienceSearch ||
-      control === elements.scienceTagFilter ||
-      control === elements.scienceSourceFilter ||
-      control === elements.scienceFavoriteFilter ||
-      control === elements.scienceSortFilter
-    ) {
-      return "science";
+    for (const channel of contentChannelIds) {
+      const channelElements = getContentElements(channel);
+      if (
+        control === channelElements?.search ||
+        control === channelElements?.tagFilter ||
+        control === channelElements?.sourceFilter ||
+        control === channelElements?.favoriteFilter ||
+        control === channelElements?.sortFilter
+      ) {
+        return channel;
+      }
     }
     return "";
   }
@@ -932,7 +943,7 @@ export function createContentModule(deps) {
     if (pageTarget) {
       const [channel, pageValue] = String(pageTarget.dataset.contentPage || "").split(":");
       const page = Number(pageValue);
-      if (["finance", "science"].includes(channel) && Number.isFinite(page) && page > 0) {
+      if (contentChannelIds.includes(channel) && Number.isFinite(page) && page > 0) {
         scrollContentChannelToTop(channel);
         void loadChannelContent(channel, { page });
       }
@@ -990,15 +1001,18 @@ export function createContentModule(deps) {
       const link = String(linkTarget.dataset.contentOpenLink || "").trim();
       if (link) {
         void toggleContentRead(linkTarget.dataset.contentItemId || "", { silent: true });
-        window.open(link, "_blank", "noopener,noreferrer");
+        if (linkTarget.tagName !== "A") {
+          event.preventDefault();
+          window.open(link, "_blank", "noopener,noreferrer");
+        }
       }
       return;
     }
 
     const favoritesJump = event.target.closest("[data-favorites-jump]");
     if (favoritesJump) {
-      const channel = favoritesJump.dataset.favoritesJump || "finance";
-      if (channel === "finance" || channel === "science") {
+      const channel = favoritesJump.dataset.favoritesJump || contentChannelIds[0] || "finance";
+      if (contentChannelIds.includes(channel)) {
         state.activeAppTab = channel;
         renderTopTabs();
         scrollContentChannelToTop(channel);

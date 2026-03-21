@@ -1,6 +1,7 @@
 export function createRemoteModule(deps) {
   const {
     state,
+    contentChannelIds,
     API_BASE_STORAGE_KEY,
     API_PROBE_TIMEOUT_MS,
     API_SEED_PREFIX,
@@ -800,20 +801,18 @@ export function createRemoteModule(deps) {
   }
 
   function clearContentCacheForUser() {
-    state.content.finance.items = [];
-    state.content.finance.featured = [];
-    state.content.finance.total = 0;
-    state.content.finance.loaded = false;
-    state.content.finance.lastRefreshedAt = "";
-    state.content.finance.lastRefreshStats = null;
-    state.content.finance.error = "";
-    state.content.science.items = [];
-    state.content.science.featured = [];
-    state.content.science.total = 0;
-    state.content.science.loaded = false;
-    state.content.science.lastRefreshedAt = "";
-    state.content.science.lastRefreshStats = null;
-    state.content.science.error = "";
+    contentChannelIds.forEach((channel) => {
+      if (!state.content[channel]) {
+        return;
+      }
+      state.content[channel].items = [];
+      state.content[channel].featured = [];
+      state.content[channel].total = 0;
+      state.content[channel].loaded = false;
+      state.content[channel].lastRefreshedAt = "";
+      state.content[channel].lastRefreshStats = null;
+      state.content[channel].error = "";
+    });
   }
 
   async function flushPendingSync() {

@@ -2,6 +2,7 @@ export function createUiModule(deps) {
   const {
     state,
     elements,
+    contentChannelIds,
     createInitialData,
     ensureRecord,
     getCompletedCount,
@@ -48,8 +49,12 @@ export function createUiModule(deps) {
       );
     });
     elements.homeView.hidden = state.activeAppTab !== "home";
-    elements.financeView.hidden = state.activeAppTab !== "finance";
-    elements.scienceView.hidden = state.activeAppTab !== "science";
+    contentChannelIds.forEach((channel) => {
+      const view = elements.contentByChannel?.[channel]?.view;
+      if (view) {
+        view.hidden = state.activeAppTab !== channel;
+      }
+    });
   }
 
   function renderCenterTabs() {
@@ -144,11 +149,30 @@ export function createUiModule(deps) {
     const month = date.getMonth();
     const firstCell = getStartOfWeek(new Date(date.getFullYear(), month, 1));
     const cells = [];
+    const todayKey = formatDateKey(new Date());
+    const activeTaskCount = Math.max(1, getActiveTaskTypes().length);
 
-    elements.calendarMonthLabel.textContent = new Intl.DateTimeFormat("zh-CN", {
-      year: "numeric",
-      month: "long",
-    }).format(date);
+    const year = String(date.getFullYear()).slice(-2);
+    const monthLabel = `${date.getMonth() + 1}`.padStart(2, "0");
+    const dayLabelShort = `${date.getDate()}`.padStart(2, "0");
+    elements.calendarMonthLabel.textContent = `${year}/${monthLabel}/${dayLabelShort}`;
+
+    function getHeatLevel(completedCount) {
+      if (completedCount <= 0) {
+        return 0;
+      }
+      const ratio = completedCount / activeTaskCount;
+      if (ratio >= 1 || completedCount >= 4) {
+        return 4;
+      }
+      if (ratio >= 0.72 || completedCount >= 3) {
+        return 3;
+      }
+      if (ratio >= 0.4 || completedCount >= 2) {
+        return 2;
+      }
+      return 1;
+    }
 
     for (
       let current = new Date(firstCell);
@@ -156,15 +180,26 @@ export function createUiModule(deps) {
       current = addDays(current, 1)
     ) {
       const currentKey = formatDateKey(current);
+      const record = state.data.dailyRecords[currentKey];
+      const completedCount = record ? getCompletedCount(record) : 0;
+      const level = getHeatLevel(completedCount);
+      const dayLabel = new Intl.DateTimeFormat("zh-CN", {
+        month: "numeric",
+        day: "numeric",
+        weekday: "short",
+      }).format(current);
+      const taskLabel = completedCount > 0 ? `完成 ${completedCount} 项任务` : "暂无完成任务";
       cells.push(`
         <button
           type="button"
-          class="calendar-day ${current.getMonth() === month ? "" : "is-muted"} ${
+          class="calendar-day level-${level} ${current.getMonth() === month ? "" : "is-muted"} ${
             currentKey === state.selectedDate ? "is-selected" : ""
-          }"
+          } ${currentKey === todayKey ? "is-today" : ""}"
           data-calendar-date="${currentKey}"
+          aria-label="${dayLabel}，${taskLabel}"
+          title="${dayLabel} · ${taskLabel}"
         >
-          ${current.getDate()}
+          <span class="calendar-day-dot" aria-hidden="true"></span>
         </button>
       `);
     }

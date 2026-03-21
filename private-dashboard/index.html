@@ -56,6 +56,7 @@
           <button type="button" class="top-tab" data-app-tab="science">
             Science
           </button>
+          <div id="dynamic-content-tabs"></div>
         </nav>
 
         <div class="nav-actions">
@@ -143,7 +144,7 @@
             <div class="section-head">
               <div>
                 <p class="panel-kicker">Schedule</p>
-                <h2 id="calendar-title">Calendar</h2>
+                <h2 id="calendar-title">Heatmap</h2>
               </div>
               <span class="section-meta mono" id="calendar-month-label"></span>
             </div>
@@ -453,6 +454,7 @@
           <section
             id="finance-view"
             class="stage-view content-stream-view"
+            data-content-view="finance"
             hidden
           >
             <div class="content-stream-shell">
@@ -528,6 +530,7 @@
           <section
             id="science-view"
             class="stage-view content-stream-view"
+            data-content-view="science"
             hidden
           >
             <div class="content-stream-shell">
@@ -599,6 +602,7 @@
               ></div>
             </div>
           </section>
+          <div id="dynamic-content-views"></div>
         </section>
 
         <aside class="right-rail">

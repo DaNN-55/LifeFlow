@@ -13,9 +13,13 @@ import {
   STORAGE_VERSION,
   TASK_COLOR_PALETTES,
   WEATHER_CACHE_STORAGE_KEY,
+  contentChannelIds,
+  contentTabs,
+  createInitialContentStateMap,
   createInitialContentChannelState,
   defaultTasks,
   defaultWidgets,
+  getContentTabConfig,
 } from "./modules/app-config.js";
 import { createAccountModule } from "./modules/account-module.js";
 import { createAggregationModule } from "./modules/aggregation-module.js";
@@ -76,6 +80,105 @@ import { createUiModule } from "./modules/ui-module.js";
 import { createWeeklyModule } from "./modules/weekly-module.js";
 import { createWidgetsModule } from "./modules/widgets-module.js";
 
+function buildDynamicContentViewMarkup(tab) {
+  const channel = tab.id;
+  return `
+    <section id="${channel}-view" class="stage-view content-stream-view" data-content-view="${channel}" hidden>
+      <div class="content-stream-shell">
+        <div class="panel-header">
+          <div>
+            <p class="panel-kicker">${escapeHtml(tab.panelKicker)}</p>
+            <h1>${escapeHtml(tab.heading)}</h1>
+          </div>
+          <div class="content-stream-actions">
+            <button type="button" class="task-cancel-action" data-content-open-sources="${escapeAttribute(channel)}">
+              管理信源
+            </button>
+            <button type="button" class="settings-save" data-content-refresh="${escapeAttribute(channel)}">
+              刷新资讯
+            </button>
+          </div>
+        </div>
+        <div id="${channel}-content-meta" class="content-stream-meta" hidden></div>
+        <div class="content-toolbar">
+          <label class="content-toolbar-field content-toolbar-search">
+            <span class="weekly-filter-label">搜索</span>
+            <input id="${channel}-search" type="search" placeholder="${escapeAttribute(tab.searchPlaceholder)}" />
+          </label>
+          <label class="content-toolbar-field">
+            <span class="weekly-filter-label">标签</span>
+            <select id="${channel}-tag-filter"></select>
+          </label>
+          <label class="content-toolbar-field">
+            <span class="weekly-filter-label">来源</span>
+            <select id="${channel}-source-filter"></select>
+          </label>
+          <label class="content-toolbar-field">
+            <span class="weekly-filter-label">范围</span>
+            <select id="${channel}-favorite-filter">
+              <option value="all">全部资讯</option>
+              <option value="favorites">仅看收藏</option>
+              <option value="unread">未读</option>
+              <option value="read">已读</option>
+            </select>
+          </label>
+          <label class="content-toolbar-field">
+            <span class="weekly-filter-label">排序</span>
+            <select id="${channel}-sort-filter">
+              <option value="latest">最新优先</option>
+              <option value="oldest">最早优先</option>
+            </select>
+          </label>
+        </div>
+        <div id="${channel}-content-grid" class="content-masonry" aria-live="polite"></div>
+        <div id="${channel}-content-pagination" class="content-pagination"></div>
+      </div>
+    </section>
+  `;
+}
+
+function bootstrapExtraContentTabs() {
+  const tabsMount = document.querySelector("#dynamic-content-tabs");
+  const viewsMount = document.querySelector("#dynamic-content-views");
+  if (!tabsMount || !viewsMount) {
+    return;
+  }
+  contentTabs
+    .filter((tab) => !["finance", "science"].includes(tab.id))
+    .forEach((tab) => {
+      if (!document.querySelector(`[data-app-tab="${tab.id}"]`)) {
+        tabsMount.insertAdjacentHTML(
+          "beforeend",
+          `<button type="button" class="top-tab" data-app-tab="${escapeAttribute(tab.id)}">${escapeHtml(tab.label)}</button>`,
+        );
+      }
+      if (!document.querySelector(`#${tab.id}-view`)) {
+        viewsMount.insertAdjacentHTML("beforeend", buildDynamicContentViewMarkup(tab));
+      }
+    });
+}
+
+function buildContentChannelElements() {
+  return Object.fromEntries(
+    contentTabs.map((tab) => [
+      tab.id,
+      {
+        view: document.querySelector(`#${tab.id}-view`),
+        search: document.querySelector(`#${tab.id}-search`),
+        tagFilter: document.querySelector(`#${tab.id}-tag-filter`),
+        sourceFilter: document.querySelector(`#${tab.id}-source-filter`),
+        favoriteFilter: document.querySelector(`#${tab.id}-favorite-filter`),
+        sortFilter: document.querySelector(`#${tab.id}-sort-filter`),
+        meta: document.querySelector(`#${tab.id}-content-meta`),
+        grid: document.querySelector(`#${tab.id}-content-grid`),
+        pagination: document.querySelector(`#${tab.id}-content-pagination`),
+      },
+    ]),
+  );
+}
+
+bootstrapExtraContentTabs();
+
 const elements = {
   body: document.body,
   appFrame: document.querySelector(".app-frame"),
@@ -112,6 +215,8 @@ const elements = {
   taskList: document.querySelector("#task-list"),
   weeklyReviewList: document.querySelector("#weekly-review-list"),
   homeView: document.querySelector("#home-view"),
+  contentByChannel: buildContentChannelElements(),
+  contentViews: document.querySelectorAll("[data-content-view]"),
   financeView: document.querySelector("#finance-view"),
   scienceView: document.querySelector("#science-view"),
   financeSearch: document.querySelector("#finance-search"),
@@ -247,8 +352,7 @@ const state = {
     feedback: "",
   },
   content: {
-    finance: createInitialContentChannelState("finance"),
-    science: createInitialContentChannelState("science"),
+    ...createInitialContentStateMap(),
     sourceModalChannel: "",
     sourceEditingId: "",
   },
@@ -316,6 +420,7 @@ const {
 const widgetsModule = createWidgetsModule({
   state,
   elements,
+  contentTabs,
   defaultWidgets,
   escapeHtml,
   escapeAttribute,
@@ -437,6 +542,7 @@ const {
 
 const remoteModule = createRemoteModule({
   state,
+  contentChannelIds,
   API_BASE_STORAGE_KEY,
   API_PROBE_TIMEOUT_MS,
   API_SEED_PREFIX,
@@ -586,6 +692,7 @@ const {
 const uiModule = createUiModule({
   state,
   elements,
+  contentChannelIds,
   createInitialData,
   ensureRecord,
   getCompletedCount,
@@ -618,6 +725,9 @@ const {
 const contentModule = createContentModule({
   state,
   elements,
+  contentChannelIds,
+  contentTabs,
+  getContentTabConfig,
   escapeHtml,
   escapeAttribute,
   formatDateTime,
@@ -660,6 +770,7 @@ const {
 const handlersModule = createHandlersModule({
   state,
   elements,
+  contentChannelIds,
   ensureRecord,
   formatDisplayDate,
   parseLocalDate,

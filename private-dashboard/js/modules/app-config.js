@@ -12,6 +12,36 @@ export const API_PROBE_TIMEOUT_MS = 1500;
 export const LOCAL_SCOPE_KEY = "__local__";
 export const CONTENT_PAGE_SIZE = 10;
 
+export const contentBaseTabs = [
+  {
+    id: "finance",
+    label: "Finance",
+    heading: "Finance",
+    panelKicker: "Market pulse",
+    searchPlaceholder: "搜索标题、摘要或来源",
+  },
+  {
+    id: "science",
+    label: "Science",
+    heading: "Science",
+    panelKicker: "Research radar",
+    searchPlaceholder: "搜索标题、摘要或来源",
+  },
+];
+
+export const contentExtraTabs = [
+  {
+    id: "ai",
+    label: "AI",
+    heading: "AI",
+    panelKicker: "Model watch",
+    searchPlaceholder: "搜索标题、摘要或来源",
+  },
+];
+
+export const contentTabs = Object.freeze([...contentBaseTabs, ...contentExtraTabs]);
+export const contentChannelIds = contentTabs.map((tab) => tab.id);
+
 export const defaultTasks = [
   { id: "task1", name: "任务1", order: 1, color: "#4f46e5" },
   { id: "task2", name: "任务2", order: 2, color: "#0f766e" },
@@ -74,4 +104,23 @@ export function createInitialContentChannelState(channel) {
     error: "",
     meta: "",
   };
+}
+
+export function createInitialContentStateMap() {
+  return contentChannelIds.reduce((accumulator, channel) => {
+    accumulator[channel] = createInitialContentChannelState(channel);
+    return accumulator;
+  }, {});
+}
+
+export function getContentTabConfig(channel) {
+  return (
+    contentTabs.find((tab) => tab.id === channel) || {
+      id: channel,
+      label: channel,
+      heading: channel,
+      panelKicker: "Curated feed",
+      searchPlaceholder: "搜索标题、摘要或来源",
+    }
+  );
 }
