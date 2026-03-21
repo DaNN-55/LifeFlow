@@ -11,6 +11,8 @@ export const SAFETY_BACKUP_STORAGE_KEY = "lifeflow-private-dashboard-safety-back
 export const API_PROBE_TIMEOUT_MS = 1500;
 export const LOCAL_SCOPE_KEY = "__local__";
 export const CONTENT_PAGE_SIZE = 10;
+export const DEFAULT_RSSHUB_INSTANCE = "https://rsshub.zhsh.me";
+export const CONTENT_SOURCE_BUNDLE_VERSION = "rsshub-defaults-v2";
 
 export const contentBaseTabs = [
   {

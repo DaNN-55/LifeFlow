@@ -4,9 +4,12 @@ import {
   getContentMetaText,
   getSafeContentLink,
   getContentSourceIconUrl,
-  getContentThumbnailLabel,
   getContentThumbnailUrl,
 } from "./content-helpers.js";
+
+const FALLBACK_CONTENT_IMAGE = "./assets/no-image.png";
+const CONTENT_IMAGE_SANITY_HANDLER =
+  "var thumb=this.closest('.content-card-thumb');if(this.dataset.fallbackApplied==='1'){if(thumb){thumb.classList.add('is-fallback-image');}return;}var w=this.naturalWidth||0;var h=this.naturalHeight||0;var ratio=h?w/h:0;if(w<120||h<80||ratio>4||ratio<0.45){this.dataset.fallbackApplied='1';if(thumb){thumb.classList.add('is-fallback-image');}this.src='./assets/no-image.png';return;}if(thumb){thumb.classList.remove('is-fallback-image');}";
 
 export function createContentModule(deps) {
   const {
@@ -15,6 +18,8 @@ export function createContentModule(deps) {
     contentChannelIds,
     contentTabs,
     getContentTabConfig,
+    CONTENT_SOURCE_BUNDLE_VERSION,
+    DEFAULT_RSSHUB_INSTANCE,
     escapeHtml,
     escapeAttribute,
     formatDateTime,
@@ -25,9 +30,82 @@ export function createContentModule(deps) {
     saveAccountPreferencesRemote,
     renderTopTabs,
     renderWidgets,
+    syncToolbarFilterControls,
     setSaveStatus,
   } = deps;
   let contentSearchDebounceTimer = null;
+  let sourceBundleMigrationPromise = null;
+
+  function formatContentSourceType(type = "") {
+    if (type === "rsshub") {
+      return "RSSHub";
+    }
+    if (type === "site") {
+      return "网站";
+    }
+    return "RSS / Atom";
+  }
+
+  function normalizeRsshubInstance(value = "") {
+    return String(value || DEFAULT_RSSHUB_INSTANCE || "https://rsshub.app")
+      .trim()
+      .replace(/\/+$/, "");
+  }
+
+  function resolveRsshubDisplayUrl(routeOrUrl = "", instanceUrl = "") {
+    const route = String(routeOrUrl || "").trim();
+    if (!route) {
+      return "";
+    }
+    if (/^https?:\/\//i.test(route)) {
+      return route;
+    }
+    const instance = normalizeRsshubInstance(instanceUrl);
+    const normalizedRoute = route.startsWith("/") ? route : `/${route}`;
+    return `${instance}${normalizedRoute}`;
+  }
+
+  function getSourceDisplayUrl(source = {}) {
+    if (source.type === "rsshub") {
+      return resolveRsshubDisplayUrl(source.url, source.parser_key);
+    }
+    return String(source.url || "").trim();
+  }
+
+  function syncContentSourceFormUi() {
+    if (!elements.contentSourceForm) {
+      return;
+    }
+    const type = String(elements.contentSourceForm.elements.type?.value || "rss");
+    const urlInput = elements.contentSourceForm.elements.url;
+    const parserInput = elements.contentSourceForm.elements.parserKey;
+    const urlLabel = document.querySelector("#content-source-url-label");
+    const parserLabel = document.querySelector("#content-source-parser-label");
+    const hint = document.querySelector("#content-source-hint");
+
+    if (!urlInput || !parserInput || !urlLabel || !parserLabel || !hint) {
+      return;
+    }
+
+    if (type === "rsshub") {
+      urlLabel.textContent = "RSSHub Route / 链接";
+      parserLabel.textContent = "RSSHub 实例（可选）";
+      urlInput.placeholder = "/weibo/user/1195230310 或完整 RSSHub 链接";
+      parserInput.placeholder = DEFAULT_RSSHUB_INSTANCE;
+      hint.textContent = `RSSHub 模式下，主链接可填写 route（如 /github/issue/openai/openai-python）或完整 RSSHub 链接；实例留空默认使用 ${DEFAULT_RSSHUB_INSTANCE}。`;
+      return;
+    }
+
+    urlLabel.textContent = "链接";
+    parserLabel.textContent = "解析标识（可选）";
+    urlInput.placeholder =
+      type === "site" ? "https://example.com" : "https://example.com/feed.xml";
+    parserInput.placeholder = "默认留空，优先自动识别";
+    hint.textContent =
+      type === "site"
+        ? "网站模式会优先自动识别站点里的 RSS / Atom；识别不到时尝试抓取文章列表。"
+        : "支持普通 RSS / Atom 链接，也支持网站自动识别。";
+  }
 
   function getContentElements(channel) {
     return elements.contentByChannel?.[channel] || null;
@@ -77,12 +155,37 @@ export function createContentModule(deps) {
       state.data.preferences.content = {
         readItems: {},
         hiddenSources: {},
+        sourceBundleVersion: "",
       };
+    }
+    if (typeof state.data.preferences.content.sourceBundleVersion !== "string") {
+      state.data.preferences.content.sourceBundleVersion = "";
     }
     if (state.data.preferences.content.laterItems) {
       delete state.data.preferences.content.laterItems;
     }
     return state.data.preferences.content;
+  }
+
+  function resetLocalChannelState(channel) {
+    const contentState = getContentChannelState(channel);
+    if (!contentState) {
+      return;
+    }
+    contentState.items = [];
+    contentState.featured = [];
+    contentState.tags = [];
+    contentState.sources = [];
+    contentState.page = 1;
+    contentState.total = 0;
+    contentState.loading = false;
+    contentState.loaded = false;
+    contentState.refreshing = false;
+    contentState.autoRefreshed = false;
+    contentState.lastRefreshedAt = "";
+    contentState.lastRefreshStats = null;
+    contentState.error = "";
+    contentState.meta = "";
   }
 
   function getContentItemKey(item) {
@@ -179,6 +282,53 @@ export function createContentModule(deps) {
     }
   }
 
+  async function ensureRsshubSourceBundle() {
+    if (!state.auth.user || !CONTENT_SOURCE_BUNDLE_VERSION) {
+      return;
+    }
+    const preferences = getContentPreferences();
+    if (preferences.sourceBundleVersion === CONTENT_SOURCE_BUNDLE_VERSION) {
+      return;
+    }
+    if (sourceBundleMigrationPromise) {
+      return sourceBundleMigrationPromise;
+    }
+
+    sourceBundleMigrationPromise = (async () => {
+      for (const channel of contentChannelIds) {
+        const payload = await fetchApiJson(`/api/content-sources?channel=${encodeURIComponent(channel)}`);
+        const existingSources = Array.isArray(payload?.sources) ? payload.sources : [];
+        await Promise.all(
+          existingSources.map((source) =>
+            fetchApiJson(`/api/content-sources/${encodeURIComponent(source.id)}`, {
+              method: "DELETE",
+            }),
+          ),
+        );
+        const reseeded = await fetchApiJson(`/api/content-sources?channel=${encodeURIComponent(channel)}`);
+        state.content[channel].sources = Array.isArray(reseeded?.sources) ? reseeded.sources : [];
+        resetLocalChannelState(channel);
+      }
+
+      preferences.hiddenSources = {};
+      preferences.sourceBundleVersion = CONTENT_SOURCE_BUNDLE_VERSION;
+      await persistContentPreferences();
+      renderFeeds();
+      renderContentStreams();
+      renderContentSourceModal();
+      setSaveStatus("已切换为 RSSHub 默认信源", "success");
+    })()
+      .catch((error) => {
+        console.warn("Failed to migrate content sources to RSSHub bundle.", error);
+        throw error;
+      })
+      .finally(() => {
+        sourceBundleMigrationPromise = null;
+      });
+
+    return sourceBundleMigrationPromise;
+  }
+
   function getFilteredItems(channel, items = []) {
     const contentState = state.content[channel];
     if (!["all", "favorites", "unread", "read"].includes(contentState.favoriteFilter)) {
@@ -229,6 +379,7 @@ export function createContentModule(deps) {
     ].join("");
     channelElements.tagFilter.value = contentState.tag;
     channelElements.sourceFilter.value = contentState.sourceId;
+    syncToolbarFilterControls(channelElements.view);
     const metaText = contentState.error
       ? contentState.error
       : getContentMetaText(contentState);
@@ -258,18 +409,22 @@ export function createContentModule(deps) {
       .map(
         (item) => {
           const thumbnailUrl = getContentThumbnailUrl(item);
+          const displayThumbnailUrl = thumbnailUrl || FALLBACK_CONTENT_IMAGE;
           const contentLink = getSafeContentLink(item);
           const sourceLabel = item.source_name || "未知来源";
           const sourceIconUrl = getContentSourceIconUrl(item);
           const publishedAt = formatDateTime(item.published_at || item.fetched_at);
           return `
           <article class="content-card ${item.is_favorite ? "is-favorited" : ""} ${isContentItemRead(item) ? "is-read" : ""}">
-            <div class="content-card-thumb ${thumbnailUrl ? "has-image" : "is-fallback"}" aria-hidden="true">
-              ${
-                thumbnailUrl
-                  ? `<img src="${escapeAttribute(thumbnailUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer" />`
-                  : `<span class="content-card-thumb-badge">${escapeHtml(getContentThumbnailLabel(item))}</span>`
-              }
+            <div class="content-card-thumb has-image ${thumbnailUrl ? "" : "is-fallback-image"}" aria-hidden="true">
+              <img
+                src="${escapeAttribute(displayThumbnailUrl)}"
+                alt=""
+                loading="lazy"
+                referrerpolicy="no-referrer"
+                onload="${escapeAttribute(CONTENT_IMAGE_SANITY_HANDLER)}"
+                onerror="this.onerror=null;this.dataset.fallbackApplied='1';var thumb=this.closest('.content-card-thumb');if(thumb){thumb.classList.add('is-fallback-image');}this.src='${escapeAttribute(FALLBACK_CONTENT_IMAGE)}';"
+              />
             </div>
             <div class="content-card-body">
               <div class="content-card-main">
@@ -314,18 +469,14 @@ export function createContentModule(deps) {
                 <div class="content-card-actions">
                   <button
                     type="button"
-                    class="content-read-button ${isContentItemRead(item) ? "is-active" : ""}"
-                    data-content-read-toggle="${escapeAttribute(item.id)}"
-                  >
-                    ${isContentItemRead(item) ? "已读" : "未读"}
-                  </button>
-                  <button
-                    type="button"
                     class="content-favorite-button ${item.is_favorite ? "is-active" : ""}"
                     data-content-favorite="${escapeAttribute(item.id)}"
                     aria-label="${item.is_favorite ? "取消收藏" : "收藏资讯"}"
+                    title="${item.is_favorite ? "取消收藏" : "收藏资讯"}"
                   >
-                    ${item.is_favorite ? "取消收藏" : "收藏"}
+                    <svg class="content-favorite-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <path d="M12 3.85 14.52 8.95 20.15 9.77 16.08 13.74 17.04 19.35 12 16.7 6.96 19.35 7.92 13.74 3.85 9.77 9.48 8.95 12 3.85Z" />
+                    </svg>
                   </button>
                 </div>
               </div>
@@ -377,6 +528,7 @@ export function createContentModule(deps) {
       elements.contentSourceForm.elements.enabled.value = String(
         typeof editingSource?.enabled === "boolean" ? editingSource.enabled : true,
       );
+      syncContentSourceFormUi();
     }
     elements.contentSourceList.innerHTML = `
       ${
@@ -388,8 +540,8 @@ export function createContentModule(deps) {
                   (source) => `
                     <article class="content-source-item">
                       <div>
-                        <strong>${escapeHtml(source.name)}</strong>
-                        <p>${escapeHtml(source.url)}</p>
+                  <strong>${escapeHtml(source.name)}</strong>
+                        <p>${escapeHtml(getSourceDisplayUrl(source))}</p>
                       </div>
                       <div class="content-source-item-actions">
                         <button type="button" class="task-cancel-action" data-content-source-unhide="${escapeAttribute(source.id)}">恢复显示</button>
@@ -411,8 +563,13 @@ export function createContentModule(deps) {
               <article class="content-source-item">
                 <div>
                   <strong>${escapeHtml(source.name)}</strong>
-                  <p>${escapeHtml(source.url)}</p>
-                  <span class="feed-meta">${escapeHtml(source.type)} · ${source.enabled ? "已启用" : "已停用"}</span>
+                  <p>${escapeHtml(getSourceDisplayUrl(source))}</p>
+                  <span class="feed-meta">${escapeHtml(formatContentSourceType(source.type))} · ${source.enabled ? "已启用" : "已停用"}</span>
+                  ${
+                    source.type === "rsshub" && source.parser_key
+                      ? `<p class="feed-meta">实例：${escapeHtml(normalizeRsshubInstance(source.parser_key))}</p>`
+                      : ""
+                  }
                   ${
                     recentFailure
                       ? `<p class="content-source-status is-error">最近刷新失败 · ${escapeHtml(recentFailure.message || "未知错误")}</p>`
@@ -441,6 +598,7 @@ export function createContentModule(deps) {
     if (!state.auth.user) {
       return;
     }
+    await ensureRsshubSourceBundle();
     try {
       const payload = await fetchApiJson(`/api/content/featured?channel=${channel}&limit=3`);
       state.content[channel].featured = Array.isArray(payload?.items) ? payload.items : [];
@@ -509,6 +667,7 @@ export function createContentModule(deps) {
     if (!state.auth.user) {
       return;
     }
+    await ensureRsshubSourceBundle();
     const contentState = state.content[channel];
     if (!contentState) {
       return;
@@ -644,6 +803,7 @@ export function createContentModule(deps) {
     if (!state.auth.user) {
       return;
     }
+    await ensureRsshubSourceBundle();
     const sidebar = getSidebarPreferences();
     const jobs = [];
     if (sidebar.financeFeed && state.content.finance?.featured.length === 0) {
@@ -776,6 +936,7 @@ export function createContentModule(deps) {
   }
 
   async function openContentSourceModal(channel) {
+    await ensureRsshubSourceBundle();
     state.content.sourceModalChannel = channel;
     state.content.sourceEditingId = "";
     renderContentSourceModal();
@@ -842,6 +1003,7 @@ export function createContentModule(deps) {
     if (!state.auth.user || !contentChannelIds.includes(channel)) {
       return;
     }
+    await ensureRsshubSourceBundle();
     const contentState = getContentChannelState(channel);
     if (!contentState.autoRefreshed) {
       await refreshChannelContentManually(channel, { silent: true, markAuto: true });
@@ -1032,6 +1194,7 @@ export function createContentModule(deps) {
     renderContentStreams,
     renderContentChannel,
     renderContentSourceModal,
+    syncContentSourceFormUi,
     loadFeaturedContent,
     refreshFavoriteHighlights,
     loadChannelContent,

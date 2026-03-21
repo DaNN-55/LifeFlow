@@ -24,6 +24,7 @@ export function createHandlersModule(deps) {
     submitTaskNote,
     deleteTaskNote,
     updateNoteDraft,
+    updateNoteTimeDraft,
     addTask,
     restoreTask,
     openTaskTimelineModal,
@@ -44,6 +45,7 @@ export function createHandlersModule(deps) {
     handleContentClick,
     handleContentToolbarInput,
     handleContentToolbarChange,
+    syncContentSourceFormUi,
     refreshWeather,
     refreshGitHubRepo,
     refreshStocks,
@@ -51,8 +53,6 @@ export function createHandlersModule(deps) {
     toggleAccountMenu,
     openAccountProfileModal,
     openChangePasswordModal,
-    openClearAccountDataModal,
-    openDeleteAccountModal,
     closeAccountMenu,
     closeModal,
     closeDeleteTaskModal,
@@ -62,24 +62,23 @@ export function createHandlersModule(deps) {
     closeTaskTimelineModal,
     closeAccountProfileModal,
     closeChangePasswordModal,
-    closeClearAccountDataModal,
-    closeDeleteAccountModal,
     saveWidgetSettings,
     deleteTask,
     archiveTask,
     renameTask,
+    toggleTaskMenu,
+    closeTaskMenu,
     saveWeeklySummary,
     clearUndoAction,
     isRemoteReady,
     flushPendingSync,
     bootstrapRemoteData,
     updateTaskNameDraft,
+    updateTaskTagDraft,
     handleAuthAction,
     handleAccountProfilePreferencesSubmit,
     handleAccountRecoveryCodeSubmit,
     handleChangePasswordSubmit,
-    clearAccountData,
-    handleDeleteAccountSubmit,
     handleGitHubProfileSubmit,
     handleContentSourceSubmit,
     formatWeekRangeText,
@@ -174,9 +173,15 @@ export function createHandlersModule(deps) {
     const { action, taskId } = actionTarget.dataset;
 
     if (action === "toggle-task") {
+      closeTaskMenu();
       void updateTaskCompletion(taskId);
     }
+    if (action === "toggle-task-menu") {
+      toggleTaskMenu(taskId);
+      render();
+    }
     if (action === "toggle-task-palette") {
+      closeTaskMenu();
       state.activePaletteTaskId =
         state.activePaletteTaskId === taskId ? null : taskId;
       render();
@@ -190,15 +195,22 @@ export function createHandlersModule(deps) {
       render();
     }
     if (action === "start-task-rename") {
+      closeTaskMenu();
+      render();
       startTaskRename(taskId);
     }
     if (action === "request-delete-task") {
+      closeTaskMenu();
+      render();
       openDeleteTaskModal(taskId);
     }
     if (action === "archive-task") {
+      closeTaskMenu();
+      render();
       openArchiveTaskModal(taskId);
     }
     if (action === "submit-note") {
+      closeTaskMenu();
       void submitTaskNote(taskId);
     }
     if (action === "delete-note") {
@@ -210,6 +222,11 @@ export function createHandlersModule(deps) {
     const input = event.target.closest('[data-action="draft-note"]');
     if (input) {
       updateNoteDraft(input.dataset.taskId, input.value);
+      return;
+    }
+    const timeInput = event.target.closest('[data-action="draft-note-time"]');
+    if (timeInput) {
+      updateNoteTimeDraft(timeInput.dataset.taskId, timeInput.value);
     }
   }
 
@@ -219,8 +236,10 @@ export function createHandlersModule(deps) {
       return;
     }
     event.preventDefault();
-    const taskName = new FormData(form).get("taskName");
-    void addTask(String(taskName || ""));
+    const formData = new FormData(form);
+    const taskName = formData.get("taskName");
+    const taskTags = formData.get("taskTags");
+    void addTask(String(taskName || ""), String(taskTags || ""));
   }
 
   function handleWeeklyReviewClick(event) {
@@ -378,12 +397,8 @@ export function createHandlersModule(deps) {
       openChangePasswordModal();
       return;
     }
-    if (action === "clear-data") {
-      openClearAccountDataModal();
-      return;
-    }
-    if (action === "delete-account") {
-      openDeleteAccountModal();
+    if (action === "logout") {
+      handleAuthAction();
     }
   }
 
@@ -417,12 +432,6 @@ export function createHandlersModule(deps) {
     }
     if (event.target.closest("[data-change-password-modal-close]")) {
       closeChangePasswordModal();
-    }
-    if (event.target.closest("[data-clear-account-data-modal-close]")) {
-      closeClearAccountDataModal();
-    }
-    if (event.target.closest("[data-delete-account-modal-close]")) {
-      closeDeleteAccountModal();
     }
   }
 
@@ -511,17 +520,28 @@ export function createHandlersModule(deps) {
   }
 
   function handleRenameTaskInput(event) {
-    if (event.target !== elements.renameTaskInput) {
+    if (
+      event.target !== elements.renameTaskInput &&
+      event.target !== elements.renameTaskTagsInput
+    ) {
       return;
     }
     const taskId = state.renameDialogTaskId;
     if (!taskId) {
       return;
     }
-    updateTaskNameDraft(taskId, elements.renameTaskInput.value);
+    if (event.target === elements.renameTaskInput) {
+      updateTaskNameDraft(taskId, elements.renameTaskInput.value);
+      return;
+    }
+    updateTaskTagDraft(taskId, elements.renameTaskTagsInput.value);
   }
 
   function handleGlobalClick(event) {
+    if (state.activeTaskMenuId && !event.target.closest(".task-head-actions")) {
+      closeTaskMenu();
+      render();
+    }
     if (
       state.accountMenuOpen &&
       !event.target.closest(".account-menu-wrap")
@@ -556,9 +576,8 @@ export function createHandlersModule(deps) {
     });
     elements.authStatusChip.addEventListener("click", handleAccountChipClick);
     elements.accountMenu?.addEventListener("click", handleAccountMenuClick);
-    elements.authAction.addEventListener("click", handleAuthAction);
     elements.importDataButton?.addEventListener("click", handleImportData);
-    elements.exportDataButton.addEventListener("click", handleExportData);
+    elements.exportDataButton?.addEventListener("click", handleExportData);
     elements.calendarGrid.addEventListener("click", handleCalendarClick);
     elements.weeklyModeWeek.addEventListener("click", handleReviewModeClick);
     elements.weeklyModeMonth.addEventListener("click", handleReviewModeClick);
@@ -600,6 +619,11 @@ export function createHandlersModule(deps) {
     });
     elements.contentSourceModal?.addEventListener("click", handleContentClick);
     elements.contentSourceForm?.addEventListener("submit", handleContentSourceSubmit);
+    elements.contentSourceForm?.addEventListener("change", (event) => {
+      if (event.target?.closest?.('[name="type"]')) {
+        syncContentSourceFormUi();
+      }
+    });
     document
       .querySelector(".right-rail")
       .addEventListener("click", handleWidgetClick);
@@ -612,6 +636,7 @@ export function createHandlersModule(deps) {
     elements.renameTaskModal.addEventListener("click", handleModalClick);
     elements.renameTaskConfirm.addEventListener("click", handleRenameTaskConfirmClick);
     elements.renameTaskInput.addEventListener("input", handleRenameTaskInput);
+    elements.renameTaskTagsInput?.addEventListener("input", handleRenameTaskInput);
     if (elements.taskTimelineModal) {
       elements.taskTimelineModal.addEventListener("click", handleModalClick);
     }
@@ -630,12 +655,6 @@ export function createHandlersModule(deps) {
     });
     elements.changePasswordModal?.addEventListener("click", handleModalClick);
     elements.changePasswordForm?.addEventListener("submit", handleChangePasswordSubmit);
-    elements.clearAccountDataModal?.addEventListener("click", handleModalClick);
-    elements.clearAccountDataConfirm?.addEventListener("click", () => {
-      void clearAccountData();
-    });
-    elements.deleteAccountModal?.addEventListener("click", handleModalClick);
-    elements.deleteAccountForm?.addEventListener("submit", handleDeleteAccountSubmit);
     document.addEventListener("click", handleGlobalClick);
     window.addEventListener("beforeunload", handleBeforeUnload);
   }

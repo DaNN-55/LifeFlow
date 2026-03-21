@@ -21,6 +21,7 @@ export function createUiModule(deps) {
     getStartOfWeek,
     formatDateKey,
   } = deps;
+  let toolbarSelectEventsBound = false;
 
   function applyButtonTooltips() {
     document.querySelectorAll("button").forEach((button) => {
@@ -39,6 +40,155 @@ export function createUiModule(deps) {
         button.title = tooltip;
       }
     });
+  }
+
+  function closeToolbarSelectMenus(exceptControl = null) {
+    document.querySelectorAll(".toolbar-select-control.is-open").forEach((control) => {
+      if (exceptControl && control === exceptControl) {
+        return;
+      }
+      control.classList.remove("is-open");
+      control
+        .querySelector("[data-toolbar-select-trigger]")
+        ?.setAttribute("aria-expanded", "false");
+    });
+  }
+
+  function buildToolbarSelectOptionMarkup(select) {
+    return Array.from(select.options || [])
+      .map((option) => {
+        const selected = option.value === select.value;
+        return `
+          <button
+            type="button"
+            class="toolbar-select-option ${selected ? "is-selected" : ""}"
+            data-toolbar-select-option="${escapeHtml(option.value)}"
+            role="option"
+            aria-selected="${selected ? "true" : "false"}"
+          >
+            <span class="material-symbols-outlined toolbar-select-option-check" aria-hidden="true">check</span>
+            <span class="toolbar-select-option-text">${escapeHtml(option.textContent || "")}</span>
+          </button>
+        `;
+      })
+      .join("");
+  }
+
+  function syncToolbarSelectControl(select) {
+    if (!(select instanceof HTMLSelectElement)) {
+      return;
+    }
+    const control = select.closest(".toolbar-select-control");
+    if (!control) {
+      return;
+    }
+
+    select.classList.add("toolbar-native-select");
+
+    let shell = control.querySelector("[data-toolbar-select-shell]");
+    if (!shell) {
+      shell = document.createElement("div");
+      shell.className = "toolbar-select-shell";
+      shell.dataset.toolbarSelectShell = "true";
+      shell.innerHTML = `
+        <button
+          type="button"
+          class="toolbar-select-trigger"
+          data-toolbar-select-trigger
+          aria-haspopup="listbox"
+          aria-expanded="false"
+        >
+          <span class="toolbar-select-trigger-text"></span>
+          <span class="material-symbols-outlined toolbar-select-caret" aria-hidden="true">expand_more</span>
+        </button>
+        <div class="toolbar-select-menu" data-toolbar-select-menu role="listbox"></div>
+      `;
+      control.appendChild(shell);
+    }
+
+    const trigger = shell.querySelector("[data-toolbar-select-trigger]");
+    const triggerText = shell.querySelector(".toolbar-select-trigger-text");
+    const menu = shell.querySelector("[data-toolbar-select-menu]");
+    const selectedOption =
+      Array.from(select.options || []).find((option) => option.value === select.value) ||
+      select.options?.[0] ||
+      null;
+
+    const isHidden = Boolean(select.hidden || control.hidden);
+    control.classList.toggle("is-hidden", isHidden);
+    shell.hidden = isHidden;
+    if (isHidden) {
+      control.classList.remove("is-open");
+      trigger?.setAttribute("aria-expanded", "false");
+      return;
+    }
+
+    control.dataset.selectId = select.id || "";
+    if (trigger) {
+      trigger.disabled = Boolean(select.disabled || !select.options.length);
+      trigger.dataset.selectId = select.id || "";
+    }
+    if (triggerText) {
+      triggerText.textContent = selectedOption?.textContent?.trim() || "";
+    }
+    if (menu) {
+      menu.dataset.selectId = select.id || "";
+      menu.innerHTML = buildToolbarSelectOptionMarkup(select);
+    }
+  }
+
+  function bindToolbarSelectEvents() {
+    if (toolbarSelectEventsBound) {
+      return;
+    }
+    toolbarSelectEventsBound = true;
+
+    document.addEventListener("click", (event) => {
+      const optionButton = event.target.closest("[data-toolbar-select-option]");
+      if (optionButton) {
+        const menu = optionButton.closest("[data-toolbar-select-menu]");
+        const selectId = menu?.dataset.selectId || "";
+        const select = selectId ? document.getElementById(selectId) : null;
+        if (select instanceof HTMLSelectElement) {
+          select.value = optionButton.dataset.toolbarSelectOption || "";
+          select.dispatchEvent(new Event("change", { bubbles: true }));
+          syncToolbarSelectControl(select);
+        }
+        closeToolbarSelectMenus();
+        return;
+      }
+
+      const trigger = event.target.closest("[data-toolbar-select-trigger]");
+      if (trigger) {
+        const control = trigger.closest(".toolbar-select-control");
+        const shouldOpen = !control?.classList.contains("is-open");
+        closeToolbarSelectMenus(control || null);
+        if (control && shouldOpen) {
+          control.classList.add("is-open");
+          trigger.setAttribute("aria-expanded", "true");
+        } else {
+          trigger.setAttribute("aria-expanded", "false");
+        }
+        return;
+      }
+
+      if (!event.target.closest(".toolbar-select-control")) {
+        closeToolbarSelectMenus();
+      }
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        closeToolbarSelectMenus();
+      }
+    });
+  }
+
+  function syncToolbarFilterControls(root = document) {
+    bindToolbarSelectEvents();
+    root
+      .querySelectorAll(".toolbar-select-control select")
+      .forEach((select) => syncToolbarSelectControl(select));
   }
 
   function renderTopTabs() {
@@ -92,27 +242,23 @@ export function createUiModule(deps) {
         chip.classList.add("is-error");
       }
       chip.textContent = state.auth.user.username;
-      elements.authAction.textContent = "退出登录";
       return;
     }
 
     if (state.auth.status === "authenticating") {
       chip.classList.add("is-syncing");
       chip.textContent = "登录中";
-      elements.authAction.textContent = "云端登录";
       return;
     }
 
     if (state.auth.status === "creating-account") {
       chip.classList.add("is-syncing");
       chip.textContent = "创建中";
-      elements.authAction.textContent = "云端登录";
       return;
     }
 
     chip.classList.add("account-chip");
     chip.textContent = "未登录";
-    elements.authAction.textContent = "云端登录";
   }
 
   function getSidebarPreferences() {
@@ -152,7 +298,7 @@ export function createUiModule(deps) {
     const todayKey = formatDateKey(new Date());
     const activeTaskCount = Math.max(1, getActiveTaskTypes().length);
 
-    const year = String(date.getFullYear()).slice(-2);
+    const year = String(date.getFullYear());
     const monthLabel = `${date.getMonth() + 1}`.padStart(2, "0");
     const dayLabelShort = `${date.getDate()}`.padStart(2, "0");
     elements.calendarMonthLabel.textContent = `${year}/${monthLabel}/${dayLabelShort}`;
@@ -207,6 +353,43 @@ export function createUiModule(deps) {
     elements.calendarGrid.innerHTML = cells.join("");
   }
 
+  function setProgressFill(element, ratio) {
+    if (!element) {
+      return;
+    }
+    const safeRatio = Math.max(0, Math.min(1, Number(ratio) || 0));
+    element.style.width = `${(safeRatio * 100).toFixed(1)}%`;
+  }
+
+  function renderHeaderProgress() {
+    const now = new Date();
+    const yearStart = new Date(now.getFullYear(), 0, 1);
+    const nextYearStart = new Date(now.getFullYear() + 1, 0, 1);
+    const yearRatio = (now.getTime() - yearStart.getTime()) / (nextYearStart.getTime() - yearStart.getTime());
+    setProgressFill(elements.yearProgressFill, yearRatio);
+    if (elements.yearProgressValue) {
+      elements.yearProgressValue.textContent = `${(yearRatio * 100).toFixed(1)}%`;
+    }
+
+    const birthDateValue = String(state.data.preferences?.profile?.birthDate || "1996-11-05").trim();
+    const lifeExpectancyYears = Number(state.data.preferences?.profile?.lifeExpectancyYears) || 80;
+    let lifeRatio = 0;
+    let lifeLabel = "--";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(birthDateValue)) {
+      const birthDate = new Date(`${birthDateValue}T00:00:00`);
+      const endDate = new Date(`${birthDateValue}T00:00:00`);
+      endDate.setFullYear(endDate.getFullYear() + lifeExpectancyYears);
+      const denominator = endDate.getTime() - birthDate.getTime();
+      if (denominator > 0) {
+        lifeRatio = Math.max(0, Math.min(1, (now.getTime() - birthDate.getTime()) / denominator));
+        lifeLabel = `${(lifeRatio * 100).toFixed(1)}%`;
+      }
+    }
+    if (elements.lifeProgressValue) {
+      elements.lifeProgressValue.textContent = lifeLabel;
+    }
+  }
+
   function renderControls() {
     const record = ensureRecord(state.selectedDate);
     elements.todayCompletedCount.textContent = `${getCompletedCount(record)} / ${getActiveTaskTypes().length}`;
@@ -226,6 +409,7 @@ export function createUiModule(deps) {
     document
       .querySelector(".weekly-mode-toggle")
       ?.setAttribute("data-active-mode", state.reviewMode);
+    renderHeaderProgress();
     renderWeeklyFilterOptions();
     elements.weeklyTaskFilter.value = state.weeklyFilters.taskId;
     elements.weeklyCompletionFilter.value = state.weeklyFilters.completion;
@@ -234,6 +418,7 @@ export function createUiModule(deps) {
     renderWeeklySummaryContent();
     renderWeeklySummaryMeta();
     renderSaveStatusState();
+    syncToolbarFilterControls(document.querySelector("#weekly-panel") || document);
 
     elements.themeOptions.forEach((button) => {
       button.classList.toggle(
@@ -254,5 +439,6 @@ export function createUiModule(deps) {
     renderSidebarCards,
     renderCalendar,
     renderControls,
+    syncToolbarFilterControls,
   };
 }

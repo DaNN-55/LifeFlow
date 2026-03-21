@@ -70,6 +70,8 @@ export function createAccountModule(deps) {
       ? formatDateTime(profile.user.createdAt)
       : "--";
     const sidebar = getSidebarPreferences();
+    const birthDate = String(state.data.preferences?.profile?.birthDate || "1996-11-05").trim();
+    const lifeExpectancyYears = Number(state.data.preferences?.profile?.lifeExpectancyYears) || 80;
     elements.accountProfileBody.innerHTML = `
       <div class="account-profile-grid">
         <div class="account-profile-item">
@@ -154,6 +156,19 @@ export function createAccountModule(deps) {
             </div>
           </div>
         </div>
+        <div class="account-profile-item">
+          <span class="account-profile-label">人生进度</span>
+          <div class="settings-grid-two">
+            <label>
+              <span class="settings-copy">出生日期</span>
+              <input type="date" name="birthDate" value="${escapeHtml(birthDate)}" />
+            </label>
+            <label>
+              <span class="settings-copy">默认寿命</span>
+              <input type="number" name="lifeExpectancyYears" min="1" max="150" value="${lifeExpectancyYears}" />
+            </label>
+          </div>
+        </div>
         <div class="delete-task-dialog-actions">
           <button type="submit" class="settings-save">保存面板设置</button>
         </div>
@@ -195,35 +210,6 @@ export function createAccountModule(deps) {
       if (submit) {
         submit.disabled = state.changePasswordSubmitting;
         submit.textContent = state.changePasswordSubmitting ? "保存中..." : "保存密码";
-      }
-    }
-  }
-
-  function renderClearAccountDataModal() {
-    const modal = elements.clearAccountDataModal;
-    if (!modal) {
-      return;
-    }
-    modal.hidden = !state.clearAccountDataModalOpen;
-    elements.clearAccountDataConfirm.disabled = state.clearAccountDataSubmitting;
-    elements.clearAccountDataConfirm.textContent = state.clearAccountDataSubmitting
-      ? "清空中..."
-      : "确认清空";
-  }
-
-  function renderDeleteAccountModal() {
-    const modal = elements.deleteAccountModal;
-    if (!modal) {
-      return;
-    }
-    modal.hidden = !state.deleteAccountModalOpen;
-    if (!modal.hidden) {
-      elements.deleteAccountFeedback.textContent =
-        state.auth.feedback || "删除账号前，请先输入当前密码确认。";
-      const submit = document.querySelector("#delete-account-submit");
-      if (submit) {
-        submit.disabled = state.deleteAccountSubmitting;
-        submit.textContent = state.deleteAccountSubmitting ? "删除中..." : "删除账号";
       }
     }
   }
@@ -310,6 +296,13 @@ export function createAccountModule(deps) {
       weather: formData.has("weather"),
       stock: formData.has("stock"),
     };
+    state.data.preferences.profile = {
+      birthDate: String(formData.get("birthDate") || "").trim(),
+      lifeExpectancyYears: Math.min(
+        150,
+        Math.max(1, Number(formData.get("lifeExpectancyYears") || 80) || 80),
+      ),
+    };
     persistStateSilently();
     if (state.auth.user) {
       try {
@@ -372,33 +365,6 @@ export function createAccountModule(deps) {
     state.changePasswordSubmitting = false;
     state.auth.feedback = "";
     renderChangePasswordModal();
-  }
-
-  function openClearAccountDataModal() {
-    closeAccountMenu();
-    state.clearAccountDataModalOpen = true;
-    renderClearAccountDataModal();
-  }
-
-  function closeClearAccountDataModal() {
-    state.clearAccountDataModalOpen = false;
-    state.clearAccountDataSubmitting = false;
-    renderClearAccountDataModal();
-  }
-
-  function openDeleteAccountModal() {
-    closeAccountMenu();
-    state.deleteAccountModalOpen = true;
-    state.auth.feedback = "";
-    elements.deleteAccountForm?.reset();
-    renderDeleteAccountModal();
-  }
-
-  function closeDeleteAccountModal() {
-    state.deleteAccountModalOpen = false;
-    state.deleteAccountSubmitting = false;
-    state.auth.feedback = "";
-    renderDeleteAccountModal();
   }
 
   async function initAuthClient() {
@@ -523,67 +489,6 @@ export function createAccountModule(deps) {
     }
   }
 
-  async function clearAccountData() {
-    if (!state.auth.user || state.clearAccountDataSubmitting) {
-      return;
-    }
-    state.clearAccountDataSubmitting = true;
-    renderClearAccountDataModal();
-    try {
-      await fetchApiJson("/api/account/clear-data", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      resetCurrentAccountLocalState(state.auth.user.id);
-      closeClearAccountDataModal();
-      render();
-      setSaveStatus("当前账号数据已清空", "success");
-    } catch (error) {
-      console.warn("Failed to clear account data.", error);
-      state.clearAccountDataSubmitting = false;
-      setSaveStatus(error?.message || "清空账号数据失败");
-      renderClearAccountDataModal();
-    }
-  }
-
-  async function handleDeleteAccountSubmit(event) {
-    if (event.target !== elements.deleteAccountForm) {
-      return;
-    }
-    event.preventDefault();
-    if (!state.auth.user || state.deleteAccountSubmitting) {
-      return;
-    }
-    const formData = new FormData(elements.deleteAccountForm);
-    const password = String(formData.get("password") || "");
-    if (!password) {
-      state.auth.feedback = "请输入当前密码。";
-      renderDeleteAccountModal();
-      return;
-    }
-    state.deleteAccountSubmitting = true;
-    state.auth.feedback = "正在删除账号...";
-    renderDeleteAccountModal();
-    try {
-      await fetchApiJson("/api/account/delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
-      });
-      const scopeKey = state.auth.user.id;
-      resetCurrentAccountLocalState(scopeKey);
-      saveSessionId("");
-      saveAuthConfig({ username: "" });
-      window.location.href = "./login.html";
-    } catch (error) {
-      console.warn("Failed to delete account.", error);
-      state.auth.feedback = error?.message || "删除账号失败";
-      state.deleteAccountSubmitting = false;
-      renderDeleteAccountModal();
-    }
-  }
-
   function handleAuthAction() {
     closeAccountMenu();
     if (state.auth.user) {
@@ -597,8 +502,6 @@ export function createAccountModule(deps) {
     renderAccountMenu,
     renderAccountProfileModal,
     renderChangePasswordModal,
-    renderClearAccountDataModal,
-    renderDeleteAccountModal,
     loadAccountProfile,
     openAccountMenu,
     closeAccountMenu,
@@ -609,14 +512,8 @@ export function createAccountModule(deps) {
     handleAccountRecoveryCodeSubmit,
     openChangePasswordModal,
     closeChangePasswordModal,
-    openClearAccountDataModal,
-    closeClearAccountDataModal,
-    openDeleteAccountModal,
-    closeDeleteAccountModal,
     initAuthClient,
     handleChangePasswordSubmit,
-    clearAccountData,
-    handleDeleteAccountSubmit,
     handleAuthAction,
   };
 }

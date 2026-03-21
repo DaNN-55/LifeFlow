@@ -5,8 +5,10 @@ const cheerio = require("cheerio");
 const parser = new Parser({
   timeout: 8000,
   headers: {
-    "User-Agent": "LifeFlow/1.0 (+https://life-flow-seven.vercel.app)",
-    Accept: "application/rss+xml, application/atom+xml, text/xml, application/xml, text/html",
+    "User-Agent":
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+    Accept: "application/rss+xml, application/atom+xml, text/xml, application/xml;q=0.9, text/html;q=0.8, */*;q=0.7",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
   },
 });
 
@@ -15,18 +17,28 @@ const ARTICLE_IMAGE_TIMEOUT_MS = 4000;
 const DEFAULT_PAGE_SIZE = 10;
 const DEFAULT_REFRESH_LIMIT = 30;
 const CACHE_TTL_MS = 15 * 60 * 1000;
+const DEFAULT_RSSHUB_INSTANCE = "https://rsshub.zhsh.me";
 const cacheByChannel = new Map();
 const refreshInFlight = new Map();
 const articleImageCache = new Map();
+
+function createRsshubSource(name, route, instance = "") {
+  return {
+    name,
+    type: "rsshub",
+    url: route,
+    parser_key: instance,
+  };
+}
 
 const EXTRA_CHANNEL_CONFIGS = [
   {
     id: "ai",
     defaultSources: [
-      { name: "OpenAI News", type: "rss", url: "https://openai.com/news/rss.xml" },
-      { name: "Hugging Face Blog", type: "rss", url: "https://huggingface.co/blog/feed.xml" },
-      { name: "arXiv AI", type: "rss", url: "https://rss.arxiv.org/rss/cs.AI" },
-      { name: "Google AI", type: "rss", url: "https://blog.google/innovation-and-ai/technology/ai/rss/" },
+      createRsshubSource("AI Papers · cs.AI", "/papers/category/arxiv/cs.AI"),
+      createRsshubSource("AI Papers · cs.LG", "/papers/category/arxiv/cs.LG"),
+      createRsshubSource("AI Papers · cs.CL", "/papers/category/arxiv/cs.CL"),
+      createRsshubSource("AI Papers · cs.CV", "/papers/category/arxiv/cs.CV"),
     ],
   },
 ];
@@ -34,22 +46,19 @@ const EXTRA_CHANNEL_CONFIGS = [
 const CHANNEL_CONFIGS = {
   finance: {
     defaultSources: [
-      { name: "Federal Reserve Monetary Policy", type: "rss", url: "https://www.federalreserve.gov/feeds/press_monetary.xml" },
-      { name: "SEC Press Releases", type: "rss", url: "https://www.sec.gov/news/pressreleases.rss" },
-      { name: "ECB Press Releases", type: "rss", url: "https://www.ecb.europa.eu/rss/press.html" },
-      { name: "ECB Market Operations", type: "rss", url: "https://www.ecb.europa.eu/rss/operations.html" },
-      { name: "St. Louis Fed On the Economy", type: "rss", url: "https://www.stlouisfed.org/rss/page%20resources/publications/blog-entries" },
-      { name: "BIS Press Releases", type: "rss", url: "https://www.bis.org/doclist/all_pressrels.rss" },
+      createRsshubSource("华尔街见闻 · 实时快讯（要闻）", "/wallstreetcn/live/global/2"),
+      createRsshubSource("华尔街见闻 · 实时快讯（A股）", "/wallstreetcn/live/a-stock/2"),
+      createRsshubSource("华尔街见闻 · 最热文章", "/wallstreetcn/hot/day"),
+      createRsshubSource("同花顺 · 7×24 要闻（重要,A股）", "/10jqka/realtimenews/重要,A股"),
     ],
   },
   science: {
     defaultSources: [
-      { name: "Nature", type: "rss", url: "https://www.nature.com/nature.rss" },
-      { name: "Science Magazine", type: "rss", url: "https://www.science.org/action/showFeed?type=etoc&feed=rss&jc=science" },
-      { name: "ScienceDaily Top Science", type: "rss", url: "https://www.sciencedaily.com/rss/top/science.xml" },
-      { name: "NASA News Releases", type: "rss", url: "https://www.nasa.gov/news-release/feed/" },
-      { name: "ESA Science", type: "rss", url: "https://sci.esa.int/web/newssyndication/rss/sciweb.xml" },
-      { name: "Nature Astronomy & Astrophysics", type: "rss", url: "https://www.nature.com/subjects/astronomy-and-astrophysics.rss" },
+      createRsshubSource("Nature · Latest Research", "/nature/research/nature"),
+      createRsshubSource("Nature · Latest News", "/nature/news"),
+      createRsshubSource("Papers · Astrophysics", "/papers/category/arxiv/astro-ph"),
+      createRsshubSource("Papers · Physics", "/papers/category/arxiv/physics"),
+      createRsshubSource("Papers · Quantitative Biology", "/papers/category/arxiv/q-bio"),
     ],
   },
   ...Object.fromEntries(
@@ -226,7 +235,9 @@ async function refreshChannelContent({ store, userId, channel, limit = DEFAULT_R
 }
 
 async function fetchRssSource(source, channel, limit) {
-  const feed = await parser.parseURL(source.url);
+  const feedUrl = resolveSourceFeedUrl(source);
+  const xml = await fetchText(feedUrl);
+  const feed = await parser.parseString(xml);
   const entries = Array.isArray(feed.items) ? feed.items.slice(0, limit) : [];
   const normalized = await Promise.all(entries.map((item) => normalizeFeedItem(item, source, channel)));
   return normalized.filter((item) => item && item.canonical_url);
@@ -314,7 +325,8 @@ async function normalizeContentItem(item, source, channel) {
   const summaryZh = localizeSummary(summaryRaw, item.title);
   const bodyRaw = truncate(summaryRaw || item.title || "", 320);
   const bodyZh = truncate(summaryZh || item.title || "", 320);
-  const imageUrl = await resolveContentImageUrl(item.imageUrl || "", item.canonicalUrl, source.url);
+  const sourceUrl = resolveSourceDisplayUrl(source);
+  const imageUrl = await resolveContentImageUrl(item.imageUrl || "", item.canonicalUrl, sourceUrl);
   return {
     id: createContentId(channel, item.canonicalUrl),
     channel,
@@ -328,7 +340,7 @@ async function normalizeContentItem(item, source, channel) {
     published_at: normalizeDateString(item.publishedAt) || fetchedAt,
     content_type: item.type || source.type || "rss",
     source_name: source.name,
-    source_url: source.url,
+    source_url: sourceUrl,
     canonical_url: item.canonicalUrl,
     tags: item.tags || [],
     lang: item.lang || "unknown",
@@ -337,6 +349,38 @@ async function normalizeContentItem(item, source, channel) {
     updated_at: fetchedAt,
     created_at: fetchedAt,
   };
+}
+
+function resolveSourceFeedUrl(source = {}) {
+  if (source.type !== "rsshub") {
+    return String(source.url || "").trim();
+  }
+  return resolveRsshubUrl(source.url, source.parser_key || "");
+}
+
+function resolveSourceDisplayUrl(source = {}) {
+  if (source.type !== "rsshub") {
+    return String(source.url || "").trim();
+  }
+  return resolveRsshubUrl(source.url, source.parser_key || "");
+}
+
+function resolveRsshubUrl(routeOrUrl = "", instanceUrl = "") {
+  const route = String(routeOrUrl || "").trim();
+  if (!route) {
+    return "";
+  }
+  if (/^https?:\/\//i.test(route)) {
+    return route;
+  }
+  const instance = normalizeRsshubInstance(instanceUrl || DEFAULT_RSSHUB_INSTANCE);
+  const normalizedRoute = route.startsWith("/") ? route : `/${route}`;
+  return `${instance}${normalizedRoute}`;
+}
+
+function normalizeRsshubInstance(value = "") {
+  const raw = String(value || DEFAULT_RSSHUB_INSTANCE).trim() || DEFAULT_RSSHUB_INSTANCE;
+  return raw.replace(/\/+$/, "");
 }
 
 function dedupeContentItems(items) {
@@ -471,8 +515,6 @@ function extractFeedItemImage(item, sourceUrl, canonicalUrl) {
   const htmlCandidates = [
     item?.["content:encoded"],
     item?.content,
-    item?.summary,
-    item?.description,
   ];
   const candidates = [
     getImageCandidateFromValue(item?.enclosure),
@@ -581,13 +623,23 @@ async function fetchArticleImage(articleUrl) {
     const html = await fetchText(articleUrl, ARTICLE_IMAGE_TIMEOUT_MS);
     const $ = cheerio.load(html);
     const imageCandidates = [
-      $('meta[property="og:image"]').attr("content"),
-      $('meta[name="twitter:image"]').attr("content"),
-      $('meta[property="twitter:image"]').attr("content"),
-      $('link[rel="image_src"]').attr("href"),
+      $("article img").first().attr("src"),
+      $("article img").first().attr("data-src"),
+      $("article img").first().attr("data-original"),
+      $("main article img").first().attr("src"),
+      $("main article img").first().attr("data-src"),
+      $("main article img").first().attr("data-original"),
+      $(".article-content img, .article-body img, .post-content img, .entry-content img, .news-content img, .detail-content img, .content img")
+        .first()
+        .attr("src"),
+      $(".article-content img, .article-body img, .post-content img, .entry-content img, .news-content img, .detail-content img, .content img")
+        .first()
+        .attr("data-src"),
+      $(".article-content img, .article-body img, .post-content img, .entry-content img, .news-content img, .detail-content img, .content img")
+        .first()
+        .attr("data-original"),
       $("article img").first().attr("src"),
       $("main img").first().attr("src"),
-      $("img").first().attr("src"),
     ];
     return firstValidImageUrl(imageCandidates, articleUrl);
   })().catch(() => "");
@@ -661,8 +713,12 @@ async function fetchText(url, timeoutMs = FETCH_TIMEOUT_MS) {
     const response = await fetch(url, {
       signal: controller.signal,
       headers: {
-        "User-Agent": "LifeFlow/1.0 (+https://life-flow-seven.vercel.app)",
-        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+        Accept:
+          "application/rss+xml,application/atom+xml,text/xml,application/xml;q=0.9,text/html,application/xhtml+xml;q=0.8,*/*;q=0.7",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        Referer: "https://www.google.com/",
       },
     });
     if (!response.ok) {

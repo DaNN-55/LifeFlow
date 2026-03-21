@@ -106,6 +106,14 @@ const accountPreferencesSchema = z.object({
   content: z.object({
     readItems: z.record(z.string()).optional(),
     hiddenSources: z.record(z.string()).optional(),
+    sourceBundleVersion: z.string().max(64).optional(),
+  }).optional(),
+  profile: z.object({
+    birthDate: z.string().max(32).optional(),
+    lifeExpectancyYears: z.number().int().min(1).max(150).optional(),
+  }).optional(),
+  tasks: z.object({
+    tagsByTaskId: z.record(z.array(z.string().min(1).max(24)).max(6)).optional(),
   }).optional(),
   sync: z.object({
     lastSyncAttemptAt: z.string().optional(),
@@ -187,12 +195,50 @@ const contentFavoriteSchema = z.object({
 
 const contentSourceSchema = z.object({
   channel: contentChannelSchema,
-  type: z.enum(["rss", "site"]),
+  type: z.enum(["rss", "site", "rsshub"]),
   name: z.string().min(1).max(80),
-  url: z.string().url().max(500),
+  url: z.string().min(1).max(500),
   enabled: z.boolean().optional(),
   sortOrder: z.number().int().positive().optional(),
-  parserKey: z.string().max(64).optional().default(""),
+  parserKey: z.string().max(300).optional().default(""),
+}).superRefine((value, context) => {
+  const rawUrl = String(value.url || "").trim();
+  const rawParserKey = String(value.parserKey || "").trim();
+
+  const isHttpUrl = (input) => {
+    try {
+      const parsed = new URL(input);
+      return ["http:", "https:"].includes(parsed.protocol);
+    } catch (error) {
+      return false;
+    }
+  };
+
+  if (value.type === "rsshub") {
+    if (!rawUrl || (!rawUrl.startsWith("/") && !isHttpUrl(rawUrl))) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["url"],
+        message: "RSSHub 路由需填写完整 URL，或以 / 开头的 route",
+      });
+    }
+    if (rawParserKey && !isHttpUrl(rawParserKey)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["parserKey"],
+        message: "RSSHub 实例地址需为有效的 http(s) URL",
+      });
+    }
+    return;
+  }
+
+  if (!isHttpUrl(rawUrl)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["url"],
+      message: "请输入有效的 http(s) URL",
+    });
+  }
 });
 
 function createApp({ config, store }) {

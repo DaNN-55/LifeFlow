@@ -41,18 +41,23 @@ export function getContentMetaText(contentState) {
 }
 
 export function getContentCardExcerpt(item) {
-  const raw = String(
-    item?.summary_zh ||
-      item?.summary_raw ||
-      "",
-  ).trim();
+  const isExtendedExcerptChannel = item?.channel === "science" || item?.channel === "ai";
+  const candidates = isExtendedExcerptChannel
+    ? [item?.body_raw, item?.body_zh, item?.summary_raw, item?.summary_zh]
+    : [item?.summary_zh, item?.summary_raw, item?.body_zh, item?.body_raw];
+  const cleaned = candidates
+    .map((value) =>
+      String(value || "")
+        .replace(/^(中文摘要|英文摘要|摘要|全文内容|英文正文摘录|英文正文内容)\s*[:：]\s*/i, "")
+        .replace(/\s+/g, " ")
+        .trim(),
+    )
+    .filter(Boolean);
+  const raw = cleaned[0] || "";
   if (!raw) {
     return "暂无摘要。";
   }
-  return raw
-    .replace(/^(中文摘要|英文摘要|摘要|全文内容|英文正文摘录|英文正文内容)\s*[:：]\s*/i, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  return raw;
 }
 
 export function getContentThumbnailUrl(item) {

@@ -4,6 +4,8 @@ import {
   API_SEED_PREFIX,
   AUTH_CONFIG_STORAGE_KEY,
   CONTENT_PAGE_SIZE,
+  CONTENT_SOURCE_BUNDLE_VERSION,
+  DEFAULT_RSSHUB_INSTANCE,
   DEFAULT_REMOTE_API_BASE,
   LOCAL_SCOPE_KEY,
   PENDING_SYNC_STORAGE_KEY,
@@ -100,34 +102,49 @@ function buildDynamicContentViewMarkup(tab) {
           </div>
         </div>
         <div id="${channel}-content-meta" class="content-stream-meta" hidden></div>
-        <div class="content-toolbar">
+        <div class="content-toolbar toolbar-filter-bar">
           <label class="content-toolbar-field content-toolbar-search">
             <span class="weekly-filter-label">搜索</span>
-            <input id="${channel}-search" type="search" placeholder="${escapeAttribute(tab.searchPlaceholder)}" />
+            <div class="toolbar-control toolbar-search-control">
+              <span class="material-symbols-outlined toolbar-control-icon" aria-hidden="true">search</span>
+              <input id="${channel}-search" type="search" placeholder="${escapeAttribute(tab.searchPlaceholder)}..." />
+            </div>
           </label>
           <label class="content-toolbar-field">
             <span class="weekly-filter-label">标签</span>
-            <select id="${channel}-tag-filter"></select>
+            <div class="toolbar-control toolbar-select-control">
+              <span class="material-symbols-outlined toolbar-control-icon" aria-hidden="true">sell</span>
+              <select id="${channel}-tag-filter"></select>
+            </div>
           </label>
           <label class="content-toolbar-field">
             <span class="weekly-filter-label">来源</span>
-            <select id="${channel}-source-filter"></select>
+            <div class="toolbar-control toolbar-select-control">
+              <span class="material-symbols-outlined toolbar-control-icon" aria-hidden="true">public</span>
+              <select id="${channel}-source-filter"></select>
+            </div>
           </label>
           <label class="content-toolbar-field">
             <span class="weekly-filter-label">范围</span>
-            <select id="${channel}-favorite-filter">
-              <option value="all">全部资讯</option>
-              <option value="favorites">仅看收藏</option>
-              <option value="unread">未读</option>
-              <option value="read">已读</option>
-            </select>
+            <div class="toolbar-control toolbar-select-control">
+              <span class="material-symbols-outlined toolbar-control-icon" aria-hidden="true">filter_alt</span>
+              <select id="${channel}-favorite-filter">
+                <option value="all">全部资讯</option>
+                <option value="favorites">仅看收藏</option>
+                <option value="unread">未读</option>
+                <option value="read">已读</option>
+              </select>
+            </div>
           </label>
           <label class="content-toolbar-field">
             <span class="weekly-filter-label">排序</span>
-            <select id="${channel}-sort-filter">
-              <option value="latest">最新优先</option>
-              <option value="oldest">最早优先</option>
-            </select>
+            <div class="toolbar-control toolbar-select-control">
+              <span class="material-symbols-outlined toolbar-control-icon" aria-hidden="true">sort</span>
+              <select id="${channel}-sort-filter">
+                <option value="latest">最新优先</option>
+                <option value="oldest">最早优先</option>
+              </select>
+            </div>
           </label>
         </div>
         <div id="${channel}-content-grid" class="content-masonry" aria-live="polite"></div>
@@ -187,7 +204,6 @@ const elements = {
   themeOptions: document.querySelectorAll(".theme-option"),
   authStatusChip: document.querySelector("#auth-status-chip"),
   accountMenu: document.querySelector("#account-menu"),
-  authAction: document.querySelector("#auth-action"),
   todayCompletedCount: document.querySelector("#today-completed-count"),
   weeklyRangePicker: document.querySelector("#weekly-range-picker"),
   monthlyRangePicker: document.querySelector("#monthly-range-picker"),
@@ -256,6 +272,7 @@ const elements = {
   archiveTaskConfirm: document.querySelector("#archive-task-confirm"),
   renameTaskModal: document.querySelector("#rename-task-modal"),
   renameTaskInput: document.querySelector("#rename-task-input"),
+  renameTaskTagsInput: document.querySelector("#rename-task-tags-input"),
   renameTaskConfirm: document.querySelector("#rename-task-confirm"),
   weeklySummarySaveModal: document.querySelector("#weekly-summary-save-modal"),
   weeklySummarySaveConfirm: document.querySelector("#weekly-summary-save-confirm"),
@@ -276,16 +293,14 @@ const elements = {
   changePasswordModal: document.querySelector("#change-password-modal"),
   changePasswordForm: document.querySelector("#change-password-form"),
   changePasswordFeedback: document.querySelector("#change-password-feedback"),
-  clearAccountDataModal: document.querySelector("#clear-account-data-modal"),
-  clearAccountDataConfirm: document.querySelector("#clear-account-data-confirm"),
-  deleteAccountModal: document.querySelector("#delete-account-modal"),
-  deleteAccountForm: document.querySelector("#delete-account-form"),
-  deleteAccountFeedback: document.querySelector("#delete-account-feedback"),
   contentSourceModal: document.querySelector("#content-source-modal"),
   contentSourceTitle: document.querySelector("#content-source-title"),
   contentSourceForm: document.querySelector("#content-source-form"),
   contentSourceList: document.querySelector("#content-source-list"),
   contentSourceId: document.querySelector("#content-source-id"),
+  yearProgressFill: document.querySelector("#year-progress-fill"),
+  yearProgressValue: document.querySelector("#year-progress-value"),
+  lifeProgressValue: document.querySelector("#life-progress-value"),
 };
 
 const state = {
@@ -297,7 +312,9 @@ const state = {
   activeCenterTab: "daily",
   reviewMode: "week",
   noteDrafts: {},
+  noteTimeDrafts: {},
   taskNameDrafts: {},
+  taskTagDrafts: {},
   recentlyRestoredTaskIds: {},
   weeklyFilters: {
     taskId: "all",
@@ -308,6 +325,7 @@ const state = {
   weeklySummaryMode: {},
   newTaskColor: "",
   activePaletteTaskId: null,
+  activeTaskMenuId: null,
   modal: { widget: null },
   deleteDialogTaskId: null,
   archiveDialogTaskId: null,
@@ -326,11 +344,7 @@ const state = {
   dataTransferBusy: false,
   syncCenterModalOpen: false,
   changePasswordModalOpen: false,
-  clearAccountDataModalOpen: false,
-  deleteAccountModalOpen: false,
   changePasswordSubmitting: false,
-  clearAccountDataSubmitting: false,
-  deleteAccountSubmitting: false,
   saveStatusTone: "default",
   appBoot: {
     visible: true,
@@ -389,6 +403,9 @@ const {
   getWeeklyVisibleTasks,
   ensureRecord,
   permanentlyRemoveTaskFromLocalState,
+  getTaskTags,
+  setTaskTags,
+  clearTaskTags,
   saveData,
   persistStateSilently,
   applyAccountPreferences,
@@ -460,6 +477,7 @@ const tasksModule = createTasksModule({
   escapeHtml,
   escapeAttribute,
   persistStateSilently,
+  saveAccountPreferencesRemote: (...args) => saveAccountPreferencesRemote(...args),
   renderControls: (...args) => renderControls(...args),
   renderWeeklyReview: (...args) => renderWeeklyReview(...args),
   render,
@@ -470,6 +488,9 @@ const tasksModule = createTasksModule({
   syncRecordByDate: (...args) => syncRecordByDate(...args),
   getRandomPaletteColor,
   permanentlyRemoveTaskFromLocalState,
+  getTaskTags,
+  setTaskTags,
+  clearTaskTags,
   setUndoAction,
   setSaveStatus,
   isTaskArchived,
@@ -497,7 +518,11 @@ const {
   getTaskName,
   updateTaskCompletion,
   updateNoteDraft,
+  updateNoteTimeDraft,
   updateTaskNameDraft,
+  updateTaskTagDraft,
+  toggleTaskMenu,
+  closeTaskMenu,
   submitTaskNote,
   deleteTaskNote,
   addTask,
@@ -523,6 +548,7 @@ const weeklyModule = createWeeklyModule({
   aggregateWeek,
   aggregateMonth,
   getWeeklyVisibleTasks,
+  getTaskTags,
   isTaskArchived,
   getWeeklySummaryDraft,
   getWeeklySummaryMode,
@@ -667,8 +693,6 @@ const {
   renderAccountMenu,
   renderAccountProfileModal,
   renderChangePasswordModal,
-  renderClearAccountDataModal,
-  renderDeleteAccountModal,
   openAccountMenu,
   closeAccountMenu,
   toggleAccountMenu,
@@ -678,14 +702,8 @@ const {
   handleAccountRecoveryCodeSubmit,
   openChangePasswordModal,
   closeChangePasswordModal,
-  openClearAccountDataModal,
-  closeClearAccountDataModal,
-  openDeleteAccountModal,
-  closeDeleteAccountModal,
   initAuthClient,
   handleChangePasswordSubmit,
-  clearAccountData,
-  handleDeleteAccountSubmit,
   handleAuthAction,
 } = accountModule;
 
@@ -720,6 +738,7 @@ const {
   renderSidebarCards,
   renderCalendar,
   renderControls,
+  syncToolbarFilterControls,
 } = uiModule;
 
 const contentModule = createContentModule({
@@ -728,6 +747,8 @@ const contentModule = createContentModule({
   contentChannelIds,
   contentTabs,
   getContentTabConfig,
+  CONTENT_SOURCE_BUNDLE_VERSION,
+  DEFAULT_RSSHUB_INSTANCE,
   escapeHtml,
   escapeAttribute,
   formatDateTime,
@@ -738,6 +759,7 @@ const contentModule = createContentModule({
   saveAccountPreferencesRemote: (...args) => saveAccountPreferencesRemote(...args),
   renderTopTabs: (...args) => renderTopTabs(...args),
   renderWidgets,
+  syncToolbarFilterControls: (...args) => syncToolbarFilterControls(...args),
   setSaveStatus,
 });
 
@@ -749,6 +771,7 @@ const {
   renderContentStreams,
   renderContentChannel,
   renderContentSourceModal,
+  syncContentSourceFormUi,
   loadFeaturedContent,
   refreshFavoriteHighlights,
   loadChannelContent,
@@ -792,6 +815,7 @@ const handlersModule = createHandlersModule({
   submitTaskNote,
   deleteTaskNote,
   updateNoteDraft,
+  updateNoteTimeDraft,
   addTask,
   restoreTask,
   openTaskTimelineModal,
@@ -812,6 +836,7 @@ const handlersModule = createHandlersModule({
   handleContentClick,
   handleContentToolbarInput,
   handleContentToolbarChange,
+  syncContentSourceFormUi,
   refreshWeather,
   refreshGitHubRepo,
   refreshStocks,
@@ -819,8 +844,6 @@ const handlersModule = createHandlersModule({
   toggleAccountMenu,
   openAccountProfileModal,
   openChangePasswordModal,
-  openClearAccountDataModal,
-  openDeleteAccountModal,
   closeAccountMenu,
   closeModal,
   closeDeleteTaskModal,
@@ -830,24 +853,23 @@ const handlersModule = createHandlersModule({
   closeTaskTimelineModal,
   closeAccountProfileModal,
   closeChangePasswordModal,
-  closeClearAccountDataModal,
-  closeDeleteAccountModal,
   saveWidgetSettings,
   deleteTask,
   archiveTask,
   renameTask,
+  toggleTaskMenu,
+  closeTaskMenu,
   saveWeeklySummary,
   clearUndoAction,
   isRemoteReady,
   flushPendingSync,
   bootstrapRemoteData,
-    updateTaskNameDraft,
-    handleAuthAction,
+  updateTaskNameDraft,
+  updateTaskTagDraft,
+  handleAuthAction,
     handleAccountProfilePreferencesSubmit,
     handleAccountRecoveryCodeSubmit,
     handleChangePasswordSubmit,
-    clearAccountData,
-    handleDeleteAccountSubmit,
     handleGitHubProfileSubmit,
     handleContentSourceSubmit,
   formatWeekRangeText,
@@ -963,8 +985,6 @@ function render() {
   renderDataTransferModal();
   renderSyncCenterModal();
   renderChangePasswordModal();
-  renderClearAccountDataModal();
-  renderDeleteAccountModal();
   renderContentSourceModal();
   applyButtonTooltips();
 }
@@ -1262,6 +1282,14 @@ function renderSyncCenterModal() {
       <p class="settings-copy">任务 ${counts.tasks} 项 · 每日记录 ${counts.records} 项 · 周总结 ${counts.summaries} 项</p>
     </div>
     <div class="account-profile-item">
+      <span class="account-profile-label">数据工具</span>
+      <div class="data-transfer-actions">
+        <button type="button" class="settings-save" data-sync-action="import-data">导入数据</button>
+        <button type="button" class="task-cancel-action" data-sync-action="export-data">导出数据</button>
+      </div>
+      <p class="settings-copy">导入会打开恢复弹窗；导出会生成当前 Dashboard 的 JSON 备份。</p>
+    </div>
+    <div class="account-profile-item">
       <span class="account-profile-label">最近安全备份</span>
       <p class="settings-copy">${
         backup
@@ -1342,6 +1370,16 @@ async function handleSyncCenterClick(event) {
       setSaveStatus(error?.message || "全量同步失败");
     }
     renderSyncCenterModal();
+    return;
+  }
+  if (action === "import-data") {
+    closeSyncCenterPanel();
+    openDataTransferModal("import");
+    return;
+  }
+  if (action === "export-data") {
+    closeSyncCenterPanel();
+    openDataTransferModal("export");
     return;
   }
   const backup = getSafetyBackupSnapshot();

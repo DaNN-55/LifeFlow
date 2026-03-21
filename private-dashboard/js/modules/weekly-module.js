@@ -10,6 +10,7 @@ export function createWeeklyModule(deps) {
     aggregateWeek,
     aggregateMonth,
     getWeeklyVisibleTasks,
+    getTaskTags,
     isTaskArchived,
     getWeeklySummaryDraft,
     getWeeklySummaryMode,
@@ -59,9 +60,12 @@ export function createWeeklyModule(deps) {
             </div>
           </div>
           <div class="review-notes">
-            <div class="review-note-item">
+            <div class="review-note-item is-empty">
+              <span class="review-note-marker" aria-hidden="true"></span>
               <span class="review-note-date">-</span>
-              <span>尝试切换周/月范围，或放宽搜索与筛选条件。</span>
+              <div class="review-note-copy">
+                <p class="review-note-text">尝试切换周/月范围，或放宽搜索与筛选条件。</p>
+              </div>
             </div>
           </div>
         </article>
@@ -76,19 +80,37 @@ export function createWeeklyModule(deps) {
               .map(
                 (item) => `
                   <div class="review-note-item">
+                    <span class="review-note-marker" aria-hidden="true"></span>
                     <span class="review-note-date">${item.dateLabel}</span>
-                    <span>${escapeHtml(item.note)}</span>
+                    <div class="review-note-copy">
+                      <p class="review-note-text">${escapeHtml(item.note)}</p>
+                    </div>
                   </div>
                 `,
               )
               .join("")
-          : '<div class="review-note-item"><span class="review-note-date">-</span><span>暂无复盘备注</span></div>';
+          : `
+              <div class="review-note-item is-empty">
+                <span class="review-note-marker" aria-hidden="true"></span>
+                <span class="review-note-date">-</span>
+                <div class="review-note-copy">
+                  <p class="review-note-text">暂无复盘备注</p>
+                </div>
+              </div>
+            `;
 
         return `
           <article class="review-card" style="--task-accent: ${task.color};">
             <div class="review-card-header">
-              <div>
+              <div class="review-title-row">
                 <h3 class="review-title">${task.name}</h3>
+                ${
+                  getTaskTags(task.id).length
+                    ? `<div class="task-tag-row review-tag-row">${getTaskTags(task.id)
+                        .map((tag) => `<span class="task-tag">#${escapeHtml(tag)}</span>`)
+                        .join("")}</div>`
+                    : ""
+                }
               </div>
               <div class="review-summary">
                 ${
@@ -110,14 +132,6 @@ export function createWeeklyModule(deps) {
                     `
                     : ""
                 }
-                <button
-                  type="button"
-                  class="task-cancel-action review-timeline-button"
-                  data-action="open-task-timeline"
-                  data-task-id="${task.id}"
-                >
-                  时间线
-                </button>
                 <span class="review-chip">${aggregation.completionCounts[task.id]} / ${aggregation.totalDays} DAYS</span>
                 <span class="review-chip">${notes.length} NOTES</span>
               </div>

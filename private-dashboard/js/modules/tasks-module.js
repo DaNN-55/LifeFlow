@@ -9,6 +9,7 @@ export function createTasksModule(deps) {
     escapeHtml,
     escapeAttribute,
     persistStateSilently,
+    saveAccountPreferencesRemote,
     renderControls,
     renderWeeklyReview,
     render,
@@ -19,6 +20,9 @@ export function createTasksModule(deps) {
     syncRecordByDate,
     getRandomPaletteColor,
     permanentlyRemoveTaskFromLocalState,
+    getTaskTags,
+    setTaskTags,
+    clearTaskTags,
     setUndoAction,
     setSaveStatus,
     isTaskArchived,
@@ -27,6 +31,104 @@ export function createTasksModule(deps) {
     parseLocalDate,
   } = deps;
   let taskListSortable = null;
+  const markdownRenderer =
+    typeof window !== "undefined" && typeof window.markdownit === "function"
+      ? window.markdownit({
+          html: false,
+          breaks: true,
+          linkify: true,
+          typographer: true,
+        })
+      : null;
+
+  function renderTaskNoteMarkdown(markdown) {
+    const source = String(markdown || "").replace(/\r\n/g, "\n").trim();
+    if (!source) {
+      return "";
+    }
+
+    const rendered = markdownRenderer
+      ? markdownRenderer.render(source)
+      : `<p>${escapeHtml(source).replace(/\n/g, "<br>")}</p>`;
+
+    if (
+      typeof window !== "undefined" &&
+      window.DOMPurify &&
+      typeof window.DOMPurify.sanitize === "function"
+    ) {
+      return window.DOMPurify.sanitize(rendered, {
+        USE_PROFILES: { html: true },
+      });
+    }
+
+    return rendered;
+  }
+
+  function normalizeTaskTagsInput(value) {
+    return [
+      ...new Set(
+        String(value || "")
+          .split(/[,，\n]/)
+          .map((tag) => tag.trim().replace(/^#+/, ""))
+          .filter(Boolean)
+          .slice(0, 6)
+          .map((tag) => tag.slice(0, 24)),
+      ),
+    ];
+  }
+
+  function getTaskTagsText(tags) {
+    return (Array.isArray(tags) ? tags : []).join(", ");
+  }
+
+  function getDefaultNoteTimeValue() {
+    const now = new Date();
+    return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  }
+
+  function normalizeNoteTimeValue(value) {
+    return /^\d{2}:\d{2}$/.test(String(value || "").trim()) ? String(value).trim() : "";
+  }
+
+  function getDraftNoteTime(taskId) {
+    return normalizeNoteTimeValue(state.noteTimeDrafts?.[taskId]) || getDefaultNoteTimeValue();
+  }
+
+  function buildNoteCreatedAt(timeValue) {
+    const normalizedTime = normalizeNoteTimeValue(timeValue);
+    if (!normalizedTime) {
+      return new Date().toISOString();
+    }
+    const [hours, minutes] = normalizedTime.split(":").map((value) => Number(value));
+    const baseDate = parseLocalDate(state.selectedDate) || new Date();
+    baseDate.setHours(hours || 0, minutes || 0, 0, 0);
+    return baseDate.toISOString();
+  }
+
+  function renderTaskTags(tags) {
+    if (!Array.isArray(tags) || tags.length === 0) {
+      return "";
+    }
+    return `<div class="task-tag-row">${tags
+      .map((tag) => `<span class="task-tag">#${escapeHtml(tag)}</span>`)
+      .join("")}</div>`;
+  }
+
+  async function syncTaskTagPreferences(fallbackMessage = "") {
+    if (!state.auth.user) {
+      return true;
+    }
+    try {
+      await saveAccountPreferencesRemote();
+      return true;
+    } catch (error) {
+      console.warn("Failed to sync task tags remotely.", error);
+      if (fallbackMessage) {
+        setSaveStatus(`${fallbackMessage}，标签同步失败，当前仅保存在本地`);
+      }
+      return false;
+    }
+  }
 
   function renderTaskColorPalette(taskId, selectedColor) {
     return TASK_COLOR_PALETTES.map(
@@ -76,13 +178,14 @@ export function createTasksModule(deps) {
       .map((task) => {
         const taskState = record.tasks[task.id];
         const draft = state.noteDrafts[task.id] || "";
+        const taskTags = getTaskTags(task.id);
         const notesHtml = taskState.notes.length
           ? taskState.notes
               .map(
                 (note) => `
                   <div class="task-note-item">
                     <div class="task-note-row">
-                      <span class="note-time">${formatDateTime(note.createdAt)}</span>
+                      <span class="note-time-chip">${formatDateTime(note.createdAt)}</span>
                       <button
                         type="button"
                         class="delete-note"
@@ -90,11 +193,12 @@ export function createTasksModule(deps) {
                         data-task-id="${task.id}"
                         data-note-id="${note.id}"
                         title="删除这条备注"
-                      >
-                        删除
-                      </button>
-                    </div>
-                    <p>${escapeHtml(note.text)}</p>
+                        aria-label="删除这条备注"
+                    >
+                      <span class="material-symbols-outlined">delete</span>
+                    </button>
+                  </div>
+                    <div class="task-note-markdown">${renderTaskNoteMarkdown(note.text)}</div>
                   </div>
                 `,
               )
@@ -109,57 +213,75 @@ export function createTasksModule(deps) {
           >
             <button
               type="button"
-              class="task-drag-handle"
-              aria-label="拖拽排序 ${escapeAttribute(task.name)}"
-              data-drag-handle="${task.id}"
-              data-task-id="${task.id}"
-            >
-              <span class="material-symbols-outlined">drag_indicator</span>
-            </button>
-            <button
-              type="button"
               class="task-accent-trigger"
               aria-label="${escapeAttribute(task.name)} 颜色设置"
               data-action="toggle-task-palette"
               data-task-id="${task.id}"
             ></button>
             <div class="task-row">
-              <div>
-                <h3 class="task-title">${task.name}</h3>
-                <p class="task-meta">执行记录</p>
-              </div>
-              <div class="task-card-actions">
+              <div class="task-title-group">
                 <button
                   type="button"
-                  class="task-cancel-action"
-                  data-action="start-task-rename"
-                  data-task-id="${task.id}"
-                >
-                  编辑
-                </button>
-                <button
-                  type="button"
-                  class="task-toggle ${taskState.completed ? "is-completed" : ""}"
+                  class="task-completion-toggle ${taskState.completed ? "is-completed" : ""}"
                   data-action="toggle-task"
                   data-task-id="${task.id}"
+                  aria-label="${taskState.completed ? "标记为未完成" : "标记为已完成"}"
                 >
-                  ${taskState.completed ? "已完成" : "未完成"}
+                  <span class="material-symbols-outlined">check</span>
                 </button>
+                <div class="task-meta-stack">
+                  <h3 class="task-title">${task.name}</h3>
+                  ${renderTaskTags(taskTags)}
+                </div>
+              </div>
+              <div class="task-head-actions">
                 <button
                   type="button"
-                  class="task-archive"
-                  data-action="archive-task"
+                  class="task-menu-trigger ${state.activeTaskMenuId === task.id ? "is-open" : ""}"
+                  data-action="toggle-task-menu"
                   data-task-id="${task.id}"
+                  aria-label="${escapeAttribute(task.name)} 更多操作"
+                  aria-expanded="${state.activeTaskMenuId === task.id ? "true" : "false"}"
                 >
-                  存档
+                  <span class="material-symbols-outlined">more_horiz</span>
                 </button>
+                <div class="task-menu-panel ${state.activeTaskMenuId === task.id ? "is-open" : ""}">
+                  <button
+                    type="button"
+                    class="task-menu-item"
+                    data-action="start-task-rename"
+                    data-task-id="${task.id}"
+                  >
+                    <span class="material-symbols-outlined">edit</span>
+                    <span>编辑</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="task-menu-item"
+                    data-action="archive-task"
+                    data-task-id="${task.id}"
+                  >
+                    <span class="material-symbols-outlined">inventory_2</span>
+                    <span>存档</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="task-menu-item is-danger"
+                    data-action="request-delete-task"
+                    data-task-id="${task.id}"
+                  >
+                    <span class="material-symbols-outlined">delete</span>
+                    <span>删除</span>
+                  </button>
+                </div>
                 <button
                   type="button"
-                  class="delete-task"
-                  data-action="request-delete-task"
+                  class="task-drag-handle"
+                  aria-label="拖拽排序 ${escapeAttribute(task.name)}"
+                  data-drag-handle="${task.id}"
                   data-task-id="${task.id}"
                 >
-                  删除
+                  <span class="material-symbols-outlined">drag_indicator</span>
                 </button>
               </div>
             </div>
@@ -180,16 +302,18 @@ export function createTasksModule(deps) {
                 data-action="draft-note"
                 data-task-id="${task.id}"
                 maxlength="500"
-                placeholder="填写备注并提交。已提交备注支持删除，不支持直接编辑。"
+                placeholder="记录本次执行的进度、问题或灵感（支持 Markdown）..."
               >${escapeHtml(draft)}</textarea>
-              <button
-                type="button"
-                class="note-submit"
-                data-action="submit-note"
-                data-task-id="${task.id}"
-              >
-                提交备注
-              </button>
+              <div class="note-compose-footer">
+                <button
+                  type="button"
+                  class="note-submit"
+                  data-action="submit-note"
+                  data-task-id="${task.id}"
+                >
+                  提交记录
+                </button>
+              </div>
             </div>
             ${notesHtml ? `<div class="task-note-list">${notesHtml}</div>` : ""}
           </article>
@@ -212,6 +336,13 @@ export function createTasksModule(deps) {
             maxlength="20"
             placeholder="输入新任务名称"
             required
+          />
+          <input
+            id="new-task-tags"
+            name="taskTags"
+            type="text"
+            maxlength="120"
+            placeholder="标签，多个请用逗号分隔"
           />
           <div class="new-task-color-hint">
             <span>颜色</span>
@@ -239,6 +370,7 @@ export function createTasksModule(deps) {
     }
     state.renameDialogTaskId = taskId;
     state.taskNameDrafts[taskId] = task.name;
+    state.taskTagDrafts[taskId] = getTaskTagsText(getTaskTags(task.id));
     renderRenameTaskModal();
   }
 
@@ -298,6 +430,11 @@ export function createTasksModule(deps) {
     const task = state.data.taskTypes.find((item) => item.id === state.renameDialogTaskId);
     elements.renameTaskModal.hidden = !task;
     elements.renameTaskInput.value = task ? state.taskNameDrafts[task.id] || task.name : "";
+    if (elements.renameTaskTagsInput) {
+      elements.renameTaskTagsInput.value = task
+        ? state.taskTagDrafts[task.id] || getTaskTagsText(getTaskTags(task.id))
+        : "";
+    }
     elements.renameTaskConfirm.disabled = !task;
     elements.renameTaskConfirm.dataset.taskId = task?.id || "";
     elements.renameTaskConfirm.title = task ? `确认编辑 ${task.name}` : "确认编辑";
@@ -353,7 +490,8 @@ export function createTasksModule(deps) {
                             entry.notes.length
                               ? entry.notes
                                   .map(
-                                    (note) => `<div class="task-timeline-note-item">${escapeHtml(note.text)}</div>`,
+                                    (note) =>
+                                      `<div class="task-timeline-note-item task-note-markdown">${renderTaskNoteMarkdown(note.text)}</div>`,
                                   )
                                   .join("")
                               : '<div class="task-timeline-note-item is-empty">无备注</div>'
@@ -412,8 +550,27 @@ export function createTasksModule(deps) {
     state.noteDrafts[taskId] = value;
   }
 
+  function updateNoteTimeDraft(taskId, value) {
+    if (!state.noteTimeDrafts) {
+      state.noteTimeDrafts = {};
+    }
+    state.noteTimeDrafts[taskId] = normalizeNoteTimeValue(value) || getDefaultNoteTimeValue();
+  }
+
   function updateTaskNameDraft(taskId, value) {
     state.taskNameDrafts[taskId] = value;
+  }
+
+  function updateTaskTagDraft(taskId, value) {
+    state.taskTagDrafts[taskId] = value;
+  }
+
+  function toggleTaskMenu(taskId) {
+    state.activeTaskMenuId = state.activeTaskMenuId === taskId ? null : taskId;
+  }
+
+  function closeTaskMenu() {
+    state.activeTaskMenuId = null;
   }
 
   async function submitTaskNote(taskId) {
@@ -423,13 +580,15 @@ export function createTasksModule(deps) {
     }
 
     const record = ensureRecord(state.selectedDate);
+    const createdAt = buildNoteCreatedAt(state.noteTimeDrafts?.[taskId] || "");
     record.tasks[taskId].notes.push({
       id: `note-${Date.now()}`,
       text: draft,
-      createdAt: new Date().toISOString(),
+      createdAt,
     });
     record.updatedAt = new Date().toISOString();
     state.noteDrafts[taskId] = "";
+    state.noteTimeDrafts[taskId] = "";
     persistStateSilently();
     renderTaskList();
     renderWeeklyReview();
@@ -450,7 +609,7 @@ export function createTasksModule(deps) {
     await syncCurrentRecord(`已删除 ${getTaskName(taskId)} 的备注`);
   }
 
-  async function addTask(taskName) {
+  async function addTask(taskName, taskTagsInput = "") {
     const normalizedName = taskName.trim();
     if (!normalizedName) {
       return;
@@ -466,6 +625,8 @@ export function createTasksModule(deps) {
       archivedAt: "",
     };
     state.data.taskTypes = [...state.data.taskTypes, nextTask];
+    const nextTags = normalizeTaskTagsInput(taskTagsInput);
+    setTaskTags(id, nextTags);
     Object.values(state.data.dailyRecords).forEach((record) => {
       record.tasks[id] = { completed: false, notes: [] };
     });
@@ -474,25 +635,48 @@ export function createTasksModule(deps) {
     persistStateSilently();
     render();
     await syncTaskCreate(nextTask, `已创建任务：${normalizedName}`);
+    if (nextTags.length > 0) {
+      await syncTaskTagPreferences(`已创建任务：${normalizedName}`);
+    }
   }
 
   async function renameTask(taskId) {
     const task = state.data.taskTypes.find((item) => item.id === taskId);
     const draft = String(state.taskNameDrafts[taskId] || "").trim();
-    if (!task || !draft || draft === task.name) {
+    const nextTags = normalizeTaskTagsInput(state.taskTagDrafts[taskId] || "");
+    const currentTags = getTaskTags(taskId);
+    const nameChanged = Boolean(task && draft && draft !== task.name);
+    const tagsChanged = JSON.stringify(nextTags) !== JSON.stringify(currentTags);
+
+    if (!task || (!draft && !tagsChanged) || (!nameChanged && !tagsChanged)) {
       closeRenameTaskModal();
       return;
     }
 
-    task.name = draft;
+    if (nameChanged) {
+      task.name = draft;
+    }
+    if (tagsChanged) {
+      setTaskTags(taskId, nextTags);
+    }
     closeRenameTaskModal();
     persistStateSilently();
     render();
-    await syncTaskUpdate(task, `已重命名任务：${draft}`);
+    if (nameChanged) {
+      await syncTaskUpdate(task, tagsChanged ? `已更新任务：${task.name}` : `已重命名任务：${task.name}`);
+    } else {
+      setSaveStatus(`已更新 ${task.name} 的标签`);
+    }
+    if (tagsChanged) {
+      await syncTaskTagPreferences(
+        nameChanged ? `已更新任务：${task.name}` : `已更新 ${task.name} 的标签`,
+      );
+    }
   }
 
   function cancelTaskRename(taskId) {
     delete state.taskNameDrafts[taskId];
+    delete state.taskTagDrafts[taskId];
     if (state.renameDialogTaskId === taskId) {
       closeRenameTaskModal();
     }
@@ -637,6 +821,7 @@ export function createTasksModule(deps) {
       return;
     }
     const deletedTaskSnapshot = structuredClone(task);
+    const deletedTaskTags = getTaskTags(taskId);
     const deletedTaskRecords = Object.entries(state.data.dailyRecords).reduce(
       (accumulator, [dateKey, record]) => {
         if (!record?.tasks?.[taskId]) {
@@ -648,6 +833,7 @@ export function createTasksModule(deps) {
       {},
     );
     closeDeleteTaskModal();
+    clearTaskTags(taskId);
     permanentlyRemoveTaskFromLocalState(taskId);
     persistStateSilently();
     render();
@@ -655,6 +841,7 @@ export function createTasksModule(deps) {
       undo: async () => {
         state.data.taskTypes.push(deletedTaskSnapshot);
         state.data.taskTypes.sort((a, b) => a.order - b.order);
+        setTaskTags(taskId, deletedTaskTags);
         Object.entries(deletedTaskRecords).forEach(([dateKey, taskState]) => {
           const record = ensureRecord(dateKey);
           record.tasks[taskId] = taskState;
@@ -662,6 +849,7 @@ export function createTasksModule(deps) {
         persistStateSilently();
         render();
         await syncTaskCreate(deletedTaskSnapshot, `已撤销删除：${deletedTaskSnapshot.name}`);
+        await syncTaskTagPreferences(`已撤销删除：${deletedTaskSnapshot.name}`);
         await Promise.all(
           Object.keys(deletedTaskRecords).map((dateKey) => syncRecordByDate(dateKey)),
         );
@@ -669,6 +857,7 @@ export function createTasksModule(deps) {
       },
     });
     await syncTaskDelete(taskId, `已删除任务：${task.name}`);
+    await syncTaskTagPreferences(`已删除任务：${task.name}`);
   }
 
   async function archiveTask(taskId) {
@@ -742,7 +931,11 @@ export function createTasksModule(deps) {
     getTaskName,
     updateTaskCompletion,
     updateNoteDraft,
+    updateNoteTimeDraft,
     updateTaskNameDraft,
+    updateTaskTagDraft,
+    toggleTaskMenu,
+    closeTaskMenu,
     submitTaskNote,
     deleteTaskNote,
     addTask,

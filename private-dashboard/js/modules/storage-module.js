@@ -87,6 +87,14 @@ export function createInitialData() {
       content: {
         readItems: {},
         hiddenSources: {},
+        sourceBundleVersion: "",
+      },
+      profile: {
+        birthDate: "1996-11-05",
+        lifeExpectancyYears: 80,
+      },
+      tasks: {
+        tagsByTaskId: {},
       },
       sync: {
         lastSyncAttemptAt: "",
@@ -96,6 +104,35 @@ export function createInitialData() {
       widgets: structuredClone(defaultWidgets),
     },
   };
+}
+
+export function sanitizeTaskTags(tags) {
+  const values = Array.isArray(tags) ? tags : [];
+  return [
+    ...new Set(
+      values
+        .map((tag) => String(tag || "").trim().replace(/^#+/, ""))
+        .filter(Boolean)
+        .slice(0, 6)
+        .map((tag) => tag.slice(0, 24)),
+    ),
+  ];
+}
+
+export function sanitizeTaskTagMap(taskTagMap) {
+  if (!taskTagMap || typeof taskTagMap !== "object") {
+    return {};
+  }
+  return Object.entries(taskTagMap).reduce((accumulator, [taskId, tags]) => {
+    if (typeof taskId !== "string" || !taskId.trim()) {
+      return accumulator;
+    }
+    const normalized = sanitizeTaskTags(tags);
+    if (normalized.length > 0) {
+      accumulator[taskId] = normalized;
+    }
+    return accumulator;
+  }, {});
 }
 
 function mergePreferences(
@@ -120,6 +157,26 @@ function mergePreferences(
         ...createInitialData().preferences.content.hiddenSources,
         ...(basePreferences?.content?.hiddenSources || {}),
       },
+      sourceBundleVersion:
+        typeof basePreferences?.content?.sourceBundleVersion === "string"
+          ? basePreferences.content.sourceBundleVersion
+          : createInitialData().preferences.content.sourceBundleVersion,
+    },
+    profile: {
+      ...createInitialData().preferences.profile,
+      ...(basePreferences?.profile || {}),
+      birthDate:
+        typeof basePreferences?.profile?.birthDate === "string"
+          ? basePreferences.profile.birthDate
+          : createInitialData().preferences.profile.birthDate,
+      lifeExpectancyYears: Number(basePreferences?.profile?.lifeExpectancyYears)
+        ? Number(basePreferences.profile.lifeExpectancyYears)
+        : createInitialData().preferences.profile.lifeExpectancyYears,
+    },
+    tasks: {
+      ...createInitialData().preferences.tasks,
+      ...(basePreferences?.tasks || {}),
+      tagsByTaskId: sanitizeTaskTagMap(basePreferences?.tasks?.tagsByTaskId || {}),
     },
     sync: {
       ...createInitialData().preferences.sync,
@@ -163,6 +220,29 @@ function mergePreferences(
       hiddenSources: {
         ...base.content.hiddenSources,
         ...(preferences?.content?.hiddenSources || {}),
+      },
+      sourceBundleVersion:
+        typeof preferences?.content?.sourceBundleVersion === "string"
+          ? preferences.content.sourceBundleVersion
+          : base.content.sourceBundleVersion,
+    },
+    profile: {
+      ...base.profile,
+      ...(preferences?.profile || {}),
+      birthDate:
+        typeof preferences?.profile?.birthDate === "string"
+          ? preferences.profile.birthDate
+          : base.profile.birthDate,
+      lifeExpectancyYears: Number(preferences?.profile?.lifeExpectancyYears)
+        ? Number(preferences.profile.lifeExpectancyYears)
+        : base.profile.lifeExpectancyYears,
+    },
+    tasks: {
+      ...base.tasks,
+      ...(preferences?.tasks || {}),
+      tagsByTaskId: {
+        ...base.tasks.tagsByTaskId,
+        ...sanitizeTaskTagMap(preferences?.tasks?.tagsByTaskId || {}),
       },
     },
     sync: {
@@ -591,6 +671,9 @@ export function createStorageModule(deps) {
       delete record.tasks[taskId];
     });
     delete state.noteDrafts[taskId];
+    delete state.noteTimeDrafts[taskId];
+    delete state.taskNameDrafts[taskId];
+    delete state.taskTagDrafts[taskId];
     if (state.deleteDialogTaskId === taskId) {
       state.deleteDialogTaskId = null;
     }
@@ -604,6 +687,33 @@ export function createStorageModule(deps) {
 
   function getCurrentScopeKey() {
     return state.auth.user?.id || LOCAL_SCOPE_KEY;
+  }
+
+  function getTaskTags(taskId) {
+    return sanitizeTaskTags(state.data.preferences?.tasks?.tagsByTaskId?.[taskId] || []);
+  }
+
+  function setTaskTags(taskId, tags) {
+    if (!state.data.preferences.tasks) {
+      state.data.preferences.tasks = { tagsByTaskId: {} };
+    }
+    if (!state.data.preferences.tasks.tagsByTaskId) {
+      state.data.preferences.tasks.tagsByTaskId = {};
+    }
+    const normalized = sanitizeTaskTags(tags);
+    if (normalized.length > 0) {
+      state.data.preferences.tasks.tagsByTaskId[taskId] = normalized;
+      return normalized;
+    }
+    delete state.data.preferences.tasks.tagsByTaskId[taskId];
+    return [];
+  }
+
+  function clearTaskTags(taskId) {
+    if (!state.data.preferences?.tasks?.tagsByTaskId) {
+      return;
+    }
+    delete state.data.preferences.tasks.tagsByTaskId[taskId];
   }
 
   function persistStateSilently() {
@@ -638,10 +748,13 @@ export function createStorageModule(deps) {
 
   function resetScopedUiState() {
     state.noteDrafts = {};
+    state.noteTimeDrafts = {};
     state.taskNameDrafts = {};
+    state.taskTagDrafts = {};
     state.recentlyRestoredTaskIds = {};
     state.weeklySummaryDrafts = {};
     state.weeklySummaryMode = {};
+    state.activeTaskMenuId = null;
     state.deleteDialogTaskId = null;
     state.archiveDialogTaskId = null;
     state.renameDialogTaskId = null;
@@ -654,11 +767,7 @@ export function createStorageModule(deps) {
     state.accountRecoveryFeedback = "";
     state.accountProfileModalOpen = false;
     state.changePasswordModalOpen = false;
-    state.clearAccountDataModalOpen = false;
-    state.deleteAccountModalOpen = false;
     state.changePasswordSubmitting = false;
-    state.clearAccountDataSubmitting = false;
-    state.deleteAccountSubmitting = false;
     state.remote.weeklyReview = null;
   }
 
@@ -673,6 +782,9 @@ export function createStorageModule(deps) {
     getWeeklyVisibleTasks,
     ensureRecord,
     permanentlyRemoveTaskFromLocalState,
+    getTaskTags,
+    setTaskTags,
+    clearTaskTags,
     saveData,
     persistStateSilently,
     applyAccountPreferences,
