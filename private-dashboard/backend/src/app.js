@@ -3,6 +3,7 @@ const cors = require("cors");
 const express = require("express");
 const svgCaptcha = require("svg-captcha");
 const { z } = require("zod");
+const { isCorsOriginAllowed } = require("./config");
 const {
   hashPassword,
   verifyPassword,
@@ -28,6 +29,8 @@ const SESSION_HEADER_NAME = "x-session-id";
 const SESSION_TTL_DAYS = 30;
 const CAPTCHA_TTL_MS = 5 * 60 * 1000;
 const WEATHER_REQUEST_TIMEOUT_MS = 6000;
+const TURNSTILE_VERIFY_TIMEOUT_MS = 8000;
+const TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
 const taskSchema = z.object({
   id: z.string().min(1).max(64).optional(),
@@ -65,17 +68,21 @@ const credentialsSchema = z.object({
   password: z.string().min(6).max(128),
 });
 
-const authRequestSchema = credentialsSchema.extend({
-  captchaId: z.string().min(1).max(128),
-  captchaText: z.string().min(4).max(16),
+const authChallengeSchema = z.object({
+  captchaId: z.string().min(1).max(128).optional(),
+  captchaText: z.string().min(4).max(16).optional(),
+  turnstileToken: z.string().min(1).max(4096).optional(),
 });
+
+const authRequestSchema = credentialsSchema.extend(authChallengeSchema.shape);
 
 const passwordRecoverySchema = z.object({
   username: z.string().min(3).max(64).regex(/^[^\s]+$/),
   recoveryCode: z.string().min(8).max(64),
   newPassword: z.string().min(6).max(128),
-  captchaId: z.string().min(1).max(128),
-  captchaText: z.string().min(4).max(16),
+  captchaId: z.string().min(1).max(128).optional(),
+  captchaText: z.string().min(4).max(16).optional(),
+  turnstileToken: z.string().min(1).max(4096).optional(),
 });
 
 const passwordChangeSchema = z.object({
@@ -249,7 +256,7 @@ function createApp({ config, store }) {
     cors({
       credentials: true,
       origin(origin, callback) {
-        if (!origin || config.corsOrigins.length === 0 || config.corsOrigins.includes(origin)) {
+        if (isCorsOriginAllowed(config.corsOrigins, origin)) {
           callback(null, true);
           return;
         }
@@ -278,7 +285,21 @@ function createApp({ config, store }) {
     });
   });
 
+  app.get("/api/auth/challenge", async (request, response) => {
+    response.json({
+      challenge: {
+        provider: config.authChallengeProvider,
+        turnstileSiteKey: config.authChallengeProvider === "turnstile" ? config.turnstileSiteKey : "",
+        captchaExpiresInMs: CAPTCHA_TTL_MS,
+      },
+    });
+  });
+
   app.get("/api/auth/captcha", async (request, response) => {
+    if (config.authChallengeProvider !== "captcha") {
+      response.status(400).json({ error: "Legacy captcha is disabled" });
+      return;
+    }
     cleanupExpiredCaptchas(captchaStore);
     const captcha = svgCaptcha.create({
       size: 4,
@@ -350,8 +371,9 @@ function createApp({ config, store }) {
   app.post("/api/auth/signup", async (request, response, next) => {
     try {
       const parsed = authRequestSchema.parse(request.body);
-      if (!verifyCaptcha(captchaStore, parsed.captchaId, parsed.captchaText)) {
-        response.status(400).json({ error: "验证码错误或已过期" });
+      const challengeResult = await verifyAuthChallenge(config, request, parsed, captchaStore);
+      if (!challengeResult.ok) {
+        response.status(challengeResult.statusCode).json({ error: challengeResult.error });
         return;
       }
       const existing = await store.findUserByUsername(parsed.username);
@@ -389,8 +411,9 @@ function createApp({ config, store }) {
   app.post("/api/auth/signin", async (request, response, next) => {
     try {
       const parsed = authRequestSchema.parse(request.body);
-      if (!verifyCaptcha(captchaStore, parsed.captchaId, parsed.captchaText)) {
-        response.status(400).json({ error: "验证码错误或已过期" });
+      const challengeResult = await verifyAuthChallenge(config, request, parsed, captchaStore);
+      if (!challengeResult.ok) {
+        response.status(challengeResult.statusCode).json({ error: challengeResult.error });
         return;
       }
       const user = await store.findUserByUsername(parsed.username);
@@ -432,8 +455,9 @@ function createApp({ config, store }) {
   app.post("/api/auth/recover-password", async (request, response, next) => {
     try {
       const parsed = passwordRecoverySchema.parse(request.body || {});
-      if (!verifyCaptcha(captchaStore, parsed.captchaId, parsed.captchaText)) {
-        response.status(400).json({ error: "验证码错误或已过期" });
+      const challengeResult = await verifyAuthChallenge(config, request, parsed, captchaStore);
+      if (!challengeResult.ok) {
+        response.status(challengeResult.statusCode).json({ error: challengeResult.error });
         return;
       }
       const user = await store.findUserByUsername(parsed.username);
@@ -1083,6 +1107,52 @@ function resolveCookiePolicy(request) {
   return { sameSite: "Lax", secure: false };
 }
 
+async function verifyAuthChallenge(config, request, parsedBody, captchaStore) {
+  if (config.authChallengeProvider === "turnstile") {
+    const token = String(parsedBody?.turnstileToken || "").trim();
+    if (!token) {
+      return {
+        ok: false,
+        statusCode: 400,
+        error: "请先完成验证码验证",
+      };
+    }
+
+    try {
+      const result = await verifyTurnstileToken(
+        config.turnstileSecretKey,
+        token,
+        getRequestIp(request),
+      );
+      if (result?.success) {
+        return { ok: true };
+      }
+
+      return {
+        ok: false,
+        statusCode: 400,
+        error: buildTurnstileErrorMessage(result?.errorCodes),
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        statusCode: 503,
+        error: "验证码服务暂时不可用，请稍后重试。",
+      };
+    }
+  }
+
+  if (verifyCaptcha(captchaStore, parsedBody?.captchaId, parsedBody?.captchaText)) {
+    return { ok: true };
+  }
+
+  return {
+    ok: false,
+    statusCode: 400,
+    error: "验证码错误或已过期",
+  };
+}
+
 function cleanupExpiredCaptchas(captchaStore) {
   const now = Date.now();
   for (const [captchaId, record] of captchaStore.entries()) {
@@ -1100,6 +1170,61 @@ function verifyCaptcha(captchaStore, captchaId, captchaText) {
   }
   captchaStore.delete(String(captchaId || ""));
   return String(captchaText || "").trim().toLowerCase() === record.text;
+}
+
+async function verifyTurnstileToken(secretKey, token, remoteIp = "") {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), TURNSTILE_VERIFY_TIMEOUT_MS);
+
+  try {
+    const body = new URLSearchParams({
+      secret: String(secretKey || ""),
+      response: String(token || ""),
+    });
+    if (remoteIp) {
+      body.set("remoteip", remoteIp);
+    }
+
+    const response = await fetch(TURNSTILE_VERIFY_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body,
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Turnstile verify failed: ${response.status}`);
+    }
+
+    const payload = await response.json();
+    return {
+      success: Boolean(payload?.success),
+      errorCodes: Array.isArray(payload?.["error-codes"]) ? payload["error-codes"] : [],
+    };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function buildTurnstileErrorMessage(errorCodes = []) {
+  const codes = Array.isArray(errorCodes) ? errorCodes : [];
+  if (codes.includes("timeout-or-duplicate")) {
+    return "验证码已过期，请重新验证。";
+  }
+  if (codes.includes("missing-input-response")) {
+    return "请先完成验证码验证。";
+  }
+  return "验证码校验失败，请重试。";
+}
+
+function getRequestIp(request) {
+  const forwarded = String(request.header("x-forwarded-for") || "").trim();
+  if (forwarded) {
+    return forwarded.split(",")[0].trim();
+  }
+  return String(request.ip || request.socket?.remoteAddress || "").trim();
 }
 
 async function resolveWeatherLocation(request, query) {

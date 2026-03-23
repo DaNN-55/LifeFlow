@@ -2,3 +2,5 @@
 private-dashboard/backend/node_modules/
 private-dashboard/backend/.env
 decisions.excalidraw
+.DS_Store
+prototypes/

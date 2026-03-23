@@ -128,7 +128,7 @@ http://localhost:8787
 
 ```env
 PORT=8787
-CORS_ORIGIN=http://localhost:8000,https://your-frontend.vercel.app
+CORS_ORIGIN=http://localhost:8000,https://your-frontend.vercel.app,https://life-flow-*.vercel.app
 SUPABASE_URL=https://your-project-ref.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 ```
@@ -174,6 +174,7 @@ http://localhost:8787/health
 如果前端在 `Vercel`，后端在 `Render`：
 
 - `CORS_ORIGIN` 必须包含前端正式域名
+- 如果会频繁使用 `Vercel Preview` 域名，可以直接配置通配，例如 `https://life-flow-*.vercel.app`
 - 前后端都必须使用 HTTPS
 - 登录态依赖 Cookie，跨域场景下后端会自动写 `SameSite=None; Secure`
 
