@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 
 import ToolbarSelect from "../components/common/ToolbarSelect.vue";
+import { saveCachedDailyRecord } from "../services/dashboard-cache";
 import { fetchPulseQuote } from "../services/pulse-api";
 import { fetchDailyRecord, saveDailyRecord } from "../services/today-api";
 import { useSessionStore } from "../stores/session";
@@ -187,7 +188,10 @@ async function submitPulseNote() {
       ],
     };
 
-    await saveDailyRecord(today, { tasks: nextTasks });
+    const response = await saveDailyRecord(today, { tasks: nextTasks });
+    if (sessionStore.user?.id && response?.record) {
+      saveCachedDailyRecord(sessionStore.user.id, response.record);
+    }
     noteDraft.value = "";
     await loadPulse();
     weeklyStore.setSaveStatus(`已保存 ${getTaskDisplayName(task.name)} 的备注`);
