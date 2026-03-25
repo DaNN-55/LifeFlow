@@ -4,18 +4,21 @@ export const DEFAULT_RSSHUB_INSTANCE = "https://rsshub.zhsh.me";
 export const SESSION_STORAGE_KEY = "lifeflow-private-dashboard-session";
 export const AUTH_CONFIG_STORAGE_KEY = "lifeflow-private-dashboard-auth-config";
 export const APP_THEME_STORAGE_KEY = "lifeflow-private-dashboard-vue-theme";
-export const API_PROBE_TIMEOUT_MS = 5000;
+export const PREVIEW_MODE_STORAGE_KEY = "lifeflow-private-dashboard-vue-preview-mode";
+export const API_PROBE_TIMEOUT_MS = 12000;
 export const SAFETY_BACKUP_STORAGE_KEY = "lifeflow-private-dashboard-vue-safety-backup";
 export const LOCAL_CONTENT_CACHE_STORAGE_KEY = "lifeflow-private-dashboard-vue-local-content";
 export const AUTH_GATE_ENABLED = true;
 export const ACCOUNT_CONTROLS_ENABLED = true;
+export const AUTH_CHALLENGE_ENABLED = true;
+export const AUTH_PREVIEW_ENABLED = true;
 export const CONTENT_SOURCE_BUNDLE_VERSION = "rsshub-defaults-v2";
 
 export const topTabs = [
-  { id: "home", label: "Home", to: "/" },
-  { id: "finance", label: "Finance", to: "/content/finance" },
-  { id: "science", label: "Science", to: "/content/science" },
-  { id: "ai", label: "AI", to: "/content/ai" },
+  { id: "pulse", label: "Pulse", to: "/pulse" },
+  { id: "today", label: "Today", to: "/today" },
+  { id: "content", label: "Content", to: "/content" },
+  { id: "fretflow", label: "FretFlow", to: "/fretflow" },
 ];
 
 export const contentTabs = [

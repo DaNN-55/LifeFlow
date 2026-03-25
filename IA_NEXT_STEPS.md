@@ -9,6 +9,27 @@
 - 打开网站第一眼直接进入 `Today`，不再做单独的 dashboard 首页。
 - 移动端 / PWA 去掉左右边栏，只保留中间主内容。
 - 移动端底部导航固定为 3 个一级入口。
+- 后续正式落地到 Vue 项目时，只调整结构，不重做视觉样式。
+
+## 样式约束
+
+- 正式实现时，样式要尽量与当前 Vue 项目保持一致。
+- 本次调整的重点是信息架构和页面结构变化，不是视觉重设计。
+- 允许做的改动：
+  - 页面层级调整
+  - 一级 / 二级导航重组
+  - 模块位置调整
+  - 现有组件的增减和复用
+- 尽量不做的改动：
+  - 整体配色重做
+  - 字体系统重做
+  - 组件风格大改
+  - 与当前 Vue 项目不一致的新视觉语言
+
+结论：
+
+- prototype 可以用于表达结构方向。
+- 正式迁回 Vue 项目时，以“保持现有样式，只改变结构”为原则。
 
 ## 一级导航
 
@@ -70,7 +91,6 @@
 - `Finance`
 - `Science`
 - `AI`
-- `Macro`
 - `+`
 
 后续新增频道：
@@ -134,6 +154,10 @@
 
 最新静态原型：
 
+- [prototypes/lifeflow-ia-vue-style-prototype.html](/Users/dan/Programs/LifeFlow/prototypes/lifeflow-ia-vue-style-prototype.html)
+
+保留的较早结构稿：
+
 - [prototypes/today-content-fretflow-ia-prototype.html](/Users/dan/Programs/LifeFlow/prototypes/today-content-fretflow-ia-prototype.html)
 
 原型表达的核心内容：
@@ -143,11 +167,24 @@
 - `Today` 内部有 `Review / Timeline`
 - `Content` 预留继续新增频道
 - 移动端只保留中间内容和底部 3 tab
+- 新版原型的视觉语言尽量贴近当前 Vue 项目，而不是重新设计一套新样式
+
+## 当前进度
+
+- 已完成 `Today` 的二级视图草图：`Today / Review / Timeline`
+- 已完成 `Content` 的频道切换草图：`Finance / Science / AI`
+- 后续新增频道继续通过 `Content` 二级导航扩展
+- 已补出与当前 Vue 项目更接近的样式版 prototype
+- 已开始把这套结构正式映射回 Vue 项目
+- 已落地一级导航：`Today / Content / FretFlow`
+- 已把原 `Weekly` 一级页并回 `Today` 内部的 `Review / Timeline`
+- 已把 `/` 收口到 `Today`，并保留旧 `/weekly` 到 `Today > Review` 的兼容跳转
+- 正式项目实现时继续遵守“尽量保持当前 Vue 项目样式不变，只调整结构”
 
 ## 明天继续时建议顺序
 
 1. 先确认这版信息架构不再变动。
 2. 继续在 prototype 上细化页面模块，不直接动正式项目。
-3. 先细化 `Today` 的二级视图表现。
-4. 再细化 `Content` 的频道切换和卡片布局。
-5. 最后再考虑如何把原型映射回 Vue 项目。
+3. 对新版 Vue 风格 prototype 做一轮细节确认。
+4. 继续补齐 `Today / Content / FretFlow` 的真实业务内容，而不是重新设计视觉。
+5. 最后再专门处理移动端 / PWA 的底部导航和布局收口。

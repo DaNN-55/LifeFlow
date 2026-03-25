@@ -86,6 +86,41 @@ function createCalendarGrid(selectedDateString) {
   };
 }
 
+function buildFreshNewsKey(item = {}) {
+  return String(item?.id || item?.canonical_url || item?.source_url || item?.title || "").trim();
+}
+
+function shuffleItems(items = []) {
+  const pool = Array.isArray(items) ? items.slice() : [];
+  for (let index = pool.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [pool[index], pool[swapIndex]] = [pool[swapIndex], pool[index]];
+  }
+  return pool;
+}
+
+function buildFreshNewsFeed(financeFeed = [], scienceFeed = [], limit = 5) {
+  const merged = [...financeFeed, ...scienceFeed]
+    .map((item) => ({
+      ...item,
+      channel: item?.channel || (scienceFeed.includes(item) ? "science" : "finance"),
+    }))
+    .filter((item) => buildFreshNewsKey(item));
+
+  const deduped = [];
+  const seen = new Set();
+  merged.forEach((item) => {
+    const key = buildFreshNewsKey(item);
+    if (!key || seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    deduped.push(item);
+  });
+
+  return shuffleItems(deduped).slice(0, limit);
+}
+
 export const useHomeStore = defineStore("home", {
   state: () => ({
     calendarMonth: formatMonthValue(new Date()),
@@ -138,6 +173,11 @@ export const useHomeStore = defineStore("home", {
       if (Array.isArray(cachedHome.scienceFeed)) {
         this.scienceFeed = cachedHome.scienceFeed;
       }
+      if (Array.isArray(cachedHome.freshNewsFeed)) {
+        this.freshNewsFeed = cachedHome.freshNewsFeed;
+      } else {
+        this.rebuildFreshNewsFeed(false);
+      }
       if (cachedHome.favorites && typeof cachedHome.favorites === "object") {
         this.favorites = cachedHome.favorites;
       }
@@ -156,10 +196,13 @@ export const useHomeStore = defineStore("home", {
       const currentSessionId = loadSessionId();
       const lastSidebarRefreshSessionId = String(cachedHome.sidebarRefreshSessionId || "");
       const shouldAutoRefreshSidebar = Boolean(currentSessionId && currentSessionId !== lastSidebarRefreshSessionId);
+      const shouldPrimeFreshNews = !shouldAutoRefreshSidebar && this.freshNewsFeed.length === 0;
 
       const jobs = [this.loadCalendar(this.calendarSelectedDate)];
       if (shouldAutoRefreshSidebar) {
         jobs.push(this.refreshSidebarAfterLogin(currentSessionId));
+      } else if (shouldPrimeFreshNews) {
+        jobs.push(this.refreshFeeds());
       }
 
       await Promise.allSettled(jobs);
@@ -243,20 +286,33 @@ export const useHomeStore = defineStore("home", {
       if (science.status === "rejected") {
         this.scienceFeed = [];
       }
+      this.rebuildFreshNewsFeed();
     },
     async refreshFeed(channel) {
       const targetChannel = channel === "science" ? "science" : "finance";
       const payload = await fetchFeaturedContent(targetChannel, 3).catch(() => ({ items: [] }));
-      const items = Array.isArray(payload?.items) ? payload.items : [];
+      const items = Array.isArray(payload?.items)
+        ? payload.items.map((item) => ({
+            ...item,
+            channel: item?.channel || targetChannel,
+          }))
+        : [];
       if (targetChannel === "science") {
         this.scienceFeed = items;
       } else {
         this.financeFeed = items;
       }
+    },
+    rebuildFreshNewsFeed(persist = true) {
+      this.freshNewsFeed = buildFreshNewsFeed(this.financeFeed, this.scienceFeed);
+      if (!persist) {
+        return;
+      }
       const sessionStore = useSessionStore();
       saveCachedHomeData(sessionStore.user?.id, {
         financeFeed: this.financeFeed,
         scienceFeed: this.scienceFeed,
+        freshNewsFeed: this.freshNewsFeed,
       });
     },
     async refreshFavorites() {

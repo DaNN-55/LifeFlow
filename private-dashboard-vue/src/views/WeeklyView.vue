@@ -1,14 +1,18 @@
 <script setup>
-import { computed, onMounted, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 
 import ToolbarSelect from "../components/common/ToolbarSelect.vue";
 import TaskDialog from "../components/today/TaskDialog.vue";
+import MonthlyOverviewCard from "../components/weekly/MonthlyOverviewCard.vue";
 import WeeklyReviewCard from "../components/weekly/WeeklyReviewCard.vue";
+import { useTodayStore } from "../stores/today";
 import { useSessionStore } from "../stores/session";
 import { useWeeklyStore } from "../stores/weekly";
 
 const sessionStore = useSessionStore();
+const todayStore = useTodayStore();
 const weeklyStore = useWeeklyStore();
+const expandedReviewCards = ref({});
 
 const isAuthenticated = computed(() => Boolean(sessionStore.user?.id));
 const showSummaryEdit = computed(
@@ -21,6 +25,18 @@ function handleEditSummary() {
 
 function handleSaveSummary() {
   weeklyStore.openSummaryDialog();
+}
+
+function isReviewExpanded(taskId) {
+  return Boolean(expandedReviewCards.value[String(taskId)]);
+}
+
+function toggleReviewCard(taskId) {
+  const key = String(taskId);
+  expandedReviewCards.value = {
+    ...expandedReviewCards.value,
+    [key]: !isReviewExpanded(key),
+  };
 }
 
 onMounted(async () => {
@@ -130,11 +146,19 @@ watch(
             </label>
           </div>
 
+          <MonthlyOverviewCard
+            v-if="weeklyStore.mode === 'month'"
+            :overview="weeklyStore.monthOverview"
+            :tags-by-task-id="sessionStore.user?.preferences?.tasks?.tagsByTaskId || {}"
+            :icon-by-task-id="sessionStore.user?.preferences?.tasks?.iconByTaskId || {}"
+          />
+
           <section
+            v-else
             class="weekly-summary-card"
             :class="{
               'is-empty': !weeklyStore.currentSummary.content,
-              'is-editing': weeklyStore.currentSummaryMode !== 'view' || weeklyStore.mode === 'month',
+              'is-editing': weeklyStore.currentSummaryMode !== 'view',
               'is-saved': weeklyStore.currentSummaryMode === 'view' && weeklyStore.currentSummary.content,
             }"
             aria-labelledby="weekly-summary-title"
@@ -144,7 +168,7 @@ watch(
                 <p class="panel-kicker">Weekly wrap-up</p>
                 <h2 id="weekly-summary-title">周总结</h2>
               </div>
-              <div class="weekly-summary-actions" v-if="weeklyStore.mode === 'week'">
+              <div class="weekly-summary-actions">
                 <button
                   v-if="weeklyStore.currentSummaryMode === 'view' && weeklyStore.currentSummary.content"
                   type="button"
@@ -177,8 +201,7 @@ watch(
               v-html="weeklyStore.summaryDisplayHtml"
             />
             <div v-else class="weekly-summary-display">
-              <p v-if="weeklyStore.mode === 'month'">按月模式下先只展示任务复盘，不编辑周总结。切回按周后可继续编辑和保存。</p>
-              <p v-else>本周还没有保存总结。</p>
+              <p>本周还没有保存总结。</p>
             </div>
 
             <p class="weekly-summary-meta" :class="{ 'is-dirty': weeklyStore.currentSummaryDraft !== weeklyStore.currentSummary.content }">
@@ -202,15 +225,18 @@ watch(
           <p>尝试切换周/月范围，或放宽筛选条件。</p>
         </div>
 
-        <div v-else class="review-stack">
-          <WeeklyReviewCard
-            v-for="task in weeklyStore.visibleTasks"
-            :key="task.id"
-            :task="task"
-            :tags="sessionStore.user?.preferences?.tasks?.tagsByTaskId?.[task.id] || []"
+        <div v-else-if="weeklyStore.mode === 'week'" class="review-stack">
+              <WeeklyReviewCard
+                v-for="task in weeklyStore.visibleTasks"
+                :key="task.id"
+                :task="task"
+                :task-icon="todayStore.getTaskIcon(task.id, task.name)"
+                :tags="sessionStore.user?.preferences?.tasks?.tagsByTaskId?.[task.id] || []"
             :completion-count="weeklyStore.aggregation.completionCounts[task.id] || 0"
             :total-days="weeklyStore.aggregation.totalDays"
             :notes="weeklyStore.aggregation.notesByTask[task.id] || []"
+            :expanded="isReviewExpanded(task.id)"
+            @toggle="toggleReviewCard"
             @restore-task="weeklyStore.restoreTask"
           />
         </div>

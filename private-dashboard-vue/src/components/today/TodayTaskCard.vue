@@ -2,6 +2,7 @@
 import { computed } from "vue";
 
 import { renderTaskNoteMarkdown } from "../../utils/markdown";
+import { getTaskDisplayName } from "../../utils/task-icons";
 
 const props = defineProps({
   task: {
@@ -11,6 +12,10 @@ const props = defineProps({
   taskState: {
     type: Object,
     required: true,
+  },
+  taskIcon: {
+    type: String,
+    default: "radio_button_unchecked",
   },
   tags: {
     type: Array,
@@ -58,6 +63,8 @@ const cardStyle = computed(() => ({
 function renderMarkdown(note) {
   return renderTaskNoteMarkdown(note?.text);
 }
+
+const displayName = computed(() => getTaskDisplayName(props.task?.name));
 </script>
 
 <template>
@@ -86,7 +93,10 @@ function renderMarkdown(note) {
           <span class="material-symbols-outlined">check</span>
         </button>
         <div class="task-meta-stack">
-          <h3 class="task-title">{{ task.name }}</h3>
+          <div class="task-title-row">
+            <span class="material-symbols-outlined task-title-icon" aria-hidden="true">{{ taskIcon }}</span>
+            <h3 class="task-title">{{ displayName }}</h3>
+          </div>
           <div v-if="tags.length" class="task-tag-row">
             <span v-for="tag in tags" :key="tag" class="task-tag">#{{ tag }}</span>
           </div>

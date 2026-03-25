@@ -20,6 +20,7 @@ export function createEmptyHomeState() {
   return {
     financeFeed: [],
     scienceFeed: [],
+    freshNewsFeed: [],
     favorites: {
       status: "idle",
       items: [],
@@ -167,6 +168,7 @@ export async function fetchStockWidget(symbolInput = defaultWidgets.stock.symbol
       throw new Error("No stock resolved");
     }
     const quotes = await fetchTencentQuotes(resolved.map((item) => item.symbol));
+    const sparklines = await fetchTencentMinuteSparklines(resolved.map((item) => item.symbol)).catch(() => ({}));
     return {
       status: "ready",
       symbols: resolved.map((item) => {
@@ -178,6 +180,7 @@ export async function fetchStockWidget(symbolInput = defaultWidgets.stock.symbol
             price: "--",
             change: "--",
             trend: "flat",
+            sparkline: "",
           };
         }
         return {
@@ -186,6 +189,7 @@ export async function fetchStockWidget(symbolInput = defaultWidgets.stock.symbol
           price: quote.price,
           change: quote.change,
           trend: quote.trend,
+          sparkline: sparklines[item.symbol] || "",
         };
       }),
       updatedAt: new Date().toISOString(),
@@ -200,6 +204,7 @@ export async function fetchStockWidget(symbolInput = defaultWidgets.stock.symbol
         price: "--",
         change: "--",
         trend: "flat",
+        sparkline: "",
       })),
       updatedAt: "",
       message: "A 股行情获取失败，请检查代码或名称",
@@ -329,6 +334,78 @@ async function fetchTencentQuotes(symbols) {
       };
     })
     .filter(Boolean);
+}
+
+async function fetchTencentMinuteSparklines(symbols) {
+  const entries = await Promise.all(
+    symbols.map(async (symbol) => {
+      const sparkline = await fetchTencentMinuteSparkline(symbol).catch(() => "");
+      return [symbol, sparkline];
+    }),
+  );
+
+  return Object.fromEntries(entries.filter(([, sparkline]) => Boolean(sparkline)));
+}
+
+async function fetchTencentMinuteSparkline(symbol) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 4500);
+
+  try {
+    const response = await fetch(`https://web.ifzq.gtimg.cn/appstock/app/minute/query?code=${encodeURIComponent(symbol)}`, {
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`Minute request failed: ${response.status}`);
+    }
+
+    const payload = await response.json();
+    const rows = payload?.data?.[symbol]?.data?.data;
+    return buildStockSparklinePoints(rows);
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+function buildStockSparklinePoints(rows) {
+  const prices = Array.isArray(rows)
+    ? rows
+        .map((entry) => {
+          const [, price] = String(entry || "").trim().split(/\s+/);
+          return Number(price);
+        })
+        .filter((value) => Number.isFinite(value) && value > 0)
+    : [];
+
+  if (prices.length < 2) {
+    return "";
+  }
+
+  const sampled = sampleSparklineValues(prices, 24);
+  const min = Math.min(...sampled);
+  const max = Math.max(...sampled);
+  const range = max - min;
+
+  if (!range) {
+    return "0,9 80,9";
+  }
+
+  return sampled
+    .map((value, index) => {
+      const x = (index * 80) / Math.max(sampled.length - 1, 1);
+      const y = 16 - ((value - min) / range) * 12;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+}
+
+function sampleSparklineValues(values, limit) {
+  if (values.length <= limit) {
+    return values;
+  }
+
+  const step = (values.length - 1) / (limit - 1);
+  return Array.from({ length: limit }, (_, index) => values[Math.round(index * step)] ?? values[values.length - 1]);
 }
 
 function loadRemoteScript(src) {

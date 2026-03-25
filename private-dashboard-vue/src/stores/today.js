@@ -17,6 +17,8 @@ import {
   updateTask,
 } from "../services/today-api";
 import { formatDateKey, formatDisplayDate, formatDateTime, getTodayDateString, parseLocalDate } from "../utils/date";
+import { getUserFacingErrorMessage } from "../utils/error-message";
+import { getTaskIcon as resolveTaskIcon } from "../utils/task-icons";
 import { useSessionStore } from "./session";
 
 function normalizeTask(task = {}, index = 0) {
@@ -107,9 +109,11 @@ export const useTodayStore = defineStore("today", {
     activeTaskMenuId: null,
     activePaletteTaskId: null,
     newTaskColor: "",
+    newTaskIcon: "",
     renameDialogTaskId: "",
     renameDraftName: "",
     renameDraftTags: "",
+    renameDraftIcon: "",
     archiveDialogTaskId: "",
     deleteDialogTaskId: "",
   }),
@@ -139,6 +143,10 @@ export const useTodayStore = defineStore("today", {
       const sessionStore = useSessionStore();
       return sessionStore.user?.preferences?.tasks?.tagsByTaskId || {};
     },
+    iconByTaskId() {
+      const sessionStore = useSessionStore();
+      return sessionStore.user?.preferences?.tasks?.iconByTaskId || {};
+    },
   },
   actions: {
     persistLocalCache() {
@@ -150,7 +158,7 @@ export const useTodayStore = defineStore("today", {
       saveCachedDailyRecord(sessionStore.user.id, this.record);
     },
     handleActionError(error, fallbackMessage) {
-      this.error = error?.message || fallbackMessage;
+      this.error = getUserFacingErrorMessage(error, fallbackMessage);
       this.setSaveState(this.error, "error");
     },
     async bootstrap() {
@@ -274,36 +282,57 @@ export const useTodayStore = defineStore("today", {
           .sort((left, right) => left.order - right.order);
         this.persistLocalCache();
         this.setSaveState(successMessage, "success");
+        return true;
       } catch (error) {
         this.handleActionError(error, "任务更新失败");
+        return false;
       }
     },
-    async persistTaskTags(taskId, tags) {
+    async persistTaskPreferences(taskId, { tags, icon } = {}) {
       const sessionStore = useSessionStore();
       if (!sessionStore.user) {
-        return;
+        return false;
+      }
+
+      const nextTagsByTaskId = {
+        ...(sessionStore.user.preferences?.tasks?.tagsByTaskId || {}),
+      };
+      const nextIconByTaskId = {
+        ...(sessionStore.user.preferences?.tasks?.iconByTaskId || {}),
+      };
+
+      if (Array.isArray(tags)) {
+        if (tags.length) {
+          nextTagsByTaskId[taskId] = tags;
+        } else {
+          delete nextTagsByTaskId[taskId];
+        }
+      }
+
+      if (typeof icon === "string") {
+        if (icon) {
+          nextIconByTaskId[taskId] = icon;
+        } else {
+          delete nextIconByTaskId[taskId];
+        }
       }
 
       const nextPreferences = {
         ...(sessionStore.user.preferences || {}),
         tasks: {
           ...(sessionStore.user.preferences?.tasks || {}),
-          tagsByTaskId: {
-            ...(sessionStore.user.preferences?.tasks?.tagsByTaskId || {}),
-            [taskId]: tags,
-          },
+          tagsByTaskId: nextTagsByTaskId,
+          iconByTaskId: nextIconByTaskId,
         },
       };
-
-      if (!tags.length) {
-        delete nextPreferences.tasks.tagsByTaskId[taskId];
-      }
 
       try {
         const response = await saveAccountPreferences(nextPreferences);
         sessionStore.setPreferences(response?.preferences || nextPreferences);
+        return true;
       } catch (error) {
-        this.handleActionError(error, "任务标签同步失败");
+        this.handleActionError(error, "任务偏好同步失败");
+        return false;
       }
     },
     async toggleTaskCompletion(taskId) {
@@ -351,7 +380,7 @@ export const useTodayStore = defineStore("today", {
       taskState.notes = taskState.notes.filter((note) => note.id !== noteId);
       await this.persistRecord(`已删除 ${task.name} 的备注`);
     },
-    async createTask(name, tagsInput, color) {
+    async createTask(name, tagsInput, color, icon = "") {
       const normalizedName = String(name || "").trim();
       if (!normalizedName) {
         return;
@@ -370,9 +399,10 @@ export const useTodayStore = defineStore("today", {
         this.record.payload.tasks[createdTask.id] = createEmptyTaskState();
         this.persistLocalCache();
         const tags = normalizeTaskTags(tagsInput);
-        await this.persistTaskTags(createdTask.id, tags);
+        await this.persistTaskPreferences(createdTask.id, { tags, icon });
         this.activePaletteTaskId = "";
         this.newTaskColor = "";
+        this.newTaskIcon = "";
         this.setSaveState(`已创建任务：${createdTask.name}`, "success");
       } catch (error) {
         this.handleActionError(error, "创建任务失败");
@@ -386,12 +416,14 @@ export const useTodayStore = defineStore("today", {
       this.renameDialogTaskId = taskId;
       this.renameDraftName = task.name;
       this.renameDraftTags = (this.tagsByTaskId[taskId] || []).join(", ");
+      this.renameDraftIcon = this.iconByTaskId[taskId] || "";
       this.activeTaskMenuId = "";
     },
     closeRenameDialog() {
       this.renameDialogTaskId = "";
       this.renameDraftName = "";
       this.renameDraftTags = "";
+      this.renameDraftIcon = "";
     },
     async confirmRename() {
       const task = this.tasks.find((item) => item.id === this.renameDialogTaskId);
@@ -402,14 +434,22 @@ export const useTodayStore = defineStore("today", {
       const nextName = String(this.renameDraftName || "").trim();
       const nextTags = normalizeTaskTags(this.renameDraftTags);
       const currentTags = this.tagsByTaskId[task.id] || [];
+      const nextIcon = String(this.renameDraftIcon || "");
+      const currentIcon = this.iconByTaskId[task.id] || "";
+      const nextTaskName = nextName || task.name;
 
       if (nextName && nextName !== task.name) {
-        task.name = nextName;
-        await this.persistTask(task.id, { name: nextName }, `已更新任务：${nextName}`);
+        const updated = await this.persistTask(task.id, { name: nextName }, `已更新任务：${nextName}`);
+        if (!updated) {
+          return;
+        }
       }
-      if (JSON.stringify(nextTags) !== JSON.stringify(currentTags)) {
-        await this.persistTaskTags(task.id, nextTags);
-        this.setSaveState(`已更新 ${nextName || task.name} 的标签`, "success");
+      if (JSON.stringify(nextTags) !== JSON.stringify(currentTags) || nextIcon !== currentIcon) {
+        const updatedPreferences = await this.persistTaskPreferences(task.id, { tags: nextTags, icon: nextIcon });
+        if (!updatedPreferences) {
+          return;
+        }
+        this.setSaveState(`已更新 ${nextTaskName} 的任务设置`, "success");
       }
       this.closeRenameDialog();
     },
@@ -456,12 +496,15 @@ export const useTodayStore = defineStore("today", {
         this.persistLocalCache();
         const sessionStore = useSessionStore();
         const nextTagsByTaskId = { ...(sessionStore.user?.preferences?.tasks?.tagsByTaskId || {}) };
+        const nextIconByTaskId = { ...(sessionStore.user?.preferences?.tasks?.iconByTaskId || {}) };
         delete nextTagsByTaskId[task.id];
+        delete nextIconByTaskId[task.id];
         const nextPreferences = {
           ...(sessionStore.user?.preferences || {}),
           tasks: {
             ...(sessionStore.user?.preferences?.tasks || {}),
             tagsByTaskId: nextTagsByTaskId,
+            iconByTaskId: nextIconByTaskId,
           },
         };
         const response = await saveAccountPreferences(nextPreferences);
@@ -508,6 +551,9 @@ export const useTodayStore = defineStore("today", {
     },
     getTaskTags(taskId) {
       return this.tagsByTaskId[taskId] || [];
+    },
+    getTaskIcon(taskId, taskName = "") {
+      return resolveTaskIcon(taskName, this.iconByTaskId[taskId] || "");
     },
     getTaskForDialog(taskId) {
       return this.tasks.find((item) => item.id === taskId) || null;

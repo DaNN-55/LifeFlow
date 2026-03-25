@@ -15,6 +15,7 @@ import { createTask, deleteTask, fetchDailyRecord, listTasks, saveAccountPrefere
 import { fetchWeeklySummary, saveWeeklySummary } from "../services/weekly-api";
 import { clearDashboardUserCache } from "../services/dashboard-cache";
 import { addDays, formatDateKey, formatDateTime, formatWeekInputValue, getStartOfWeek, parseIsoDate } from "../utils/date";
+import { getUserFacingErrorMessage } from "../utils/error-message";
 import { useContentStore } from "./content";
 import { useHomeStore } from "./home";
 import { useSessionStore } from "./session";
@@ -25,6 +26,7 @@ function createDefaultSidebarPreferences() {
   return {
     calendar: true,
     github: true,
+    freshNews: true,
     financeFeed: true,
     scienceFeed: true,
     favorites: true,
@@ -49,12 +51,16 @@ function createDefaultSyncPreferences() {
 }
 
 function normalizePreferences(preferences = {}) {
+  const sidebarPreferences = preferences?.sidebar || {};
   return {
     ...(preferences || {}),
     theme: preferences?.theme === "dark" ? "dark" : "light",
     sidebar: {
       ...createDefaultSidebarPreferences(),
-      ...(preferences?.sidebar || {}),
+      ...sidebarPreferences,
+      freshNews: Object.prototype.hasOwnProperty.call(sidebarPreferences, "freshNews")
+        ? sidebarPreferences.freshNews !== false
+        : sidebarPreferences.financeFeed !== false || sidebarPreferences.scienceFeed !== false,
     },
     profile: {
       ...createDefaultProfilePreferences(),
@@ -87,6 +93,9 @@ function normalizePreferences(preferences = {}) {
       ...(preferences?.tasks || {}),
       tagsByTaskId: {
         ...(preferences?.tasks?.tagsByTaskId || {}),
+      },
+      iconByTaskId: {
+        ...(preferences?.tasks?.iconByTaskId || {}),
       },
     },
     content: {
@@ -448,7 +457,7 @@ export const useAccountStore = defineStore("account", {
         if (this.profileRequestId !== requestId || !this.profileOpen) {
           return;
         }
-        this.profileFeedback = error?.message || "暂时无法读取当前账号资料。";
+        this.profileFeedback = getUserFacingErrorMessage(error, "暂时无法读取当前账号资料。");
       } finally {
         if (this.profileRequestId === requestId) {
           this.profileLoading = false;
@@ -465,7 +474,7 @@ export const useAccountStore = defineStore("account", {
       try {
         await this.refreshSyncProfile();
       } catch (error) {
-        this.setSyncFeedback(error?.message || "暂时无法读取账号统计。");
+        this.setSyncFeedback(getUserFacingErrorMessage(error, "暂时无法读取账号统计。"));
       }
     },
     openPasswordModal() {
@@ -525,7 +534,7 @@ export const useAccountStore = defineStore("account", {
         await this.persistPreferences("账号资料设置已保存");
         this.profileFeedback = "账号资料设置已保存";
       } catch (error) {
-        this.profileFeedback = error?.message || "保存账号设置失败";
+        this.profileFeedback = getUserFacingErrorMessage(error, "保存账号设置失败");
       }
     },
     async saveWidgetSettings() {
@@ -543,7 +552,7 @@ export const useAccountStore = defineStore("account", {
         this.widgetSettingsOpen = false;
         this.widgetSettingsKey = "";
       } catch (error) {
-        this.widgetSettingsFeedback = error?.message || "保存组件设置失败";
+        this.widgetSettingsFeedback = getUserFacingErrorMessage(error, "保存组件设置失败");
       } finally {
         this.widgetSettingsBusy = false;
       }
@@ -556,7 +565,7 @@ export const useAccountStore = defineStore("account", {
         this.recoveryCode = payload?.recoveryCode || "";
         this.profileFeedback = this.recoveryCode ? "新的恢复码已生成，请立即保存。" : "恢复码已更新。";
       } catch (error) {
-        this.profileFeedback = error?.message || "生成恢复码失败";
+        this.profileFeedback = getUserFacingErrorMessage(error, "生成恢复码失败");
       } finally {
         this.recoveryBusy = false;
       }
@@ -579,7 +588,7 @@ export const useAccountStore = defineStore("account", {
         this.passwordOpen = false;
         this.forms.password = createEmptyForms().password;
       } catch (error) {
-        this.passwordFeedback = error?.message || "修改密码失败";
+        this.passwordFeedback = getUserFacingErrorMessage(error, "修改密码失败");
       } finally {
         this.passwordBusy = false;
       }
@@ -599,7 +608,7 @@ export const useAccountStore = defineStore("account", {
         this.forms.account.currentPassword = "";
         this.securityFeedback = "用户名已更新";
       } catch (error) {
-        this.securityFeedback = error?.message || "更新用户名失败";
+        this.securityFeedback = getUserFacingErrorMessage(error, "更新用户名失败");
       } finally {
         this.usernameBusy = false;
       }
@@ -614,7 +623,7 @@ export const useAccountStore = defineStore("account", {
         sessionStore.applySession(null, "已退出全部登录");
         this.closeAllModals();
       } catch (error) {
-        this.securityFeedback = error?.message || "退出全部登录失败";
+        this.securityFeedback = getUserFacingErrorMessage(error, "退出全部登录失败");
       } finally {
         this.signOutAllBusy = false;
       }
@@ -645,7 +654,7 @@ export const useAccountStore = defineStore("account", {
         await this.refreshSyncProfile().catch(() => null);
         this.dangerFeedback = "当前账号数据已清空";
       } catch (error) {
-        this.dangerFeedback = error?.message || "清空账号数据失败";
+        this.dangerFeedback = getUserFacingErrorMessage(error, "清空账号数据失败");
       } finally {
         this.clearDataBusy = false;
       }
@@ -669,7 +678,7 @@ export const useAccountStore = defineStore("account", {
         this.closeAllModals();
         await this.resetAccountDataLocally();
       } catch (error) {
-        this.dangerFeedback = error?.message || "删除账号失败";
+        this.dangerFeedback = getUserFacingErrorMessage(error, "删除账号失败");
       } finally {
         this.deleteAccountBusy = false;
       }
@@ -743,7 +752,7 @@ export const useAccountStore = defineStore("account", {
           "success",
         );
       } catch (error) {
-        this.setSyncFeedback(error?.message || "导出当前账号数据失败");
+        this.setSyncFeedback(getUserFacingErrorMessage(error, "导出当前账号数据失败"));
       } finally {
         this.transferBusy = false;
       }
@@ -773,7 +782,7 @@ export const useAccountStore = defineStore("account", {
       try {
         await this.importSnapshot(fileLike, "replace");
       } catch (error) {
-        this.setSyncFeedback(error?.message || "恢复最近安全备份失败");
+        this.setSyncFeedback(getUserFacingErrorMessage(error, "恢复最近安全备份失败"));
       }
     },
     setTransferMode(mode) {
@@ -799,7 +808,7 @@ export const useAccountStore = defineStore("account", {
         this.replaceImportConfirmed = false;
         this.transferMode = "merge";
       } catch (error) {
-        this.setSyncFeedback(error?.message || "导入备份失败");
+        this.setSyncFeedback(getUserFacingErrorMessage(error, "导入备份失败"));
       }
     },
     async importSnapshot(file, strategy = "merge") {

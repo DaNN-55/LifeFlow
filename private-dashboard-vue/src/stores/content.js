@@ -13,6 +13,7 @@ import {
 } from "../services/content-api";
 import { saveAccountPreferences } from "../services/today-api";
 import { formatDateTime } from "../utils/date";
+import { getUserFacingErrorMessage } from "../utils/error-message";
 import {
   buildMockContent,
   buildMockSources,
@@ -369,7 +370,7 @@ export const useContentStore = defineStore("content", {
         }
         this.setLocalModeFeedback("本地缓存已导入", "success");
       } catch (error) {
-        this.setLocalModeFeedback(error?.message || "导入本地缓存失败", "error");
+        this.setLocalModeFeedback(getUserFacingErrorMessage(error, "导入本地缓存失败"), "error");
       }
     },
     resetSourceForm() {
@@ -470,7 +471,7 @@ export const useContentStore = defineStore("content", {
         contentState.loaded = true;
         contentState.mode = "remote";
       } catch (error) {
-        contentState.error = error?.message || "资讯加载失败";
+        contentState.error = getUserFacingErrorMessage(error, "资讯加载失败");
       } finally {
         contentState.loading = false;
         this.saveChannelView(channel);
@@ -507,7 +508,7 @@ export const useContentStore = defineStore("content", {
         contentState.lastRefreshStats = payload?.refresh || payload?.cache?.lastRefreshStats || null;
         await this.loadChannel(channel);
       } catch (error) {
-        contentState.error = error?.message || "资讯刷新失败";
+        contentState.error = getUserFacingErrorMessage(error, "资讯刷新失败");
       } finally {
         contentState.refreshing = false;
       }
@@ -577,7 +578,7 @@ export const useContentStore = defineStore("content", {
       } catch (error) {
         const channelState = this.channels[item.channel];
         if (channelState) {
-          channelState.error = error?.message || "收藏操作失败";
+          channelState.error = getUserFacingErrorMessage(error, "收藏操作失败");
         }
       }
     },
@@ -587,17 +588,31 @@ export const useContentStore = defineStore("content", {
         return;
       }
       const sessionStore = useSessionStore();
+      const timestamp = new Date().toISOString();
       if (!sessionStore.user?.id) {
-        this.localCache.readItems[key] = new Date().toISOString();
+        this.localCache.readItems[key] = timestamp;
         this.persistLocalCache();
         if (this.channels[item.channel]?.favoriteFilter === "read" || this.channels[item.channel]?.favoriteFilter === "unread") {
           await this.loadChannel(item.channel);
         }
         return;
       }
-      await this.persistContentPreferences((preferences) => {
-        preferences.content.readItems[key] = new Date().toISOString();
-      });
+
+      const currentPreferences = sessionStore.user.preferences || {};
+      const nextPreferences = {
+        ...currentPreferences,
+        content: normalizeContentPreferences(currentPreferences.content || {}),
+      };
+      nextPreferences.content.readItems[key] = timestamp;
+      sessionStore.setPreferences(nextPreferences);
+
+      try {
+        const response = await saveAccountPreferences(nextPreferences);
+        sessionStore.setPreferences(response?.preferences || nextPreferences);
+      } catch (error) {
+        throw error;
+      }
+
       if (this.channels[item.channel]?.favoriteFilter === "read" || this.channels[item.channel]?.favoriteFilter === "unread") {
         await this.loadChannel(item.channel);
       }
@@ -650,8 +665,8 @@ export const useContentStore = defineStore("content", {
         const payload = await fetchContentSources(channel);
         this.channels[channel].sources = Array.isArray(payload?.sources) ? payload.sources.map(normalizeSource) : [];
       } catch (error) {
-        this.channels[channel].error = error?.message || "信源加载失败";
-        this.setSourceFeedback(error?.message || "信源加载失败", "error");
+        this.channels[channel].error = getUserFacingErrorMessage(error, "信源加载失败");
+        this.setSourceFeedback(getUserFacingErrorMessage(error, "信源加载失败"), "error");
       }
     },
     closeSourceModal() {
@@ -736,8 +751,8 @@ export const useContentStore = defineStore("content", {
         this.setSourceFeedback("信源已保存", "success");
         await this.loadChannel(channel, { page: 1, sourceId: "all" });
       } catch (error) {
-        this.channels[channel].error = error?.message || "保存信源失败";
-        this.setSourceFeedback(error?.message || "保存信源失败", "error");
+        this.channels[channel].error = getUserFacingErrorMessage(error, "保存信源失败");
+        this.setSourceFeedback(getUserFacingErrorMessage(error, "保存信源失败"), "error");
       }
     },
     async deleteSource(sourceId) {
@@ -774,8 +789,8 @@ export const useContentStore = defineStore("content", {
         this.setSourceFeedback("信源已删除", "success");
         await this.loadChannel(channel, { page: 1, sourceId: "all" });
       } catch (error) {
-        this.channels[channel].error = error?.message || "删除信源失败";
-        this.setSourceFeedback(error?.message || "删除信源失败", "error");
+        this.channels[channel].error = getUserFacingErrorMessage(error, "删除信源失败");
+        this.setSourceFeedback(getUserFacingErrorMessage(error, "删除信源失败"), "error");
       }
     },
     async hideSource(sourceId) {
@@ -849,8 +864,8 @@ export const useContentStore = defineStore("content", {
         this.setSourceFeedback(source.enabled ? "来源已停用" : "来源已启用", "success");
         await this.refreshChannel(channel);
       } catch (error) {
-        this.channels[channel].error = error?.message || "更新来源状态失败";
-        this.setSourceFeedback(error?.message || "更新来源状态失败", "error");
+        this.channels[channel].error = getUserFacingErrorMessage(error, "更新来源状态失败");
+        this.setSourceFeedback(getUserFacingErrorMessage(error, "更新来源状态失败"), "error");
       }
     },
     async restoreDefaultSources() {
@@ -903,8 +918,8 @@ export const useContentStore = defineStore("content", {
         await this.refreshChannel(channel);
         this.setSourceFeedback("已恢复默认 RSSHub 信源", "success");
       } catch (error) {
-        this.channels[channel].error = error?.message || "恢复默认 RSSHub 信源失败";
-        this.setSourceFeedback(error?.message || "恢复默认 RSSHub 信源失败", "error");
+        this.channels[channel].error = getUserFacingErrorMessage(error, "恢复默认 RSSHub 信源失败");
+        this.setSourceFeedback(getUserFacingErrorMessage(error, "恢复默认 RSSHub 信源失败"), "error");
       }
     },
     getMetaText(channel) {

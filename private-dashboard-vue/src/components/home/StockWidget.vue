@@ -52,7 +52,7 @@ const emit = defineEmits(["refresh", "configure"]);
           </div>
           <div class="market-trend" :class="`market-trend-${item.trend || 'flat'}`">
             <svg viewBox="0 0 80 18" class="market-sparkline" preserveAspectRatio="none">
-              <polyline :points="sparklinePoints(item.trend || 'flat')"></polyline>
+              <polyline :points="item.sparkline || sparklinePoints(item.trend || 'flat')"></polyline>
             </svg>
             <span>{{ item.change }}</span>
           </div>

@@ -1,9 +1,10 @@
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 
+import SegmentedTabs from "../components/common/SegmentedTabs.vue";
 import ToolbarSelect from "../components/common/ToolbarSelect.vue";
 import ContentCard from "../components/content/ContentCard.vue";
-import ContentPreviewModal from "../components/content/ContentPreviewModal.vue";
 import ContentSourceDialog from "../components/content/ContentSourceDialog.vue";
 import { contentTabs } from "../app/constants";
 import { useContentStore } from "../stores/content";
@@ -19,7 +20,7 @@ const props = defineProps({
 
 const sessionStore = useSessionStore();
 const contentStore = useContentStore();
-const previewItem = ref(null);
+const router = useRouter();
 
 const isAuthenticated = computed(() => Boolean(sessionStore.user?.id));
 const isLocalMode = computed(() => contentState.value?.mode === "local");
@@ -28,6 +29,7 @@ const importInputRef = ref(null);
 const channelConfig = computed(
   () => contentTabs.find((tab) => tab.id === props.channel) || { label: props.channel, kicker: "Content" },
 );
+const contentTabItems = computed(() => contentTabs.map((tab) => ({ value: tab.id, label: tab.label })));
 const contentState = computed(() => contentStore.getChannelState(props.channel));
 const sourceForm = computed({
   get: () => contentStore.sourceForm,
@@ -94,31 +96,69 @@ async function handleLocalCacheImport(event) {
   event.target.value = "";
 }
 
-function openPreview(item) {
-  previewItem.value = item || null;
-}
-
-function closePreview() {
-  previewItem.value = null;
-}
-
 async function loadContentChannel() {
   await contentStore.loadChannel(props.channel);
 }
 
-onMounted(loadContentChannel);
+function getCenterStageElement() {
+  const element = document.querySelector(".center-stage");
+  return element instanceof HTMLElement ? element : null;
+}
+
+async function scrollCenterStageToTop() {
+  const centerStage = getCenterStageElement();
+  if (document.activeElement instanceof HTMLElement) {
+    document.activeElement.blur();
+  }
+  await nextTick();
+  centerStage?.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  if (centerStage) {
+    centerStage.scrollTop = 0;
+  }
+  window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  if (document.scrollingElement) {
+    document.scrollingElement.scrollTop = 0;
+  }
+  await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  centerStage?.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  if (centerStage) {
+    centerStage.scrollTop = 0;
+  }
+  window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  if (document.scrollingElement) {
+    document.scrollingElement.scrollTop = 0;
+  }
+}
+
+async function loadChannelFromTop(overrides = {}) {
+  await contentStore.loadChannel(props.channel, overrides);
+  await scrollCenterStageToTop();
+}
+
+async function switchChannel(channel) {
+  if (!channel || channel === props.channel) {
+    return;
+  }
+  await router.push(`/content/${channel}`);
+}
+
+onMounted(async () => {
+  await loadContentChannel();
+  await scrollCenterStageToTop();
+});
+
 watch(
   () => props.channel,
   async () => {
-    closePreview();
     await loadContentChannel();
+    await scrollCenterStageToTop();
   },
 );
 watch(
   () => sessionStore.user?.id,
   async () => {
-    closePreview();
     await loadContentChannel();
+    await scrollCenterStageToTop();
   },
 );
 </script>
@@ -128,8 +168,8 @@ watch(
     <section class="content-panel is-active">
       <div class="panel-header">
         <div>
-          <p class="panel-kicker">{{ channelConfig.kicker }}</p>
-          <h1>{{ channelConfig.label }}</h1>
+          <p class="panel-kicker">Unified reader</p>
+          <h1>Content</h1>
         </div>
         <div class="content-stream-actions">
           <button v-if="showSourceControls" type="button" class="task-cancel-action" @click="contentStore.openSourceModal(channel)">
@@ -142,8 +182,18 @@ watch(
       </div>
 
       <div class="content-stream-shell">
-        <div class="content-stream-meta" :data-tone="getContentMetaTone(contentState)">
-          {{ contentStore.getMetaText(channel) }}
+        <div class="save-note-row content-stage-row">
+          <div class="content-stream-meta content-stage-meta" :data-tone="getContentMetaTone(contentState)">
+            {{ contentStore.getMetaText(channel) }}
+          </div>
+          <SegmentedTabs
+            :items="contentTabItems"
+            :model-value="channel"
+            aria-label="内容频道切换"
+            container-class="content-view-tabs"
+            button-class="content-view-tab"
+            @update:model-value="switchChannel"
+          />
         </div>
 
         <div v-if="isLocalMode" class="local-mode-strip">
@@ -248,8 +298,6 @@ watch(
             :published-at="contentStore.getPublishedAt(item)"
             :is-read="contentStore.isItemRead(item)"
             @toggle-favorite="contentStore.toggleFavorite"
-            @toggle-preview="openPreview"
-            @toggle-read="contentStore.toggleReadStatus"
             @open-link="contentStore.markAsRead"
           />
         </div>
@@ -259,7 +307,7 @@ watch(
             type="button"
             class="task-cancel-action"
             :disabled="contentState.page <= 1"
-            @click="contentStore.loadChannel(channel, { page: contentState.page - 1 })"
+            @click="loadChannelFromTop({ page: contentState.page - 1 })"
           >
             上一页
           </button>
@@ -270,7 +318,7 @@ watch(
             type="button"
             class="task-cancel-action"
             :disabled="contentState.page >= Math.max(1, Math.ceil(contentState.total / contentState.pageSize))"
-            @click="contentStore.loadChannel(channel, { page: contentState.page + 1 })"
+            @click="loadChannelFromTop({ page: contentState.page + 1 })"
           >
             下一页
           </button>
@@ -295,17 +343,6 @@ watch(
       @toggle-source-enabled="contentStore.toggleSourceEnabled"
       @restore-defaults="contentStore.restoreDefaultSources"
       @update:form="sourceForm = $event"
-    />
-
-    <ContentPreviewModal
-      :open="Boolean(previewItem)"
-      :item="previewItem"
-      :is-read="previewItem ? contentStore.isItemRead(previewItem) : false"
-      :published-at="previewItem ? contentStore.getPublishedAt(previewItem) : ''"
-      @close="closePreview"
-      @toggle-favorite="contentStore.toggleFavorite"
-      @toggle-read="contentStore.toggleReadStatus"
-      @open-link="contentStore.markAsRead"
     />
   </section>
 </template>

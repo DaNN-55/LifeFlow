@@ -2,9 +2,11 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
+import { AUTH_CHALLENGE_ENABLED } from "../app/constants";
 import { fetchAuthChallenge, fetchCaptcha, recoverPassword, signIn, signUp } from "../services/auth-api";
-import { loadAuthConfig, saveAuthConfig } from "../services/config";
+import { loadApiBase, loadAuthConfig, refreshApiBase, saveAuthConfig } from "../services/config";
 import { useSessionStore } from "../stores/session";
+import { getUserFacingErrorMessage, isLikelyAbortError, isLikelyNetworkError } from "../utils/error-message";
 import { loadTurnstileScript } from "../utils/turnstile";
 
 const SIGNUP_REQUIREMENTS_TEXT =
@@ -16,9 +18,10 @@ const sessionStore = useSessionStore();
 
 const authMode = ref("signin");
 const busy = ref(false);
-const feedback = ref(SIGNUP_REQUIREMENTS_TEXT);
+const feedback = ref("");
 const recoveryCodeModalOpen = ref(false);
 const recoveryCodeValue = ref("");
+const signupModalOpen = ref(false);
 const pendingRedirect = ref(false);
 const turnstileHostRef = ref(null);
 const captcha = reactive({
@@ -39,14 +42,22 @@ const form = reactive({
   recoveryCode: "",
   captchaText: "",
 });
+const signupForm = reactive({
+  username: loadAuthConfig().username,
+  password: "",
+});
+const AUTH_CHALLENGE_TIMEOUT_MS = 30000;
 
 const isRecoveryMode = computed(() => authMode.value === "recover");
 const isFileProtocol = computed(() => typeof window !== "undefined" && window.location.protocol === "file:");
 const isTurnstileMode = computed(() => challenge.provider === "turnstile");
 const isLegacyCaptchaMode = computed(() => challenge.provider === "captcha");
+const isChallengeDisabled = computed(() => !AUTH_CHALLENGE_ENABLED || challenge.provider === "none");
+const isChallengeBusy = computed(() => challenge.loading || (isLegacyCaptchaMode.value && captcha.loading));
 const isChallengeUnavailable = computed(
-  () => !challenge.loading && !isTurnstileMode.value && !isLegacyCaptchaMode.value,
+  () => !challenge.loading && !isTurnstileMode.value && !isLegacyCaptchaMode.value && !isChallengeDisabled.value,
 );
+const currentApiBase = computed(() => loadApiBase());
 
 function resolveRedirectTarget() {
   const redirect = typeof route.query.redirect === "string" ? route.query.redirect : "/";
@@ -60,12 +71,27 @@ function setAuthMode(mode) {
   authMode.value = mode === "recover" ? "recover" : mode === "signup" ? "signup" : "signin";
 }
 
+function submitPrimaryAuth() {
+  return submitAuth(isRecoveryMode.value ? "recover" : "signin");
+}
+
+function openSignupModal() {
+  signupForm.username = String(form.username || "").trim();
+  signupForm.password = "";
+  signupModalOpen.value = true;
+}
+
+function closeSignupModal() {
+  signupModalOpen.value = false;
+  signupForm.password = "";
+}
+
 function wait(ms) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function buildAuthErrorMessage(error, mode) {
-  const message = String(error?.message || "").trim();
+  const message = getUserFacingErrorMessage(error, "").trim();
   if (message.includes("验证码错误或已过期") || message.includes("验证码校验失败")) {
     return "验证码错误、已过期或校验失败，请重新验证。";
   }
@@ -79,17 +105,11 @@ function buildAuthErrorMessage(error, mode) {
     if (message.includes("恢复码错误")) {
       return "恢复码错误，请检查后重试。";
     }
-    if (message.includes("Validation failed")) {
-      return "重置失败。请填写用户名、恢复码、新密码和验证码。";
-    }
     return message ? `重置失败：${message}` : "重置失败，请检查恢复码和新密码。";
   }
   if (mode === "signup") {
     if (message.includes("用户名已存在")) {
       return "创建账号失败：该用户名已存在。";
-    }
-    if (message.includes("Validation failed")) {
-      return `创建账号失败。${SIGNUP_REQUIREMENTS_TEXT}`;
     }
     return message ? `创建账号失败：${message}` : `创建账号失败。${SIGNUP_REQUIREMENTS_TEXT}`;
   }
@@ -98,16 +118,21 @@ function buildAuthErrorMessage(error, mode) {
 
 function buildCaptchaErrorMessage(error, fallbackMessage = "验证码加载失败，请刷新后重试。") {
   const message = String(error?.message || "").trim();
-  if (error?.name === "AbortError") {
-    return "验证码加载超时，后端可能仍在启动，请稍后重试。";
+  if (isLikelyAbortError(error)) {
+    return "验证码加载超时。Render 免费实例首次唤醒可能需要 20-50 秒，请稍后重试。";
   }
-  if (/Failed to fetch|NetworkError/i.test(message)) {
-    return "验证码请求失败，请确认后端已启动，并允许当前前端地址访问。";
+  if (isLikelyNetworkError(error)) {
+    return "认证服务连接失败。系统已重新探测服务地址，请确认本地后端已启动后再试。";
   }
   if (message) {
     return `验证码加载失败：${message}`;
   }
   return fallbackMessage;
+}
+
+async function refetchAuthChallengeAfterApiRefresh(timeoutMs = AUTH_CHALLENGE_TIMEOUT_MS) {
+  await refreshApiBase();
+  return fetchAuthChallenge(timeoutMs);
 }
 
 async function refreshCaptcha(options = {}) {
@@ -136,8 +161,8 @@ async function refreshCaptcha(options = {}) {
     captcha.id = payload?.captcha?.id || "";
     captcha.svg = payload?.captcha?.svg || "";
     form.captchaText = "";
-    if (!silent && feedback.value.startsWith("验证码")) {
-      feedback.value = SIGNUP_REQUIREMENTS_TEXT;
+    if (!silent && (feedback.value.startsWith("验证码") || feedback.value.includes("认证服务"))) {
+      feedback.value = "";
     }
   } catch (error) {
     captcha.id = "";
@@ -148,6 +173,14 @@ async function refreshCaptcha(options = {}) {
   } finally {
     captcha.loading = false;
   }
+}
+
+async function tryLegacyCaptchaFallback(silent = true) {
+  challenge.provider = "captcha";
+  challenge.turnstileSiteKey = "";
+  challenge.loading = false;
+  await refreshCaptcha({ silent });
+  return Boolean(captcha.id && captcha.svg);
 }
 
 function clearTurnstileToken() {
@@ -202,6 +235,17 @@ async function renderTurnstileWidget() {
 }
 
 async function loadAuthChallengeConfig(options = {}) {
+  if (!AUTH_CHALLENGE_ENABLED) {
+    challenge.provider = "none";
+    challenge.turnstileSiteKey = "";
+    challenge.loading = false;
+    teardownTurnstileWidget();
+    captcha.id = "";
+    captcha.svg = "";
+    form.captchaText = "";
+    return;
+  }
+
   const silent = Boolean(options.silent);
   challenge.loading = true;
 
@@ -211,23 +255,56 @@ async function loadAuthChallengeConfig(options = {}) {
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
-        payload = await fetchAuthChallenge(15000);
+        payload = await fetchAuthChallenge(AUTH_CHALLENGE_TIMEOUT_MS);
         break;
       } catch (error) {
         lastError = error;
+        if (error?.status === 404) {
+          break;
+        }
         if (attempt < 2) {
           await wait(1600 + attempt * 900);
         }
       }
     }
 
+    if (!payload && lastError && isLikelyNetworkError(lastError)) {
+      try {
+        payload = await refetchAuthChallengeAfterApiRefresh(AUTH_CHALLENGE_TIMEOUT_MS);
+        lastError = null;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    if (!payload && lastError && (lastError?.status === 404 || isLikelyNetworkError(lastError))) {
+      const legacyReady = await tryLegacyCaptchaFallback(silent);
+      if (legacyReady) {
+        return;
+      }
+    }
+
     const nextProvider =
-      payload?.challenge?.provider === "turnstile" && payload?.challenge?.turnstileSiteKey
-        ? "turnstile"
-        : "captcha";
+      payload?.challenge?.provider === "none"
+        ? "none"
+        : payload?.challenge?.provider === "turnstile" && payload?.challenge?.turnstileSiteKey
+          ? "turnstile"
+          : "captcha";
 
     challenge.provider = nextProvider;
     challenge.turnstileSiteKey = String(payload?.challenge?.turnstileSiteKey || "");
+
+    if (nextProvider === "none") {
+      teardownTurnstileWidget();
+      captcha.id = "";
+      captcha.svg = "";
+      form.captchaText = "";
+      challenge.loading = false;
+      if (!silent && feedback.value.startsWith("验证码")) {
+        feedback.value = SIGNUP_REQUIREMENTS_TEXT;
+      }
+      return;
+    }
 
     if (nextProvider === "turnstile") {
       captcha.id = "";
@@ -235,15 +312,16 @@ async function loadAuthChallengeConfig(options = {}) {
       form.captchaText = "";
       challenge.loading = false;
       await renderTurnstileWidget();
-      if (!silent && feedback.value.startsWith("验证码")) {
-        feedback.value = SIGNUP_REQUIREMENTS_TEXT;
+      if (!silent && (feedback.value.startsWith("验证码") || feedback.value.includes("认证服务"))) {
+        feedback.value = "";
       }
       return;
     }
 
+    challenge.loading = false;
     await refreshCaptcha({ silent: true });
-    if (!silent && feedback.value.startsWith("验证码")) {
-      feedback.value = SIGNUP_REQUIREMENTS_TEXT;
+    if (!silent && (feedback.value.startsWith("验证码") || feedback.value.includes("认证服务"))) {
+      feedback.value = "";
     }
 
     if (!payload?.challenge?.provider && lastError) {
@@ -258,7 +336,7 @@ async function loadAuthChallengeConfig(options = {}) {
     if (!silent) {
       feedback.value = buildCaptchaErrorMessage(
         error,
-        "认证服务仍在启动，请稍后重试。通常首次唤醒需要 10-20 秒。",
+        "认证服务暂时不可用。系统已尝试重新连接，请稍后重试。",
       );
     }
   } finally {
@@ -291,6 +369,10 @@ async function refreshAuthChallenge(options = {}) {
 }
 
 function buildChallengePayload() {
+  if (isChallengeDisabled.value) {
+    return {};
+  }
+
   if (isTurnstileMode.value) {
     return {
       turnstileToken: String(challenge.turnstileToken || ""),
@@ -332,7 +414,7 @@ async function submitAuth(mode = "signin") {
     return;
   }
 
-  if (challenge.loading || isChallengeUnavailable.value) {
+  if (isChallengeBusy.value || isChallengeUnavailable.value) {
     feedback.value = "认证服务尚未就绪，请稍后重试。";
     return;
   }
@@ -387,7 +469,7 @@ async function submitAuth(mode = "signin") {
       return;
     }
 
-    sessionStore.applySession(payload, mode === "signup" ? "创建成功，正在进入 Dashboard..." : "登录成功，正在进入 Dashboard...");
+    sessionStore.applySession(payload, mode === "signup" ? "创建成功，正在进入 Today..." : "登录成功，正在进入 Today...");
 
     if (payload?.recoveryCode) {
       feedback.value = "创建成功，请先保存恢复码。";
@@ -397,11 +479,71 @@ async function submitAuth(mode = "signin") {
       return;
     }
 
-    feedback.value = "登录成功，正在进入 Dashboard...";
+    feedback.value = "登录成功，正在进入 Today...";
     await wait(300);
     await router.replace(resolveRedirectTarget());
   } catch (error) {
     feedback.value = buildAuthErrorMessage(error, mode);
+    await refreshAuthChallenge({ silent: true });
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function submitSignup() {
+  const username = String(signupForm.username || "").trim();
+  const password = String(signupForm.password || "");
+
+  if (!username || !password) {
+    feedback.value = "请填写创建账号所需的用户名和密码。";
+    return;
+  }
+
+  if (isChallengeBusy.value || isChallengeUnavailable.value) {
+    feedback.value = "认证服务尚未就绪，请稍后重试。";
+    return;
+  }
+
+  if (isTurnstileMode.value && !challenge.turnstileToken) {
+    feedback.value = "请先完成安全验证。";
+    return;
+  }
+
+  if (isLegacyCaptchaMode.value && (!captcha.id || !String(form.captchaText || "").trim())) {
+    feedback.value = "验证码尚未准备好，请刷新后重试。";
+    return;
+  }
+
+  busy.value = true;
+  setAuthMode("signup");
+  saveAuthConfig({ username });
+  feedback.value = "正在创建账号...";
+
+  try {
+    const payload = await signUp({
+      username,
+      password,
+      ...buildChallengePayload(),
+    });
+
+    form.username = username;
+    sessionStore.applySession(payload, "创建成功，正在进入 Today...");
+
+    if (payload?.recoveryCode) {
+      closeSignupModal();
+      feedback.value = "创建成功，请先保存恢复码。";
+      recoveryCodeValue.value = payload.recoveryCode;
+      recoveryCodeModalOpen.value = true;
+      pendingRedirect.value = true;
+      return;
+    }
+
+    closeSignupModal();
+    feedback.value = "创建成功，正在进入 Today...";
+    await wait(300);
+    await router.replace(resolveRedirectTarget());
+  } catch (error) {
+    feedback.value = buildAuthErrorMessage(error, "signup");
     await refreshAuthChallenge({ silent: true });
   } finally {
     busy.value = false;
@@ -430,7 +572,7 @@ onBeforeUnmount(() => {
         当前页面是通过 <code>file://</code> 打开的。正式使用请改用本地或部署后的 HTTP 地址访问。
       </div>
 
-      <form class="auth-gate-form" @submit.prevent="submitAuth(authMode)">
+      <form class="auth-gate-form" @submit.prevent="submitPrimaryAuth">
         <label class="auth-field">
           <span class="auth-field-label">用户名</span>
           <input
@@ -464,11 +606,11 @@ onBeforeUnmount(() => {
           />
         </label>
 
-        <div class="auth-field captcha-field">
+        <div v-if="!isChallengeDisabled" class="auth-field captcha-field">
           <span class="auth-field-label">{{ isTurnstileMode ? "安全验证" : "验证码" }}</span>
 
           <div v-if="challenge.loading" class="captcha-status-card">
-            正在连接认证服务，首次唤醒后端通常需要 10-20 秒。
+            正在唤醒认证服务，Render 免费实例首次请求可能需要 20-50 秒。
           </div>
 
           <div v-else-if="isTurnstileMode" class="captcha-turnstile-shell">
@@ -483,7 +625,11 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div v-else-if="isLegacyCaptchaMode" class="captcha-row">
+          <div v-else-if="isLegacyCaptchaMode && captcha.loading" class="captcha-status-card">
+            正在加载验证码，请稍候。
+          </div>
+
+          <div v-else-if="isLegacyCaptchaMode && captcha.svg" class="captcha-row">
             <button
               type="button"
               class="captcha-image"
@@ -505,8 +651,15 @@ onBeforeUnmount(() => {
             />
           </div>
 
+          <div v-else-if="isLegacyCaptchaMode" class="captcha-status-card is-error">
+            <span>验证码加载失败，请重试。</span>
+            <button type="button" class="task-cancel-action" @click="refreshCaptcha">
+              重新加载验证码
+            </button>
+          </div>
+
           <div v-else class="captcha-status-card is-error">
-            <span>认证服务仍在启动或暂时不可用。</span>
+            <span>{{ currentApiBase ? `认证服务暂时不可用 · ${currentApiBase}` : "认证服务暂时不可用。" }}</span>
             <button type="button" class="task-cancel-action" @click="loadAuthChallengeConfig">
               重试连接
             </button>
@@ -516,18 +669,62 @@ onBeforeUnmount(() => {
         <p class="auth-feedback">{{ feedback }}</p>
 
         <div class="auth-gate-actions">
-          <button type="button" class="settings-save auth-login-button" :disabled="busy || challenge.loading" @click="submitAuth('signin')">
-            {{ busy && authMode === "signin" ? "登录中..." : "登录" }}
+          <button type="submit" class="settings-save auth-login-button" :disabled="busy || (!isChallengeDisabled && isChallengeBusy)">
+            {{ busy && isRecoveryMode ? "重置中..." : busy && authMode === "signin" ? "登录中..." : isRecoveryMode ? "重置密码" : "登录" }}
           </button>
-          <button type="button" class="auth-button" :disabled="busy || challenge.loading" @click="submitAuth('signup')">
-            {{ busy && authMode === "signup" ? "创建中..." : "创建账号" }}
+          <button type="button" class="auth-button" :disabled="busy" @click="openSignupModal">
+            创建账号
           </button>
-          <button type="button" class="task-cancel-action auth-recover-action" :disabled="busy || challenge.loading" @click="submitAuth('recover')">
+          <button type="button" class="auth-button auth-recover-action" :disabled="busy || (!isChallengeDisabled && isChallengeBusy)" @click="submitAuth('recover')">
             {{ busy && authMode === "recover" ? "重置中..." : "重置密码" }}
           </button>
         </div>
+
       </form>
     </section>
+
+    <div class="settings-modal" :hidden="!signupModalOpen">
+      <div class="settings-backdrop" @click="closeSignupModal"></div>
+      <section class="settings-dialog auth-recovery-dialog" role="dialog" aria-modal="true" aria-labelledby="signup-modal-title">
+        <div class="settings-header">
+          <div>
+            <p class="panel-kicker">Create Account</p>
+            <h2 id="signup-modal-title">创建账号</h2>
+          </div>
+          <button type="button" class="modal-close" aria-label="关闭弹窗" @click="closeSignupModal">
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </div>
+        <p class="auth-gate-copy">{{ SIGNUP_REQUIREMENTS_TEXT }}</p>
+        <div class="auth-gate-form" style="margin-top: 14px;">
+          <label class="auth-field">
+            <span class="auth-field-label">用户名</span>
+            <input
+              v-model="signupForm.username"
+              type="text"
+              placeholder="输入用户名"
+              autocomplete="username"
+            />
+          </label>
+
+          <label class="auth-field">
+            <span class="auth-field-label">密码</span>
+            <input
+              v-model="signupForm.password"
+              type="password"
+              placeholder="输入新的登录密码"
+              autocomplete="new-password"
+            />
+          </label>
+        </div>
+        <div class="auth-dialog-actions" style="justify-content: space-between; gap: 10px; flex-wrap: wrap;">
+          <button type="button" class="task-cancel-action" @click="closeSignupModal">取消</button>
+          <button type="button" class="settings-save" :disabled="busy || (!isChallengeDisabled && isChallengeBusy)" @click="submitSignup">
+            {{ busy && authMode === "signup" ? "创建中..." : "确认创建" }}
+          </button>
+        </div>
+      </section>
+    </div>
 
     <div class="settings-modal" :hidden="!recoveryCodeModalOpen">
       <div class="settings-backdrop" @click="closeRecoveryCodeModal"></div>

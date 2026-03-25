@@ -2,15 +2,19 @@ import { defineStore } from "pinia";
 
 import {
   fetchDailyRecord,
+  fetchTaskTimeline,
   fetchWeeklySummary,
   listTasks,
   saveWeeklySummary,
 } from "../services/weekly-api";
 import {
+  loadCachedHomeData,
   loadCachedDailyRecord,
   loadCachedDailyRecords,
   loadCachedTasks,
+  loadDashboardUserCache,
   loadCachedWeeklySummary,
+  saveCachedHomeData,
   saveCachedDailyRecords,
   saveCachedTasks,
   saveCachedWeeklySummary,
@@ -19,7 +23,6 @@ import { updateTask } from "../services/today-api";
 import {
   addDays,
   formatDateKey,
-  formatDisplayDate,
   formatMonthDay,
   formatMonthRangeText,
   formatMonthValue,
@@ -28,10 +31,12 @@ import {
   formatWeekRangeText,
   getMonthRange,
   getMonthlyRangeOptions,
+  getStartOfWeek,
   getWeekRangeFromWeekValue,
   getWeeklyRangeOptions,
   parseLocalDate,
 } from "../utils/date";
+import { getUserFacingErrorMessage } from "../utils/error-message";
 import { renderTaskNoteMarkdown } from "../utils/markdown";
 import { useSessionStore } from "./session";
 
@@ -77,6 +82,10 @@ function hasTaskHistory(aggregation, taskId) {
   );
 }
 
+function hasAnyTaskHistory(aggregation) {
+  return (aggregation?.tasks || []).some((task) => hasTaskHistory(aggregation, task.id));
+}
+
 function buildMonthDateKeys(monthValue) {
   const range = getMonthRange(monthValue);
   const dates = [];
@@ -97,6 +106,73 @@ function buildWeekDateKeys(weekValue) {
   }
 
   return dates;
+}
+
+function buildDateKeysBetween(startDate, endDate) {
+  const start = parseLocalDate(startDate);
+  const end = parseLocalDate(endDate);
+  const dates = [];
+
+  for (let cursor = new Date(start); cursor <= end; cursor = addDays(cursor, 1)) {
+    dates.push(formatDateKey(cursor));
+  }
+
+  return dates;
+}
+
+function buildRecentDateKeys(totalDays = 31) {
+  const days = Math.max(1, Number(totalDays || 31));
+  const end = new Date();
+  const start = addDays(end, -(days - 1));
+  const dates = [];
+
+  for (let cursor = new Date(start); cursor <= end; cursor = addDays(cursor, 1)) {
+    dates.push(formatDateKey(cursor));
+  }
+
+  return dates;
+}
+
+function getMonthWeekValues(monthValue) {
+  const { start, end } = getMonthRange(monthValue);
+  const weeks = [];
+
+  for (let cursor = getStartOfWeek(start); cursor <= end; cursor = addDays(cursor, 7)) {
+    weeks.push(formatWeekInputValue(cursor));
+  }
+
+  return Array.from(new Set(weeks));
+}
+
+function stripMarkdownToPlainText(content = "") {
+  return String(content || "")
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/!\[[^\]]*\]\([^)]+\)/g, " ")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/[*_~>-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildSummaryExcerpt(content = "", maxLength = 84) {
+  const text = stripMarkdownToPlainText(content);
+  if (!text) {
+    return "";
+  }
+  return text.length > maxLength ? `${text.slice(0, maxLength).trim()}...` : text;
+}
+
+function buildCachedTimelineAggregation(userId) {
+  const cache = loadDashboardUserCache(userId);
+  const tasks = Array.isArray(cache?.tasks) ? cache.tasks : [];
+  const records = Object.values(cache?.dailyRecords || {})
+    .filter((record) => record && typeof record === "object" && record.date)
+    .sort((left, right) => String(left.date).localeCompare(String(right.date)));
+  const dateKeys = records.map((record) => String(record.date));
+  const normalizedTasks = tasks.map(normalizeTask).sort((left, right) => left.order - right.order);
+  return buildAggregationFromRecords(normalizedTasks, dateKeys, records, Math.max(dateKeys.length, 1));
 }
 
 function normalizeTimelineNotes(notes = [], recordDate) {
@@ -137,7 +213,7 @@ function buildTimelineEntries(taskId, dateKeys = [], responses = []) {
 
       return {
         dateKey: recordDate,
-        dateLabel: formatDisplayDate(parseLocalDate(recordDate)),
+        dateLabel: formatMonthDay(parseLocalDate(recordDate)),
         completed,
         notes,
       };
@@ -184,6 +260,17 @@ function buildAggregationFromRecords(tasks = [], dateKeys = [], records = [], to
   return aggregation;
 }
 
+async function fetchFreshWeekRecords(dateKeys = []) {
+  const records = await Promise.all(
+    dateKeys.map((date) =>
+      fetchDailyRecord(date)
+        .then((payload) => payload?.record || createEmptyRecord(date))
+        .catch(() => createEmptyRecord(date)),
+    ),
+  );
+  return records;
+}
+
 export const useWeeklyStore = defineStore("weekly", {
   state: () => ({
     loading: false,
@@ -197,6 +284,7 @@ export const useWeeklyStore = defineStore("weekly", {
       archive: "all",
     },
     aggregation: createAggregation([], 7),
+    timelineAggregation: createAggregation([], 31),
     summaryByWeek: {},
     summaryDrafts: {},
     summaryModes: {},
@@ -300,13 +388,58 @@ export const useWeeklyStore = defineStore("weekly", {
     summaryDisplayHtml() {
       return renderTaskNoteMarkdown(this.currentSummary.content || "");
     },
+    monthSummaryEntries(state) {
+      return getMonthWeekValues(state.selectedMonth).map((week) => {
+        const summary = state.summaryByWeek[week] || { content: "", updatedAt: "" };
+        return {
+          week,
+          label: formatWeekRangeText(week),
+          content: summary.content || "",
+          excerpt: buildSummaryExcerpt(summary.content || ""),
+          updatedAt: summary.updatedAt
+            ? `${formatMonthDay(new Date(summary.updatedAt))} ${formatTime(new Date(summary.updatedAt))}`
+            : "",
+        };
+      });
+    },
+    monthOverview(state) {
+      const rankedTasks = state.aggregation.tasks
+        .filter((task) => hasTaskHistory(state.aggregation, task.id))
+        .sort((left, right) => {
+          const leftCompletionDays = state.aggregation.completionCounts[left.id] || 0;
+          const rightCompletionDays = state.aggregation.completionCounts[right.id] || 0;
+          const leftNotes = state.aggregation.notesByTask[left.id]?.length || 0;
+          const rightNotes = state.aggregation.notesByTask[right.id]?.length || 0;
+          return rightCompletionDays - leftCompletionDays || rightNotes - leftNotes || left.order - right.order;
+        });
+      const summaryEntries = this.monthSummaryEntries;
+      const writtenSummaries = summaryEntries.filter((entry) => entry.content.trim().length > 0);
+
+      return {
+        label: formatMonthRangeText(state.selectedMonth),
+        activeTaskCount: rankedTasks.length,
+        completionDays: Object.values(state.aggregation.completionCounts || {}).reduce((sum, value) => sum + Number(value || 0), 0),
+        noteCount: Object.values(state.aggregation.notesByTask || {}).reduce((sum, notes) => sum + (Array.isArray(notes) ? notes.length : 0), 0),
+        writtenSummaryCount: writtenSummaries.length,
+        rankedTasks: rankedTasks.map((task) => ({
+          id: task.id,
+          name: task.name,
+          color: task.color,
+          completionCount: state.aggregation.completionCounts[task.id] || 0,
+          noteCount: state.aggregation.notesByTask[task.id]?.length || 0,
+          notes: state.aggregation.notesByTask[task.id] || [],
+        })),
+        summaries: writtenSummaries,
+        totalDays: state.aggregation.totalDays,
+      };
+    },
   },
   actions: {
     setSaveStatus(message) {
       this.saveStatus = message;
     },
     handleActionError(error, fallbackMessage) {
-      this.error = error?.message || fallbackMessage;
+      this.error = getUserFacingErrorMessage(error, fallbackMessage);
       this.setSaveStatus(this.error);
     },
     ensureSummaryState(week, summary) {
@@ -344,7 +477,7 @@ export const useWeeklyStore = defineStore("weekly", {
           await this.loadWeekReview();
         }
       } catch (error) {
-        this.error = error?.message || "Weekly 模块加载失败";
+        this.error = getUserFacingErrorMessage(error, "Weekly 模块加载失败");
         this.setSaveStatus(this.error);
       } finally {
         this.loading = false;
@@ -375,8 +508,20 @@ export const useWeeklyStore = defineStore("weekly", {
       }
 
       const records = dateKeys.map((date) => loadCachedDailyRecord(userId, date) || createEmptyRecord(date));
-      const normalizedTasks = tasks.map(normalizeTask).sort((left, right) => left.order - right.order);
-      const aggregation = buildAggregationFromRecords(normalizedTasks, dateKeys, records, 7);
+      let normalizedTasks = tasks.map(normalizeTask).sort((left, right) => left.order - right.order);
+      let aggregation = buildAggregationFromRecords(normalizedTasks, dateKeys, records, 7);
+
+      if (normalizedTasks.length && !hasAnyTaskHistory(aggregation)) {
+        const [freshTaskPayload, freshRecords] = await Promise.all([
+          listTasks().catch(() => ({ tasks })),
+          fetchFreshWeekRecords(dateKeys),
+        ]);
+        tasks = freshTaskPayload?.tasks || tasks;
+        normalizedTasks = tasks.map(normalizeTask).sort((left, right) => left.order - right.order);
+        saveCachedTasks(userId, tasks);
+        saveCachedDailyRecords(userId, freshRecords);
+        aggregation = buildAggregationFromRecords(normalizedTasks, dateKeys, freshRecords, 7);
+      }
 
       let summary = loadCachedWeeklySummary(userId, this.selectedWeek);
       if (!summary) {
@@ -425,8 +570,72 @@ export const useWeeklyStore = defineStore("weekly", {
       const records = dateKeys.map((date) => loadCachedDailyRecord(userId, date) || createEmptyRecord(date));
       const aggregation = buildAggregationFromRecords(normalizedTasks, dateKeys, records, dateKeys.length);
 
+      const summaryWeeks = getMonthWeekValues(this.selectedMonth);
+      const missingWeeks = summaryWeeks.filter((week) => !loadCachedWeeklySummary(userId, week));
+      if (missingWeeks.length) {
+        const fetchedSummaries = await Promise.all(
+          missingWeeks.map(async (week) => {
+            const summaryPayload = await fetchWeeklySummary(week).catch(() => ({ summary: null }));
+            const summary = {
+              week,
+              content: summaryPayload?.summary?.content || "",
+              updatedAt: summaryPayload?.summary?.updatedAt || "",
+            };
+            saveCachedWeeklySummary(userId, summary);
+            return summary;
+          }),
+        );
+        fetchedSummaries.forEach((summary) => {
+          this.ensureSummaryState(summary.week, summary);
+        });
+      }
+
+      summaryWeeks.forEach((week) => {
+        const summary = loadCachedWeeklySummary(userId, week) || { week, content: "", updatedAt: "" };
+        this.ensureSummaryState(week, summary);
+      });
+
       this.aggregation = aggregation;
       this.setSaveStatus(`已从本地缓存载入 ${formatMonthRangeText(this.selectedMonth)} 的月度复盘`);
+    },
+    async loadTimelineView() {
+      const sessionStore = useSessionStore();
+      const userId = sessionStore.user?.id;
+      if (!userId) {
+        return;
+      }
+
+      this.loading = true;
+      this.error = "";
+      try {
+        const cachedHome = loadCachedHomeData(userId);
+        if (cachedHome?.timelineHydratedAt) {
+          this.timelineAggregation = buildCachedTimelineAggregation(userId);
+          this.setSaveStatus("Timeline 已从本地缓存载入完整历史记录");
+          return;
+        }
+
+        const payload = await fetchTaskTimeline();
+        const tasks = Array.isArray(payload?.tasks) ? payload.tasks : [];
+        const records = Array.isArray(payload?.records) ? payload.records : [];
+        const startDate = String(payload?.start || "");
+        const endDate = String(payload?.end || "");
+        const totalDays = Number(payload?.totalDays || 0) || buildRecentDateKeys(31).length;
+        const dateKeys = startDate && endDate ? buildDateKeysBetween(startDate, endDate) : buildRecentDateKeys(totalDays);
+        const normalizedTasks = tasks.map(normalizeTask).sort((left, right) => left.order - right.order);
+        saveCachedTasks(userId, tasks);
+        saveCachedDailyRecords(userId, records);
+        saveCachedHomeData(userId, {
+          timelineHydratedAt: new Date().toISOString(),
+        });
+        this.timelineAggregation = buildAggregationFromRecords(normalizedTasks, dateKeys, records, totalDays);
+        this.setSaveStatus("Timeline 已直接从云端载入完整历史记录");
+      } catch (error) {
+        this.error = getUserFacingErrorMessage(error, "Timeline 加载失败");
+        this.setSaveStatus(this.error);
+      } finally {
+        this.loading = false;
+      }
     },
     async setMode(mode) {
       this.mode = mode === "month" ? "month" : "week";

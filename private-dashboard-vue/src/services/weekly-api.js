@@ -9,6 +9,10 @@ export function fetchWeeklySummary(week) {
   return fetchJson(`/api/weekly-summaries/${week}`);
 }
 
+export function fetchTaskTimeline() {
+  return fetchJson("/api/task-timeline");
+}
+
 export function saveWeeklySummary(week, content) {
   return fetchJson(`/api/weekly-summaries/${week}`, {
     method: "PUT",

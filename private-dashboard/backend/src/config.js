@@ -73,6 +73,7 @@ const config = {
   supabaseUrl: process.env.SUPABASE_URL || "",
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
   nodeEnv: process.env.NODE_ENV || "development",
+  authChallengeEnabled: String(process.env.AUTH_CHALLENGE_ENABLED || "true").toLowerCase() !== "false",
 };
 
 config.useSupabase = Boolean(config.supabaseUrl && config.supabaseServiceRoleKey);
@@ -83,6 +84,10 @@ config.turnstileSecretKey =
   process.env.TURNSTILE_SECRET_KEY ||
   (config.nodeEnv === "production" ? "" : TURNSTILE_TEST_SECRET_KEY);
 config.authChallengeProvider =
-  config.turnstileSiteKey && config.turnstileSecretKey ? "turnstile" : "captcha";
+  !config.authChallengeEnabled
+    ? "none"
+    : config.turnstileSiteKey && config.turnstileSecretKey
+      ? "turnstile"
+      : "captcha";
 
 module.exports = { config, isCorsOriginAllowed };

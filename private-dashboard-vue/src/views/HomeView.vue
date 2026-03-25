@@ -3,8 +3,10 @@ import Sortable from "sortablejs";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import ToolbarSelect from "../components/common/ToolbarSelect.vue";
+import TaskIconPicker from "../components/today/TaskIconPicker.vue";
 import TaskDialog from "../components/today/TaskDialog.vue";
 import TodayTaskCard from "../components/today/TodayTaskCard.vue";
+import MonthlyOverviewCard from "../components/weekly/MonthlyOverviewCard.vue";
 import WeeklyReviewCard from "../components/weekly/WeeklyReviewCard.vue";
 import { useSessionStore } from "../stores/session";
 import { useTodayStore } from "../stores/today";
@@ -20,6 +22,7 @@ const taskListRef = ref(null);
 const rootRef = ref(null);
 const newTaskName = ref("");
 const newTaskTags = ref("");
+const expandedReviewCards = ref({});
 let sortableInstance = null;
 
 const isAuthenticated = computed(() => Boolean(sessionStore.user?.id));
@@ -109,7 +112,7 @@ function switchHomeTab(tab) {
 }
 
 async function handleCreateTask() {
-  await todayStore.createTask(newTaskName.value, newTaskTags.value, todayStore.newTaskColor);
+  await todayStore.createTask(newTaskName.value, newTaskTags.value, todayStore.newTaskColor, todayStore.newTaskIcon);
   newTaskName.value = "";
   newTaskTags.value = "";
 }
@@ -129,6 +132,18 @@ function handleEditSummary() {
 
 function handleSaveSummary() {
   weeklyStore.openSummaryDialog();
+}
+
+function isReviewExpanded(taskId) {
+  return Boolean(expandedReviewCards.value[String(taskId)]);
+}
+
+function toggleReviewCard(taskId) {
+  const key = String(taskId);
+  expandedReviewCards.value = {
+    ...expandedReviewCards.value,
+    [key]: !isReviewExpanded(key),
+  };
 }
 
 onMounted(async () => {
@@ -230,6 +245,7 @@ watch(
           v-for="task in activeTasks"
           :key="task.id"
           :task="task"
+          :task-icon="todayStore.getTaskIcon(task.id, task.name)"
           :task-state="todayStore.getTaskState(task.id)"
           :tags="todayStore.getTaskTags(task.id)"
           :note-draft="todayStore.noteDrafts[task.id] || ''"
@@ -281,19 +297,22 @@ watch(
             <h3 class="task-title">+ 新建任务</h3>
           </div>
           <form class="new-task-form" @submit.prevent="handleCreateTask">
-            <input
-              v-model="newTaskName"
-              type="text"
-              maxlength="20"
-              placeholder="输入新任务名称"
-              required
-            />
-            <input
-              v-model="newTaskTags"
-              type="text"
-              maxlength="120"
-              placeholder="标签，多个请用逗号分隔"
-            />
+            <TaskIconPicker v-model="todayStore.newTaskIcon" label="任务图标" layout="single-row" />
+            <div class="new-task-input-row">
+              <input
+                v-model="newTaskName"
+                type="text"
+                maxlength="20"
+                placeholder="输入新任务名称"
+                required
+              />
+              <input
+                v-model="newTaskTags"
+                type="text"
+                maxlength="120"
+                placeholder="标签，多个请用逗号分隔"
+              />
+            </div>
             <button type="submit" class="add-task-submit">创建任务</button>
           </form>
         </article>
@@ -389,11 +408,19 @@ watch(
             </label>
           </div>
 
+          <MonthlyOverviewCard
+            v-if="weeklyStore.mode === 'month'"
+            :overview="weeklyStore.monthOverview"
+            :tags-by-task-id="sessionStore.user?.preferences?.tasks?.tagsByTaskId || {}"
+            :icon-by-task-id="sessionStore.user?.preferences?.tasks?.iconByTaskId || {}"
+          />
+
           <section
+            v-else
             class="weekly-summary-card"
             :class="{
               'is-empty': !weeklyStore.currentSummary.content,
-              'is-editing': weeklyStore.currentSummaryMode !== 'view' || weeklyStore.mode === 'month',
+              'is-editing': weeklyStore.currentSummaryMode !== 'view',
               'is-saved': weeklyStore.currentSummaryMode === 'view' && weeklyStore.currentSummary.content,
             }"
             aria-labelledby="home-weekly-summary-title"
@@ -403,7 +430,7 @@ watch(
                 <p class="panel-kicker">Weekly wrap-up</p>
                 <h2 id="home-weekly-summary-title">周总结</h2>
               </div>
-              <div class="weekly-summary-actions" v-if="weeklyStore.mode === 'week'">
+              <div class="weekly-summary-actions">
                 <button
                   v-if="weeklyStore.currentSummaryMode === 'view' && weeklyStore.currentSummary.content"
                   type="button"
@@ -436,8 +463,7 @@ watch(
               v-html="weeklyStore.summaryDisplayHtml"
             />
             <div v-else class="weekly-summary-display">
-              <p v-if="weeklyStore.mode === 'month'">按月模式下先只展示任务复盘，不编辑周总结。切回按周后可继续编辑和保存。</p>
-              <p v-else>本周还没有保存总结。</p>
+              <p>本周还没有保存总结。</p>
             </div>
 
             <p class="weekly-summary-meta" :class="{ 'is-dirty': weeklyStore.currentSummaryDraft !== weeklyStore.currentSummary.content }">
@@ -461,15 +487,18 @@ watch(
           <p>尝试切换周/月范围，或放宽筛选条件。</p>
         </div>
 
-        <div v-else class="review-stack">
+        <div v-else-if="weeklyStore.mode === 'week'" class="review-stack">
           <WeeklyReviewCard
             v-for="task in weeklyStore.visibleTasks"
             :key="task.id"
             :task="task"
+            :task-icon="todayStore.getTaskIcon(task.id, task.name)"
             :tags="sessionStore.user?.preferences?.tasks?.tagsByTaskId?.[task.id] || []"
             :completion-count="weeklyStore.aggregation.completionCounts[task.id] || 0"
             :total-days="weeklyStore.aggregation.totalDays"
             :notes="weeklyStore.aggregation.notesByTask[task.id] || []"
+            :expanded="isReviewExpanded(task.id)"
+            @toggle="toggleReviewCard"
             @restore-task="weeklyStore.restoreTask"
           />
         </div>
@@ -487,6 +516,7 @@ watch(
       <div class="dialog-form">
         <input v-model="todayStore.renameDraftName" type="text" maxlength="20" placeholder="任务名称" />
         <input v-model="todayStore.renameDraftTags" type="text" maxlength="120" placeholder="标签，多个请用逗号分隔" />
+        <TaskIconPicker v-model="todayStore.renameDraftIcon" label="任务图标" />
       </div>
     </TaskDialog>
 

@@ -7,6 +7,7 @@ import { AUTH_GATE_ENABLED } from "./app/constants";
 import { router } from "./router";
 import { useAppStore } from "./stores/app";
 import { useSessionStore } from "./stores/session";
+import { getUserFacingErrorMessage } from "./utils/error-message";
 import "./styles/base.css";
 
 const pinia = createPinia();
@@ -23,12 +24,12 @@ const updateSW = registerSW({
     appStore.setPwaFeedback("检测到新版本，正在刷新应用...");
     window.setTimeout(() => {
       updateSW(true).catch((error) => {
-        appStore.setPwaFeedback(error?.message || "应用更新失败，请手动刷新页面。");
+        appStore.setPwaFeedback(getUserFacingErrorMessage(error, "应用更新失败，请手动刷新页面。"));
       });
     }, 900);
   },
   onRegisterError(error) {
-    appStore.setPwaFeedback(error?.message || "PWA 注册失败。");
+    appStore.setPwaFeedback(getUserFacingErrorMessage(error, "PWA 注册失败。"));
   },
 });
 
@@ -61,7 +62,7 @@ async function ensureSessionBootstrapped() {
 
 router.beforeEach(async (to) => {
   const sessionStore = await ensureSessionBootstrapped();
-  const isAuthenticated = Boolean(sessionStore.user?.id);
+  const isAuthenticated = Boolean(sessionStore.user?.id) || sessionStore.previewMode;
   const requiresAuth = to.meta.requiresAuth !== false;
   const redirectTarget =
     typeof to.query.redirect === "string" && to.query.redirect.startsWith("/") && !to.query.redirect.startsWith("//")

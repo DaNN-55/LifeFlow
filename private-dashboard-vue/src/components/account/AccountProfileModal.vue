@@ -100,31 +100,20 @@ const emit = defineEmits([
                   </span>
                 </label>
                 <label class="account-card-toggle">
-                  <span>Finance</span>
+                  <span>Fresh News</span>
                   <span class="account-toggle-switch">
                     <input
                       type="checkbox"
-                      :checked="profileForm.sidebar.financeFeed"
+                      :checked="profileForm.sidebar.freshNews"
                       @change="
                         emit('update:profile-form', {
                           ...profileForm,
-                          sidebar: { ...profileForm.sidebar, financeFeed: $event.target.checked },
-                        })
-                      "
-                    />
-                    <span class="account-toggle-track"></span>
-                  </span>
-                </label>
-                <label class="account-card-toggle">
-                  <span>Science</span>
-                  <span class="account-toggle-switch">
-                    <input
-                      type="checkbox"
-                      :checked="profileForm.sidebar.scienceFeed"
-                      @change="
-                        emit('update:profile-form', {
-                          ...profileForm,
-                          sidebar: { ...profileForm.sidebar, scienceFeed: $event.target.checked },
+                          sidebar: {
+                            ...profileForm.sidebar,
+                            freshNews: $event.target.checked,
+                            financeFeed: $event.target.checked,
+                            scienceFeed: $event.target.checked,
+                          },
                         })
                       "
                     />

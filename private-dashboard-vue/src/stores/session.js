@@ -2,19 +2,23 @@ import { defineStore } from "pinia";
 
 import { signOutAccount } from "../services/account-api";
 import { fetchSession, probeHealth } from "../services/api-client";
-import { saveSessionId } from "../services/config";
+import { loadPreviewMode, savePreviewMode, saveSessionId } from "../services/config";
+import { getUserFacingErrorMessage } from "../utils/error-message";
 
 export const useSessionStore = defineStore("session", {
   state: () => ({
     status: "idle",
     apiStatus: "unknown",
     user: null,
+    previewMode: loadPreviewMode(),
     lastCheckedAt: "",
     feedback: "",
   }),
   actions: {
     applySession(payload, feedback = "") {
       this.user = payload?.user || null;
+      this.previewMode = false;
+      savePreviewMode(false);
       saveSessionId(payload?.session?.id || "");
       this.status = this.user ? "ready" : "guest";
       if (this.user) {
@@ -22,14 +26,29 @@ export const useSessionStore = defineStore("session", {
       }
       this.feedback = feedback || (this.user ? `已识别 ${this.user.username}` : "当前未登录");
     },
+    startPreviewSession() {
+      this.user = null;
+      this.previewMode = true;
+      this.status = "ready";
+      this.apiStatus = "offline";
+      this.feedback = "已进入本地预览模式";
+      saveSessionId("");
+      savePreviewMode(true);
+    },
     async bootstrap() {
+      if (this.previewMode) {
+        this.status = "ready";
+        this.apiStatus = "offline";
+        this.feedback = "已进入本地预览模式";
+        return;
+      }
       this.status = "bootstrapping";
       try {
         await this.refreshHealth();
         await this.refreshSession();
       } catch (error) {
         this.status = "offline";
-        this.feedback = error?.message || "当前未连接到后端";
+        this.feedback = getUserFacingErrorMessage(error, "当前未连接到后端");
       }
     },
     async refreshHealth() {
@@ -67,7 +86,9 @@ export const useSessionStore = defineStore("session", {
         // Best-effort signout; still clear local session state.
       }
       saveSessionId("");
+      savePreviewMode(false);
       this.user = null;
+      this.previewMode = false;
       this.status = "guest";
       this.feedback = "已退出登录";
     },

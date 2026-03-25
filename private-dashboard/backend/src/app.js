@@ -29,8 +29,11 @@ const SESSION_HEADER_NAME = "x-session-id";
 const SESSION_TTL_DAYS = 30;
 const CAPTCHA_TTL_MS = 5 * 60 * 1000;
 const WEATHER_REQUEST_TIMEOUT_MS = 6000;
+const QUOTE_REQUEST_TIMEOUT_MS = 4500;
 const TURNSTILE_VERIFY_TIMEOUT_MS = 8000;
 const TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
+const ZEN_QUOTES_TODAY_URL = "https://zenquotes.io/api/today";
+const PULSE_QUOTE_TIME_ZONE = "Asia/Shanghai";
 
 const taskSchema = z.object({
   id: z.string().min(1).max(64).optional(),
@@ -121,6 +124,7 @@ const accountPreferencesSchema = z.object({
   }).optional(),
   tasks: z.object({
     tagsByTaskId: z.record(z.array(z.string().min(1).max(24)).max(6)).optional(),
+    iconByTaskId: z.record(z.string().min(1).max(48)).optional(),
   }).optional(),
   sync: z.object({
     lastSyncAttemptAt: z.string().optional(),
@@ -179,6 +183,21 @@ const contentRefreshSchema = z.object({
   channel: contentChannelSchema,
   limit: z.coerce.number().int().min(1).max(40).optional(),
 });
+
+function buildDateKeysBetween(startDate, endDate) {
+  const dates = [];
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+
+  start.setHours(0, 0, 0, 0);
+  end.setHours(0, 0, 0, 0);
+
+  for (let cursor = new Date(start); cursor <= end; cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1)) {
+    dates.push(formatDateKey(cursor));
+  }
+
+  return dates;
+}
 
 const contentFavoriteSchema = z.object({
   id: z.string().min(1).max(128),
@@ -248,9 +267,27 @@ const contentSourceSchema = z.object({
   }
 });
 
+function formatDateKeyInTimeZone(date = new Date(), timeZone = PULSE_QUOTE_TIME_ZONE) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+
+  const year = parts.find((part) => part.type === "year")?.value || "0000";
+  const month = parts.find((part) => part.type === "month")?.value || "01";
+  const day = parts.find((part) => part.type === "day")?.value || "01";
+  return `${year}-${month}-${day}`;
+}
+
 function createApp({ config, store }) {
   const app = express();
   const captchaStore = new Map();
+  const pulseQuoteCache = {
+    dateKey: "",
+    quote: null,
+  };
 
   app.use(
     cors({
@@ -500,6 +537,36 @@ function createApp({ config, store }) {
         id: request.userContext.sessionId,
       },
     });
+  });
+
+  app.get("/api/pulse/quote", requireAuthenticated, async (request, response, next) => {
+    try {
+      const currentDateKey = formatDateKeyInTimeZone(new Date(), PULSE_QUOTE_TIME_ZONE);
+      if (pulseQuoteCache.dateKey === currentDateKey && pulseQuoteCache.quote) {
+        response.json({ quote: pulseQuoteCache.quote });
+        return;
+      }
+
+      const payload = await fetchJsonWithTimeout(ZEN_QUOTES_TODAY_URL, QUOTE_REQUEST_TIMEOUT_MS);
+      const first = Array.isArray(payload) ? payload[0] : null;
+      const quote = {
+        text: String(first?.q || ""),
+        author: String(first?.a || "Unknown"),
+        html: String(first?.h || ""),
+        sourceName: "ZenQuotes",
+        sourceUrl: "https://zenquotes.io/",
+        attribution: "Quotes provided by ZenQuotes",
+        generatedAt: new Date().toISOString(),
+        generatedAtDateKey: currentDateKey,
+        generatedAtTimeZone: PULSE_QUOTE_TIME_ZONE,
+      };
+
+      pulseQuoteCache.dateKey = currentDateKey;
+      pulseQuoteCache.quote = quote;
+      response.json({ quote });
+    } catch (error) {
+      next(error);
+    }
   });
 
   app.get("/api/account/profile", requireAuthenticated, async (request, response, next) => {
@@ -768,6 +835,35 @@ function createApp({ config, store }) {
         presenceCounts,
         completionCounts,
         notesByTask,
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/task-timeline", requireAuthenticated, async (request, response, next) => {
+    try {
+      const user = await store.getUserById(request.userContext.userId);
+      if (!user) {
+        response.status(404).json({ error: "Account not found" });
+        return;
+      }
+
+      const tasks = await store.listTasks(request.userContext);
+      const createdAt = user.created_at ? new Date(user.created_at) : new Date();
+      const start = Number.isNaN(createdAt.getTime()) ? new Date() : createdAt;
+      const end = new Date();
+      const startDate = formatDateKey(start);
+      const endDate = formatDateKey(end);
+      const dateKeys = buildDateKeysBetween(start, end);
+      const records = await store.listDailyRecordsBetween(request.userContext, startDate, endDate);
+
+      response.json({
+        start: startDate,
+        end: endDate,
+        totalDays: dateKeys.length,
+        tasks,
+        records,
       });
     } catch (error) {
       next(error);
@@ -1108,6 +1204,10 @@ function resolveCookiePolicy(request) {
 }
 
 async function verifyAuthChallenge(config, request, parsedBody, captchaStore) {
+  if (config.authChallengeProvider === "none") {
+    return { ok: true };
+  }
+
   if (config.authChallengeProvider === "turnstile") {
     const token = String(parsedBody?.turnstileToken || "").trim();
     if (!token) {

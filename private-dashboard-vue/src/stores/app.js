@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 
 import { APP_THEME_STORAGE_KEY } from "../app/constants";
 import { saveAccountPreferences } from "../services/today-api";
+import { getUserFacingErrorMessage } from "../utils/error-message";
 import { useSessionStore } from "./session";
 
 function normalizeTheme(theme) {
@@ -57,7 +58,7 @@ export const useAppStore = defineStore("app", {
         this.themeFeedback = "主题已保存到账号偏好";
       } catch (error) {
         this.setTheme(previousTheme);
-        this.themeFeedback = error?.message || "主题保存失败";
+        this.themeFeedback = getUserFacingErrorMessage(error, "主题保存失败");
       } finally {
         this.themeBusy = false;
       }

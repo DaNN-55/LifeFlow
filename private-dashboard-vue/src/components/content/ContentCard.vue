@@ -22,7 +22,7 @@ defineProps({
   },
 });
 
-const emit = defineEmits(["toggle-favorite", "toggle-preview", "toggle-read", "open-link"]);
+const emit = defineEmits(["toggle-favorite", "open-link"]);
 
 function handleImageError(event) {
   const target = event.target;
@@ -98,24 +98,6 @@ function handleImageError(event) {
         </div>
 
         <div class="content-card-actions">
-          <button
-            type="button"
-            class="content-preview-button"
-            title="预览内容"
-            @click="emit('toggle-preview', item)"
-          >
-            预览
-          </button>
-          <button
-            type="button"
-            class="content-read-toggle"
-            :class="{ 'is-active': isRead }"
-            :aria-label="isRead ? '标记为未读' : '标记为已读'"
-            :title="isRead ? '标记为未读' : '标记为已读'"
-            @click="emit('toggle-read', item)"
-          >
-            {{ isRead ? "已读" : "未读" }}
-          </button>
           <button
             type="button"
             class="content-favorite-button"

@@ -3,6 +3,7 @@ import {
   API_BASE_STORAGE_KEY,
   API_PROBE_TIMEOUT_MS,
   DEFAULT_REMOTE_API_BASE,
+  PREVIEW_MODE_STORAGE_KEY,
   SESSION_STORAGE_KEY,
 } from "../app/constants";
 
@@ -24,6 +25,14 @@ export function saveApiBase(apiBase) {
     return;
   }
   localStorage.setItem(API_BASE_STORAGE_KEY, normalized);
+}
+
+export function resetResolvedApiBase(options = {}) {
+  resolvedApiBase = "";
+  apiBasePromise = null;
+  if (options.clearStorage) {
+    localStorage.removeItem(API_BASE_STORAGE_KEY);
+  }
 }
 
 function loadRuntimeApiBase() {
@@ -105,6 +114,11 @@ export async function resolveApiBase() {
   return apiBasePromise;
 }
 
+export async function refreshApiBase(options = {}) {
+  resetResolvedApiBase({ clearStorage: options.clearStorage !== false });
+  return resolveApiBase();
+}
+
 export function loadAuthConfig() {
   try {
     const raw = localStorage.getItem(AUTH_CONFIG_STORAGE_KEY);
@@ -139,6 +153,18 @@ export function saveSessionId(sessionId) {
     return;
   }
   localStorage.setItem(SESSION_STORAGE_KEY, String(sessionId).trim());
+}
+
+export function loadPreviewMode() {
+  return localStorage.getItem(PREVIEW_MODE_STORAGE_KEY) === "true";
+}
+
+export function savePreviewMode(enabled) {
+  if (!enabled) {
+    localStorage.removeItem(PREVIEW_MODE_STORAGE_KEY);
+    return;
+  }
+  localStorage.setItem(PREVIEW_MODE_STORAGE_KEY, "true");
 }
 
 export { API_PROBE_TIMEOUT_MS, DEFAULT_REMOTE_API_BASE };

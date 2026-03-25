@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
 
 import { ACCOUNT_CONTROLS_ENABLED, topTabs } from "../../app/constants";
@@ -28,8 +28,23 @@ const homeStore = useHomeStore();
 const sessionStore = useSessionStore();
 const todayStore = useTodayStore();
 const accountMenuRef = ref(null);
+const topTabsRef = ref(null);
+const centerStageRef = ref(null);
+const topTabNodes = new Map();
+const routeScrollTopByPath = new Map();
+const hoveredTopTabId = ref("");
+const topTabIndicatorStyle = ref({
+  width: "0px",
+  transform: "translateX(0px)",
+  opacity: "0",
+});
 
-const statusLabel = computed(() => (sessionStore.user?.username ? sessionStore.user.username : "登录"));
+const statusLabel = computed(() => {
+  if (sessionStore.previewMode) {
+    return "预览";
+  }
+  return sessionStore.user?.username ? sessionStore.user.username : "登录";
+});
 
 const yearProgress = computed(() => {
   const now = new Date();
@@ -57,28 +72,100 @@ const lifeProgress = computed(() => {
 });
 
 const sidebarPreferences = computed(() => ({
+  freshNews: Object.prototype.hasOwnProperty.call(sessionStore.user?.preferences?.sidebar || {}, "freshNews")
+    ? sessionStore.user?.preferences?.sidebar?.freshNews !== false
+    : sessionStore.user?.preferences?.sidebar?.financeFeed !== false || sessionStore.user?.preferences?.sidebar?.scienceFeed !== false,
   calendar: sessionStore.user?.preferences?.sidebar?.calendar !== false,
   github: sessionStore.user?.preferences?.sidebar?.github !== false,
-  financeFeed: sessionStore.user?.preferences?.sidebar?.financeFeed !== false,
-  scienceFeed: sessionStore.user?.preferences?.sidebar?.scienceFeed !== false,
   favorites: sessionStore.user?.preferences?.sidebar?.favorites !== false,
   weather: sessionStore.user?.preferences?.sidebar?.weather !== false,
   stock: sessionStore.user?.preferences?.sidebar?.stock !== false,
 }));
 
 function isActive(tab) {
-  if (tab.to === "/") {
-    return route.path === "/";
-  }
   return route.path === tab.to || route.path.startsWith(`${tab.to}/`);
+}
+
+function resolveElement(target) {
+  if (target instanceof HTMLElement) {
+    return target;
+  }
+  if (target && target.$el instanceof HTMLElement) {
+    return target.$el;
+  }
+  return null;
+}
+
+function setTopTabRef(tabId, element) {
+  const resolved = resolveElement(element);
+  if (resolved) {
+    topTabNodes.set(tabId, resolved);
+    return;
+  }
+  topTabNodes.delete(tabId);
+}
+
+function syncTopTabIndicator() {
+  const targetId = hoveredTopTabId.value || topTabs.find((tab) => isActive(tab))?.id || topTabs[0]?.id;
+  const navElement = topTabsRef.value;
+  const tabElement = targetId ? topTabNodes.get(targetId) : null;
+
+  if (!navElement || !tabElement) {
+    topTabIndicatorStyle.value = {
+      width: "0px",
+      transform: "translateX(0px)",
+      opacity: "0",
+    };
+    return;
+  }
+
+  const navRect = navElement.getBoundingClientRect();
+  const tabRect = tabElement.getBoundingClientRect();
+  const inset = 8;
+  const width = Math.max(tabRect.width - inset * 2, 18);
+  topTabIndicatorStyle.value = {
+    width: `${width}px`,
+    transform: `translateX(${tabRect.left - navRect.left + (tabRect.width - width) / 2}px)`,
+    opacity: "1",
+  };
+}
+
+async function refreshTopTabIndicator() {
+  await nextTick();
+  syncTopTabIndicator();
 }
 
 function formatPercent(value) {
   return `${Math.max(0, Math.min(100, value)).toFixed(1)}%`;
 }
 
+function saveCurrentRouteScroll() {
+  if (!(centerStageRef.value instanceof HTMLElement)) {
+    return;
+  }
+  routeScrollTopByPath.set(route.fullPath, centerStageRef.value.scrollTop);
+}
+
+async function restoreRouteScroll() {
+  await nextTick();
+  if (!(centerStageRef.value instanceof HTMLElement)) {
+    return;
+  }
+  if (route.path === "/content" || route.path.startsWith("/content/")) {
+    centerStageRef.value.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    centerStageRef.value.scrollTop = 0;
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    if (document.scrollingElement) {
+      document.scrollingElement.scrollTop = 0;
+    }
+    return;
+  }
+  const savedScrollTop = routeScrollTopByPath.get(route.fullPath);
+  centerStageRef.value.scrollTop = Number.isFinite(savedScrollTop) ? savedScrollTop : 0;
+}
+
 async function bootstrapHome() {
-  if (!sessionStore.user?.id) {
+  if (!sessionStore.user?.id || sessionStore.previewMode) {
     return;
   }
   await homeStore.bootstrap();
@@ -89,16 +176,20 @@ async function openCalendarDate(date) {
     homeStore.selectCalendarDate(date),
     todayStore.selectDate(date),
   ]);
-  if (route.path !== "/") {
-    await router.push("/");
+  if (route.path !== "/today" || route.query.date !== date) {
+    await router.push({
+      path: "/today",
+      query: {
+        ...route.query,
+        date,
+      },
+    });
   }
 }
 
 function openFavoritesChannel(channel) {
-  if (!channel) {
-    return;
-  }
-  router.push(`/content/${channel}`);
+  const targetChannel = ["finance", "science", "ai"].includes(channel) ? channel : "finance";
+  router.push(`/content/${targetChannel}`);
 }
 
 function handleDocumentPointerDown(event) {
@@ -116,6 +207,16 @@ function handleDocumentPointerDown(event) {
 
 async function handleAccountChipClick() {
   if (!ACCOUNT_CONTROLS_ENABLED) {
+    return;
+  }
+  if (sessionStore.previewMode) {
+    await sessionStore.signOut();
+    await router.push({
+      name: "auth",
+      query: {
+        redirect: route.fullPath,
+      },
+    });
     return;
   }
   if (!sessionStore.user?.id) {
@@ -171,11 +272,28 @@ watch(
 
 onMounted(() => {
   document.addEventListener("pointerdown", handleDocumentPointerDown);
+  window.addEventListener("resize", syncTopTabIndicator);
+  centerStageRef.value?.addEventListener("scroll", saveCurrentRouteScroll, { passive: true });
+  refreshTopTabIndicator();
+  restoreRouteScroll();
 });
 
 onBeforeUnmount(() => {
   document.removeEventListener("pointerdown", handleDocumentPointerDown);
+  window.removeEventListener("resize", syncTopTabIndicator);
+  centerStageRef.value?.removeEventListener("scroll", saveCurrentRouteScroll);
 });
+
+watch(
+  () => route.fullPath,
+  async (_nextPath, previousPath) => {
+    if (previousPath && centerStageRef.value instanceof HTMLElement) {
+      routeScrollTopByPath.set(previousPath, centerStageRef.value.scrollTop);
+    }
+    refreshTopTabIndicator();
+    await restoreRouteScroll();
+  },
+);
 </script>
 
 <template>
@@ -186,21 +304,31 @@ onBeforeUnmount(() => {
           <img src="/logo.png" alt="LifeFlow" />
         </div>
         <div class="brand-copy">
-          <strong>Dashboard</strong>
-          <span>Personal execution console</span>
+          <strong>LifeFlow</strong>
+          <span>Personal execution system</span>
         </div>
       </div>
 
-      <nav class="top-tabs" aria-label="主导航">
+      <nav
+        ref="topTabsRef"
+        class="top-tabs"
+        aria-label="主导航"
+        @mouseleave="hoveredTopTabId = ''; refreshTopTabIndicator()"
+      >
         <RouterLink
           v-for="tab in topTabs"
           :key="tab.id"
           :to="tab.to"
+          :ref="(element) => setTopTabRef(tab.id, element)"
           class="top-tab"
           :class="{ 'is-active': isActive(tab) }"
+          @mouseenter="hoveredTopTabId = tab.id; refreshTopTabIndicator()"
+          @focus="hoveredTopTabId = tab.id; refreshTopTabIndicator()"
+          @blur="hoveredTopTabId = ''; refreshTopTabIndicator()"
         >
           {{ tab.label }}
         </RouterLink>
+        <span class="top-tab-indicator" :style="topTabIndicatorStyle" aria-hidden="true"></span>
       </nav>
 
       <div class="nav-actions">
@@ -274,29 +402,18 @@ onBeforeUnmount(() => {
           :format-date-time="homeStore.formatDateTime"
         />
         <FeedPreviewCard
-          v-if="sidebarPreferences.financeFeed"
-          title="Finance"
-          kicker="Curated feed"
-          icon="trending_up"
-          channel="finance"
-          :items="homeStore.financeFeed"
-          :format-date-time="homeStore.formatDateTime"
-        />
-        <FeedPreviewCard
-          v-if="sidebarPreferences.scienceFeed"
-          title="Science"
-          kicker="Reading queue"
-          icon="science"
-          channel="science"
-          :items="homeStore.scienceFeed"
+          v-if="sidebarPreferences.freshNews"
+          title="Fresh News"
+          kicker="Unified feed"
+          icon="newspaper"
+          channel="fresh-news"
+          link-to="/content"
+          :items="homeStore.freshNewsFeed"
           :format-date-time="homeStore.formatDateTime"
         />
       </aside>
 
-      <section class="center-stage">
-        <div v-if="appStore.themeFeedback" class="theme-feedback-banner">
-          {{ appStore.themeFeedback }}
-        </div>
+      <section ref="centerStageRef" class="center-stage">
         <div v-if="appStore.pwaFeedback" class="theme-feedback-banner">
           {{ appStore.pwaFeedback }}
         </div>
