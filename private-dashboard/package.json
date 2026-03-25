@@ -3,6 +3,10 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "packageManager": "npm@11.8.0",
+  "engines": {
+    "node": "20.x"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -13,6 +17,7 @@
   },
   "dependencies": {
     "dompurify": "^3.3.3",
+    "entities": "7.0.1",
     "markdown-it": "^14.1.1",
     "pinia": "^3.0.3",
     "sortablejs": "^1.15.7",
