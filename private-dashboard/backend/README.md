@@ -103,17 +103,17 @@ http://localhost:8787
 
 1. 在 Supabase 创建一个新项目
 2. 打开 SQL Editor，执行：
-   [schema.sql](/Users/dan/Programs/LifeFlow/private-dashboard/backend/supabase/schema.sql)
+   `supabase/schema.sql`
 3. 再按顺序执行以下迁移：
-   [2026-03-09-add-user-scope.sql](/Users/dan/Programs/LifeFlow/private-dashboard/backend/supabase/migrations/2026-03-09-add-user-scope.sql)
-   [2026-03-11-add-task-archive-columns.sql](/Users/dan/Programs/LifeFlow/private-dashboard/backend/supabase/migrations/2026-03-11-add-task-archive-columns.sql)
-   [2026-03-11-add-users-and-sessions.sql](/Users/dan/Programs/LifeFlow/private-dashboard/backend/supabase/migrations/2026-03-11-add-users-and-sessions.sql)
-   [2026-03-11-add-weekly-summaries.sql](/Users/dan/Programs/LifeFlow/private-dashboard/backend/supabase/migrations/2026-03-11-add-weekly-summaries.sql)
-   [2026-03-11-drop-public-defaults.sql](/Users/dan/Programs/LifeFlow/private-dashboard/backend/supabase/migrations/2026-03-11-drop-public-defaults.sql)
-   [2026-03-12-add-account-preferences-and-content-bodies.sql](/Users/dan/Programs/LifeFlow/private-dashboard/backend/supabase/migrations/2026-03-12-add-account-preferences-and-content-bodies.sql)
-   [2026-03-12-add-content-tables.sql](/Users/dan/Programs/LifeFlow/private-dashboard/backend/supabase/migrations/2026-03-12-add-content-tables.sql)
-   [2026-03-12-add-content-favorites.sql](/Users/dan/Programs/LifeFlow/private-dashboard/backend/supabase/migrations/2026-03-12-add-content-favorites.sql)
-   [2026-03-14-add-user-recovery-code.sql](/Users/dan/Programs/LifeFlow/private-dashboard/backend/supabase/migrations/2026-03-14-add-user-recovery-code.sql)
+   `supabase/migrations/2026-03-09-add-user-scope.sql`
+   `supabase/migrations/2026-03-11-add-task-archive-columns.sql`
+   `supabase/migrations/2026-03-11-add-users-and-sessions.sql`
+   `supabase/migrations/2026-03-11-add-weekly-summaries.sql`
+   `supabase/migrations/2026-03-11-drop-public-defaults.sql`
+   `supabase/migrations/2026-03-12-add-account-preferences-and-content-bodies.sql`
+   `supabase/migrations/2026-03-12-add-content-tables.sql`
+   `supabase/migrations/2026-03-12-add-content-favorites.sql`
+   `supabase/migrations/2026-03-14-add-user-recovery-code.sql`
 4. 在项目设置里拿到：
    - `Project URL`
    - `service_role` key
@@ -136,7 +136,7 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 配置完成后重启后端：
 
 ```bash
-cd /Users/dan/Programs/LifeFlow/private-dashboard/backend
+cd private-dashboard/backend
 npm run dev
 ```
 

@@ -1,0 +1,987 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>LifeFlow IA Prototype</title>
+    <meta
+      name="description"
+      content="Standalone prototype for Pulse / Today / Content information architecture."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #f4efe6;
+        --paper: rgba(255, 251, 245, 0.82);
+        --panel: rgba(255, 251, 245, 0.6);
+        --panel-strong: rgba(255, 251, 245, 0.92);
+        --text: #172033;
+        --muted: #5f6c84;
+        --line: rgba(23, 32, 51, 0.12);
+        --line-strong: rgba(23, 32, 51, 0.2);
+        --accent: #bf5a36;
+        --accent-soft: rgba(191, 90, 54, 0.12);
+        --sage: #647a62;
+        --ink: #111827;
+        --shadow: 0 28px 80px rgba(78, 53, 30, 0.12);
+        --radius-xl: 28px;
+        --radius-lg: 20px;
+        --radius-md: 14px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+      }
+
+      body {
+        background:
+          radial-gradient(circle at top left, rgba(246, 222, 198, 0.72), transparent 32%),
+          radial-gradient(circle at top right, rgba(186, 205, 183, 0.48), transparent 28%),
+          linear-gradient(180deg, #fbf7f0 0%, var(--bg) 100%);
+        color: var(--text);
+        font-family: "Manrope", "PingFang SC", "Hiragino Sans GB", sans-serif;
+      }
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background-image:
+          linear-gradient(rgba(23, 32, 51, 0.018) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(23, 32, 51, 0.018) 1px, transparent 1px);
+        background-size: 36px 36px;
+        mask-image: radial-gradient(circle at center, black 48%, transparent 90%);
+        opacity: 0.6;
+      }
+
+      button,
+      input,
+      textarea {
+        font: inherit;
+      }
+
+      button {
+        color: inherit;
+        cursor: pointer;
+      }
+
+      .mono {
+        font-family: "JetBrains Mono", monospace;
+      }
+
+      .app-shell {
+        position: relative;
+        z-index: 1;
+        width: min(1320px, calc(100% - 32px));
+        margin: 18px auto;
+        padding: 18px;
+        border: 1px solid rgba(255, 255, 255, 0.6);
+        border-radius: 34px;
+        background: rgba(255, 248, 241, 0.72);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(22px);
+      }
+
+      .topbar {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 18px;
+        align-items: center;
+        padding: 8px 10px 22px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .brand-mark {
+        width: 48px;
+        height: 48px;
+        border-radius: 16px;
+        background:
+          linear-gradient(135deg, rgba(191, 90, 54, 0.16), rgba(100, 122, 98, 0.12)),
+          #fff8f2;
+        border: 1px solid rgba(191, 90, 54, 0.18);
+        display: grid;
+        place-items: center;
+        font-family: "DM Serif Display", serif;
+        font-size: 1.5rem;
+      }
+
+      .brand-copy strong {
+        display: block;
+        font-size: 1rem;
+      }
+
+      .brand-copy span {
+        color: var(--muted);
+        font-size: 0.82rem;
+      }
+
+      .primary-tabs {
+        display: inline-grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+        padding: 8px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.45);
+        justify-self: center;
+      }
+
+      .primary-tab {
+        border: 0;
+        background: transparent;
+        border-radius: 999px;
+        min-width: 124px;
+        padding: 12px 18px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        transition: 180ms ease;
+      }
+
+      .primary-tab.is-active {
+        background: var(--ink);
+        color: #fffaf5;
+        box-shadow: 0 8px 24px rgba(17, 24, 39, 0.16);
+      }
+
+      .topbar-side {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .capsule {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 10px 14px;
+        background: rgba(255, 255, 255, 0.5);
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+
+      .view {
+        display: none;
+        animation: rise 240ms ease;
+      }
+
+      .view.is-active {
+        display: block;
+      }
+
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .page-header {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 18px;
+        margin-bottom: 18px;
+        padding: 10px 8px 22px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .eyebrow {
+        margin: 0 0 8px;
+        color: var(--accent);
+        font-size: 0.74rem;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2,
+      h3 {
+        margin: 0;
+      }
+
+      h1 {
+        font-family: "DM Serif Display", serif;
+        font-size: clamp(2.6rem, 5vw, 4.6rem);
+        font-weight: 400;
+        letter-spacing: -0.05em;
+        line-height: 0.94;
+      }
+
+      .page-copy {
+        max-width: 640px;
+        color: var(--muted);
+        line-height: 1.7;
+      }
+
+      .page-meta {
+        color: var(--muted);
+        font-size: 0.86rem;
+      }
+
+      .pulse-grid {
+        display: grid;
+        grid-template-columns: 1.3fr 0.95fr;
+        gap: 18px;
+      }
+
+      .stack {
+        display: grid;
+        gap: 18px;
+      }
+
+      .hero-panel,
+      .card,
+      .today-panel,
+      .content-panel,
+      .summary-drawer {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-xl);
+        background: var(--paper);
+        backdrop-filter: blur(18px);
+      }
+
+      .hero-panel {
+        position: relative;
+        overflow: hidden;
+        padding: 26px;
+      }
+
+      .hero-panel::after {
+        content: "";
+        position: absolute;
+        width: 280px;
+        height: 280px;
+        right: -80px;
+        top: -90px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(191, 90, 54, 0.18), transparent 66%);
+      }
+
+      .hero-kpis {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+        margin-top: 28px;
+      }
+
+      .metric {
+        padding: 16px;
+        border: 1px solid rgba(23, 32, 51, 0.08);
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.52);
+      }
+
+      .metric span {
+        display: block;
+        color: var(--muted);
+        font-size: 0.78rem;
+        margin-bottom: 8px;
+      }
+
+      .metric strong {
+        font-size: 1.8rem;
+      }
+
+      .card {
+        padding: 22px;
+      }
+
+      .card-head {
+        display: flex;
+        align-items: start;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 18px;
+      }
+
+      .card-head p {
+        margin: 6px 0 0;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .ghost-link,
+      .ghost-button,
+      .solid-button {
+        border-radius: 999px;
+        padding: 10px 14px;
+        border: 1px solid var(--line-strong);
+        background: transparent;
+      }
+
+      .solid-button {
+        border-color: transparent;
+        background: var(--ink);
+        color: #fff8f2;
+      }
+
+      .priority-list,
+      .mini-feed,
+      .task-list {
+        display: grid;
+        gap: 12px;
+      }
+
+      .priority-item,
+      .feed-item,
+      .task-item,
+      .summary-snippet {
+        padding: 14px 16px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.46);
+      }
+
+      .priority-item strong,
+      .feed-item strong,
+      .task-item strong {
+        display: block;
+        margin-bottom: 6px;
+      }
+
+      .meta-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        padding: 5px 9px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: 0.76rem;
+        font-weight: 700;
+      }
+
+      .rail-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 18px;
+      }
+
+      .today-layout {
+        display: grid;
+        grid-template-columns: 1.15fr 0.85fr;
+        gap: 18px;
+      }
+
+      .today-panel {
+        padding: 22px;
+      }
+
+      .new-task {
+        display: grid;
+        gap: 10px;
+        margin-bottom: 18px;
+      }
+
+      .new-task input,
+      .new-task textarea,
+      .toolbar input {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.72);
+        min-height: 48px;
+        padding: 0 14px;
+        color: var(--text);
+      }
+
+      .task-item {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        align-items: start;
+        gap: 14px;
+      }
+
+      .task-dot {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        margin-top: 6px;
+        border: 2px solid var(--sage);
+      }
+
+      .task-dot.is-done {
+        background: var(--sage);
+      }
+
+      .handle {
+        color: var(--muted);
+        padding-top: 2px;
+      }
+
+      .content-panel {
+        padding: 22px;
+      }
+
+      .segmented {
+        display: inline-grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+        margin-bottom: 18px;
+        padding: 8px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.5);
+      }
+
+      .segment {
+        border: 0;
+        background: transparent;
+        border-radius: 999px;
+        padding: 10px 16px;
+        font-weight: 700;
+      }
+
+      .segment.is-active {
+        background: rgba(23, 32, 51, 0.08);
+      }
+
+      .toolbar {
+        display: grid;
+        grid-template-columns: 1.4fr repeat(4, minmax(0, 0.8fr));
+        gap: 10px;
+        margin-bottom: 18px;
+      }
+
+      .toolbar-pill {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 48px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.66);
+        color: var(--muted);
+      }
+
+      .story-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .story-card {
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.52);
+      }
+
+      .story-visual {
+        height: 152px;
+        background:
+          linear-gradient(135deg, rgba(191, 90, 54, 0.16), transparent 44%),
+          linear-gradient(180deg, rgba(100, 122, 98, 0.18), rgba(255, 255, 255, 0.3)),
+          #ebdfd2;
+      }
+
+      .story-copy {
+        padding: 16px;
+      }
+
+      .story-copy p {
+        margin: 8px 0 0;
+        color: var(--muted);
+        line-height: 1.65;
+      }
+
+      .summary-drawer {
+        position: fixed;
+        right: 22px;
+        bottom: 22px;
+        width: min(420px, calc(100vw - 24px));
+        padding: 22px;
+        box-shadow: 0 18px 50px rgba(78, 53, 30, 0.16);
+      }
+
+      .summary-drawer textarea {
+        width: 100%;
+        min-height: 150px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.76);
+        padding: 14px;
+        resize: vertical;
+        color: var(--text);
+      }
+
+      .drawer-actions {
+        display: flex;
+        justify-content: end;
+        gap: 10px;
+        margin-top: 14px;
+      }
+
+      @media (max-width: 1080px) {
+        .pulse-grid,
+        .today-layout {
+          grid-template-columns: 1fr;
+        }
+
+        .toolbar {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+
+      @media (max-width: 760px) {
+        .app-shell {
+          width: min(100% - 14px, 100%);
+          margin: 7px auto;
+          padding: 12px;
+          border-radius: 24px;
+        }
+
+        .topbar {
+          grid-template-columns: 1fr;
+          justify-items: start;
+        }
+
+        .primary-tabs {
+          width: 100%;
+        }
+
+        .primary-tab {
+          min-width: 0;
+          padding-inline: 12px;
+        }
+
+        .hero-kpis,
+        .rail-grid,
+        .story-grid,
+        .toolbar {
+          grid-template-columns: 1fr;
+        }
+
+        .summary-drawer {
+          position: static;
+          width: 100%;
+          margin-top: 18px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark">L</div>
+          <div class="brand-copy">
+            <strong>LifeFlow IA Study</strong>
+            <span>Pulse / Today / Content prototype</span>
+          </div>
+        </div>
+
+        <nav class="primary-tabs" aria-label="主页面切换">
+          <button class="primary-tab is-active" data-view-target="pulse">Pulse</button>
+          <button class="primary-tab" data-view-target="today">Today</button>
+          <button class="primary-tab" data-view-target="content">Content</button>
+        </nav>
+
+        <div class="topbar-side">
+          <span class="capsule mono">MON 23 / FOCUS MODE</span>
+          <span class="capsule">Weekly summary inside Pulse</span>
+        </div>
+      </header>
+
+      <main>
+        <section class="view is-active" data-view="pulse">
+          <div class="page-header">
+            <div>
+              <p class="eyebrow mono">Overview Layer</p>
+              <h1>Pulse</h1>
+              <p class="page-copy">
+                作为单独首页，Pulse 只呈现关键执行信息、内容预览和本周总结入口，不承载拖拽和重表单。这样首页更轻，Today 更专注，Content 也更统一。
+              </p>
+            </div>
+            <div class="page-meta mono">home summary / weekly summary entry / widgets / previews</div>
+          </div>
+
+          <div class="pulse-grid">
+            <div class="stack">
+              <section class="hero-panel">
+                <p class="eyebrow mono">Today At A Glance</p>
+                <h2 style="font-family: 'DM Serif Display', serif; font-size: 2.25rem; font-weight: 400; max-width: 11ch;">
+                  执行层和浏览层拆开以后，首页会更像一块呼吸正常的总览面板。
+                </h2>
+                <div class="hero-kpis">
+                  <div class="metric">
+                    <span>今日完成</span>
+                    <strong>5 / 8</strong>
+                  </div>
+                  <div class="metric">
+                    <span>本周连续执行</span>
+                    <strong>6 天</strong>
+                  </div>
+                  <div class="metric">
+                    <span>待阅读精选</span>
+                    <strong>12</strong>
+                  </div>
+                </div>
+              </section>
+
+              <div class="rail-grid">
+                <section class="card">
+                  <div class="card-head">
+                    <div>
+                      <p class="eyebrow mono">Priority Queue</p>
+                      <h3>今天最重要的 3 件事</h3>
+                    </div>
+                    <button class="ghost-link">进入 Today</button>
+                  </div>
+                  <div class="priority-list">
+                    <article class="priority-item">
+                      <strong>修正登录认证流并完成本地验证</strong>
+                      <div class="meta-row">
+                        <span class="tag">Product</span>
+                        <span>备注 2 条</span>
+                        <span>预计 45 min</span>
+                      </div>
+                    </article>
+                    <article class="priority-item">
+                      <strong>整理 Pulse / Today / Content 信息架构</strong>
+                      <div class="meta-row">
+                        <span class="tag">IA</span>
+                        <span>进行中</span>
+                      </div>
+                    </article>
+                    <article class="priority-item">
+                      <strong>复查本周任务推进与内容筛选体验</strong>
+                      <div class="meta-row">
+                        <span class="tag">Review</span>
+                        <span>晚上处理</span>
+                      </div>
+                    </article>
+                  </div>
+                </section>
+
+                <section class="card">
+                  <div class="card-head">
+                    <div>
+                      <p class="eyebrow mono">Weekly Summary</p>
+                      <h3>周总结入口</h3>
+                    </div>
+                    <button class="solid-button" id="open-summary">编辑总结</button>
+                  </div>
+                  <article class="summary-snippet">
+                    <strong>W13 · 这周的节奏开始变稳</strong>
+                    <p style="margin: 8px 0 14px; color: var(--muted); line-height: 1.7;">
+                      登录和执行系统的主线已经更清晰了。接下来重点不是继续堆入口，而是把首页收成总览层，把 Today 做成真正高频执行页，把内容流统一到一个 Content 容器里。
+                    </p>
+                    <div class="meta-row">
+                      <span>最后更新 22:14</span>
+                      <span>Markdown</span>
+                      <span>Pulse 内编辑</span>
+                    </div>
+                  </article>
+                </section>
+              </div>
+
+              <section class="card">
+                <div class="card-head">
+                  <div>
+                    <p class="eyebrow mono">Recent Notes</p>
+                    <h3>最近任务记录</h3>
+                    <p>这里展示最近 2-4 条关键执行备注，首页看得到趋势，但不做完整编辑。</p>
+                  </div>
+                </div>
+                <div class="priority-list">
+                  <article class="priority-item">
+                    <strong>Today / Content 的分层已经比 Home 全塞满舒服很多</strong>
+                    <div class="meta-row">
+                      <span>任务：信息架构梳理</span>
+                      <span>09:20</span>
+                    </div>
+                  </article>
+                  <article class="priority-item">
+                    <strong>Turnstile 接入后，登录流不再依赖冷启动验证码图片</strong>
+                    <div class="meta-row">
+                      <span>任务：认证系统</span>
+                      <span>11:46</span>
+                    </div>
+                  </article>
+                </div>
+              </section>
+            </div>
+
+            <div class="stack">
+              <section class="card">
+                <div class="card-head">
+                  <div>
+                    <p class="eyebrow mono">Content Preview</p>
+                    <h3>内容流预览</h3>
+                  </div>
+                  <button class="ghost-link">进入 Content</button>
+                </div>
+                <div class="mini-feed">
+                  <article class="feed-item">
+                    <strong>联储路径和风险资产重新定价</strong>
+                    <div class="meta-row">
+                      <span class="tag">Finance</span>
+                      <span>FT 中文网</span>
+                    </div>
+                  </article>
+                  <article class="feed-item">
+                    <strong>多模态模型在科研辅助中的真实边界</strong>
+                    <div class="meta-row">
+                      <span class="tag">Science</span>
+                      <span>Nature Briefing</span>
+                    </div>
+                  </article>
+                  <article class="feed-item">
+                    <strong>Agent infra 开始进入“工作流产品化”阶段</strong>
+                    <div class="meta-row">
+                      <span class="tag">AI</span>
+                      <span>Latent.Space</span>
+                    </div>
+                  </article>
+                </div>
+              </section>
+
+              <section class="card">
+                <div class="card-head">
+                  <div>
+                    <p class="eyebrow mono">Widgets</p>
+                    <h3>Pulse 右侧摘要模块</h3>
+                  </div>
+                </div>
+                <div class="mini-feed">
+                  <article class="feed-item">
+                    <strong>Weather</strong>
+                    <div class="meta-row">
+                      <span>Shanghai</span>
+                      <span>18°C</span>
+                    </div>
+                  </article>
+                  <article class="feed-item">
+                    <strong>A 股概览</strong>
+                    <div class="meta-row">
+                      <span>贵州茅台 +1.8%</span>
+                      <span>宁德时代 -0.4%</span>
+                    </div>
+                  </article>
+                  <article class="feed-item">
+                    <strong>Favorites</strong>
+                    <div class="meta-row">
+                      <span>最近收藏 7 条</span>
+                      <span>AI 占 3 条</span>
+                    </div>
+                  </article>
+                </div>
+              </section>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" data-view="today">
+          <div class="page-header">
+            <div>
+              <p class="eyebrow mono">Execution Layer</p>
+              <h1>Today</h1>
+              <p class="page-copy">
+                Today 只负责执行。这里允许表单更重、拖拽更频繁、编辑更密集，不再顾及首页的概览感。
+              </p>
+            </div>
+            <div class="page-meta mono">task form / sorting / completion / notes / tags</div>
+          </div>
+
+          <div class="today-layout">
+            <section class="today-panel">
+              <div class="card-head">
+                <div>
+                  <p class="eyebrow mono">Task Composer</p>
+                  <h3>高频动作全部留在这里</h3>
+                </div>
+                <button class="solid-button">批量保存</button>
+              </div>
+              <div class="new-task">
+                <input type="text" value="+ 新建任务名称" aria-label="新建任务名称" />
+                <input type="text" value="#标签，多个逗号分隔" aria-label="任务标签" />
+              </div>
+              <div class="task-list">
+                <article class="task-item">
+                  <span class="task-dot"></span>
+                  <div>
+                    <strong>修正认证流并验证本地登录</strong>
+                    <div class="meta-row">
+                      <span class="tag">Backend</span>
+                      <span class="tag">Vue</span>
+                      <span>备注 2 条</span>
+                    </div>
+                  </div>
+                  <span class="handle mono">::</span>
+                </article>
+                <article class="task-item">
+                  <span class="task-dot is-done"></span>
+                  <div>
+                    <strong>删除 Weekly 的额外时间线弹窗</strong>
+                    <div class="meta-row">
+                      <span class="tag">Cleanup</span>
+                      <span>已完成</span>
+                    </div>
+                  </div>
+                  <span class="handle mono">::</span>
+                </article>
+                <article class="task-item">
+                  <span class="task-dot"></span>
+                  <div>
+                    <strong>把 Content 统一成一个频道容器</strong>
+                    <div class="meta-row">
+                      <span class="tag">Architecture</span>
+                      <span>等待设计确认</span>
+                    </div>
+                  </div>
+                  <span class="handle mono">::</span>
+                </article>
+              </div>
+            </section>
+
+            <section class="today-panel">
+              <div class="card-head">
+                <div>
+                  <p class="eyebrow mono">Interaction Notes</p>
+                  <h3>Today 的设计原则</h3>
+                </div>
+              </div>
+              <div class="mini-feed">
+                <article class="feed-item">
+                  <strong>允许更重的输入区</strong>
+                  <p style="margin: 8px 0 0; color: var(--muted); line-height: 1.6;">
+                    首页不放大表单，这里才是任务录入、备注输入和任务编辑的主场。
+                  </p>
+                </article>
+                <article class="feed-item">
+                  <strong>拖拽排序优先保留在 Today</strong>
+                  <p style="margin: 8px 0 0; color: var(--muted); line-height: 1.6;">
+                    这是强操作行为，不适合出现在概览页或内容页。
+                  </p>
+                </article>
+                <article class="feed-item">
+                  <strong>首页只回显摘要，不复制操作能力</strong>
+                  <p style="margin: 8px 0 0; color: var(--muted); line-height: 1.6;">
+                    这样导航更干净，也不会出现两套入口维护同一批状态。
+                  </p>
+                </article>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" data-view="content">
+          <div class="page-header">
+            <div>
+              <p class="eyebrow mono">Browsing Layer</p>
+              <h1>Content</h1>
+              <p class="page-copy">
+                把 Finance / Science / AI 收进同一个内容容器里，用频道切换替代散开的主导航。阅读感更强，也更适合后续做移动端和 PWA。
+              </p>
+            </div>
+            <div class="page-meta mono">finance / science / ai in one container</div>
+          </div>
+
+          <section class="content-panel">
+            <div class="segmented" aria-label="内容频道切换">
+              <button class="segment is-active">Finance</button>
+              <button class="segment">Science</button>
+              <button class="segment">AI</button>
+            </div>
+
+            <div class="toolbar">
+              <input type="search" value="搜索标题、摘要或来源" aria-label="搜索内容" />
+              <div class="toolbar-pill">标签</div>
+              <div class="toolbar-pill">来源</div>
+              <div class="toolbar-pill">范围</div>
+              <div class="toolbar-pill">排序</div>
+            </div>
+
+            <div class="story-grid">
+              <article class="story-card">
+                <div class="story-visual"></div>
+                <div class="story-copy">
+                  <strong>如果内容流收成一个容器，一级导航会干净很多</strong>
+                  <p>外层只保留 Content，一个频道切换条就足够承载 Finance / Science / AI。</p>
+                </div>
+              </article>
+              <article class="story-card">
+                <div class="story-visual" style="background:
+                  linear-gradient(135deg, rgba(100, 122, 98, 0.22), transparent 44%),
+                  linear-gradient(180deg, rgba(191, 90, 54, 0.14), rgba(255,255,255,0.34)),
+                  #e2eadf;"></div>
+                <div class="story-copy">
+                  <strong>这样首页就能只保留内容预览，而不是整个内容系统</strong>
+                  <p>Pulse 看重点，Content 看全量，层次会非常清楚。</p>
+                </div>
+              </article>
+            </div>
+          </section>
+        </section>
+      </main>
+
+      <aside class="summary-drawer" id="summary-drawer" hidden>
+        <div class="card-head">
+          <div>
+            <p class="eyebrow mono">Pulse Entry</p>
+            <h3>编辑本周总结</h3>
+          </div>
+          <button class="ghost-button" id="close-summary">关闭</button>
+        </div>
+        <textarea aria-label="本周总结草稿">这周开始逐渐明确：Pulse 负责总览，Today 负责执行，Content 负责浏览。导航结构更轻，页面职责也更清晰。</textarea>
+        <div class="drawer-actions">
+          <button class="ghost-button">预览</button>
+          <button class="solid-button">保存总结</button>
+        </div>
+      </aside>
+    </div>
+
+    <script>
+      const tabButtons = Array.from(document.querySelectorAll("[data-view-target]"));
+      const views = Array.from(document.querySelectorAll("[data-view]"));
+      const summaryDrawer = document.getElementById("summary-drawer");
+      const openSummary = document.getElementById("open-summary");
+      const closeSummary = document.getElementById("close-summary");
+
+      tabButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          const target = button.dataset.viewTarget;
+          tabButtons.forEach((item) => item.classList.toggle("is-active", item === button));
+          views.forEach((view) => view.classList.toggle("is-active", view.dataset.view === target));
+        });
+      });
+
+      openSummary.addEventListener("click", () => {
+        summaryDrawer.hidden = false;
+      });
+
+      closeSummary.addEventListener("click", () => {
+        summaryDrawer.hidden = true;
+      });
+    </script>
+  </body>
+</html>

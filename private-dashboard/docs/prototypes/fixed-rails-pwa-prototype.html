@@ -1,0 +1,1160 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>LifeFlow Fixed Rails Prototype</title>
+    <meta
+      name="description"
+      content="Prototype for a fixed left rail, switchable center content, fixed right rail, and mobile three-tab shell."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Azeret+Mono:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Manrope:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #09090c;
+        --panel: rgba(17, 18, 24, 0.9);
+        --panel-2: rgba(20, 22, 29, 0.88);
+        --panel-3: rgba(13, 15, 20, 0.94);
+        --card: rgba(255, 255, 255, 0.036);
+        --card-2: rgba(255, 255, 255, 0.055);
+        --line: rgba(255, 255, 255, 0.08);
+        --line-strong: rgba(255, 255, 255, 0.15);
+        --text: #f3efe7;
+        --muted: #8c8d99;
+        --muted-2: #5f6373;
+        --accent: #dcc288;
+        --accent-2: #97b2b2;
+        --good: #9bc58d;
+        --warn: #d2ae77;
+        --danger: #d57d78;
+        --radius-xl: 30px;
+        --radius-lg: 22px;
+        --radius-md: 16px;
+        --shadow: 0 34px 80px rgba(0, 0, 0, 0.42);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        min-height: 100%;
+        margin: 0;
+      }
+
+      body {
+        background:
+          radial-gradient(circle at top left, rgba(220, 194, 136, 0.09), transparent 25%),
+          radial-gradient(circle at top right, rgba(151, 178, 178, 0.09), transparent 26%),
+          linear-gradient(180deg, #111216 0%, var(--bg) 100%);
+        color: var(--text);
+        font-family: "Manrope", "PingFang SC", "Hiragino Sans GB", sans-serif;
+        overflow-x: hidden;
+      }
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background:
+          linear-gradient(rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.022) 1px, transparent 1px);
+        background-size: 28px 28px;
+        opacity: 0.42;
+        mask-image: radial-gradient(circle at center, black 42%, transparent 88%);
+      }
+
+      button,
+      input,
+      textarea {
+        font: inherit;
+      }
+
+      button {
+        color: inherit;
+        cursor: pointer;
+      }
+
+      .mono,
+      .section-kicker,
+      .shell-pill,
+      .page-tab,
+      .mobile-dock-item {
+        font-family: "Azeret Mono", monospace;
+      }
+
+      .prototype {
+        position: relative;
+        z-index: 1;
+        width: min(1460px, calc(100% - 28px));
+        margin: 14px auto;
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: 34px;
+        background: rgba(8, 9, 12, 0.72);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(22px);
+      }
+
+      .shell-head {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 16px;
+        padding: 6px 8px 18px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .brand-mark {
+        width: 46px;
+        height: 46px;
+        border-radius: 16px;
+        display: grid;
+        place-items: center;
+        background:
+          linear-gradient(140deg, rgba(220, 194, 136, 0.18), rgba(151, 178, 178, 0.1)),
+          var(--panel-2);
+        border: 1px solid rgba(220, 194, 136, 0.14);
+        color: var(--accent);
+        font-weight: 700;
+      }
+
+      .brand-copy strong {
+        display: block;
+        letter-spacing: 0.02em;
+      }
+
+      .brand-copy span {
+        color: var(--muted);
+        font-size: 0.82rem;
+      }
+
+      .shell-intent {
+        justify-self: center;
+        color: var(--muted);
+        text-align: center;
+        max-width: 640px;
+        line-height: 1.65;
+      }
+
+      .shell-pills {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .shell-pill {
+        padding: 10px 14px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.035);
+        color: var(--muted);
+        font-size: 0.72rem;
+      }
+
+      .desktop-shell {
+        display: grid;
+        grid-template-columns: 280px minmax(0, 1fr) 280px;
+        gap: 16px;
+        min-height: calc(100vh - 120px);
+      }
+
+      .rail {
+        display: grid;
+        gap: 14px;
+        align-content: start;
+      }
+
+      .rail-card,
+      .center-shell,
+      .mobile-pane {
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        background: linear-gradient(180deg, rgba(19, 20, 26, 0.92), rgba(12, 13, 17, 0.96));
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+      }
+
+      .rail-card {
+        padding: 16px;
+      }
+
+      .section-kicker {
+        margin: 0 0 12px;
+        color: var(--muted-2);
+        font-size: 0.68rem;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      .rail-card h3,
+      .surface-head h1,
+      .surface-head h2 {
+        margin: 0;
+      }
+
+      .month-grid {
+        display: grid;
+        grid-template-columns: repeat(7, minmax(0, 1fr));
+        gap: 7px;
+      }
+
+      .day-cell,
+      .mini-toggle,
+      .feed-chip {
+        border-radius: 12px;
+        border: 1px solid var(--line);
+        background: var(--card);
+      }
+
+      .day-cell {
+        min-height: 32px;
+        display: grid;
+        place-items: center;
+        color: var(--muted);
+        font-size: 0.76rem;
+      }
+
+      .day-cell.is-strong {
+        border-color: rgba(220, 194, 136, 0.32);
+        color: var(--text);
+        background: rgba(220, 194, 136, 0.08);
+      }
+
+      .feed-list,
+      .rail-list,
+      .note-stack,
+      .task-stack,
+      .story-stack {
+        display: grid;
+        gap: 10px;
+      }
+
+      .rail-item,
+      .feed-item,
+      .task-card,
+      .story-card,
+      .summary-card {
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .rail-item strong,
+      .feed-item strong,
+      .task-card strong,
+      .story-card strong,
+      .summary-card strong {
+        display: block;
+        margin-bottom: 7px;
+      }
+
+      .meta {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        color: var(--muted);
+        font-size: 0.76rem;
+      }
+
+      .weather-bars {
+        display: grid;
+        grid-template-columns: repeat(9, minmax(0, 1fr));
+        gap: 8px;
+        align-items: end;
+        height: 112px;
+      }
+
+      .weather-bars span {
+        display: block;
+        border-radius: 999px;
+        background: linear-gradient(180deg, rgba(220, 194, 136, 0.76), rgba(151, 178, 178, 0.24));
+        min-height: 24px;
+      }
+
+      .center-shell {
+        display: grid;
+        grid-template-rows: auto auto 1fr;
+        overflow: hidden;
+      }
+
+      .center-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 18px 20px 14px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .surface-head h1 {
+        font-family: "Fraunces", serif;
+        font-size: clamp(2.4rem, 3vw, 3.4rem);
+        line-height: 0.94;
+        letter-spacing: -0.05em;
+        font-weight: 700;
+      }
+
+      .surface-head p {
+        margin: 10px 0 0;
+        max-width: 600px;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .page-tabs {
+        display: inline-grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+        padding: 8px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .page-tab {
+        min-width: 108px;
+        border: 0;
+        border-radius: 999px;
+        background: transparent;
+        padding: 11px 16px;
+        font-size: 0.76rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .page-tab.is-active {
+        background: rgba(220, 194, 136, 0.12);
+        color: var(--accent);
+      }
+
+      .center-body {
+        padding: 18px;
+        overflow: auto;
+      }
+
+      .page {
+        display: none;
+        animation: fade-up 220ms ease;
+      }
+
+      .page.is-active {
+        display: block;
+      }
+
+      @keyframes fade-up {
+        from {
+          opacity: 0;
+          transform: translateY(6px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .pulse-layout {
+        display: grid;
+        grid-template-columns: 1.2fr 0.9fr;
+        gap: 14px;
+      }
+
+      .feature-band {
+        padding: 18px;
+        border: 1px solid rgba(220, 194, 136, 0.18);
+        border-radius: 22px;
+        background:
+          radial-gradient(circle at top right, rgba(220, 194, 136, 0.1), transparent 34%),
+          rgba(255, 255, 255, 0.035);
+      }
+
+      .feature-band h2 {
+        font-family: "Fraunces", serif;
+        font-size: 2rem;
+        line-height: 1;
+        letter-spacing: -0.04em;
+        margin-bottom: 12px;
+      }
+
+      .feature-band p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.7;
+      }
+
+      .kpi-row {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      .kpi {
+        padding: 13px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.028);
+      }
+
+      .kpi span {
+        display: block;
+        margin-bottom: 6px;
+        color: var(--muted);
+        font-size: 0.72rem;
+      }
+
+      .kpi strong {
+        font-size: 1.46rem;
+      }
+
+      .quick-actions,
+      .content-preview-grid,
+      .today-layout,
+      .content-layout {
+        display: grid;
+        gap: 14px;
+      }
+
+      .today-layout {
+        grid-template-columns: 1.08fr 0.92fr;
+      }
+
+      .composer-card {
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .composer-card textarea,
+      .composer-card input,
+      .filter-input {
+        width: 100%;
+        min-height: 48px;
+        padding: 0 14px;
+        border-radius: 14px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.05);
+        color: var(--text);
+      }
+
+      .composer-card textarea {
+        min-height: 110px;
+        resize: vertical;
+        padding: 14px;
+      }
+
+      .input-grid {
+        display: grid;
+        gap: 10px;
+        margin-top: 14px;
+      }
+
+      .task-card {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 14px;
+        align-items: start;
+      }
+
+      .task-dot {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        margin-top: 4px;
+        border: 2px solid var(--accent-2);
+      }
+
+      .task-dot.is-done {
+        background: var(--accent-2);
+      }
+
+      .drag {
+        color: var(--muted);
+      }
+
+      .mini-toggle-row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 14px;
+      }
+
+      .mini-toggle {
+        padding: 10px 12px;
+        color: var(--muted);
+      }
+
+      .mini-toggle.is-active {
+        color: var(--accent);
+        border-color: rgba(220, 194, 136, 0.24);
+        background: rgba(220, 194, 136, 0.08);
+      }
+
+      .content-preview-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .story-card {
+        overflow: hidden;
+        padding: 0;
+      }
+
+      .story-cover {
+        height: 146px;
+        background:
+          linear-gradient(135deg, rgba(220, 194, 136, 0.15), transparent 40%),
+          linear-gradient(180deg, rgba(151, 178, 178, 0.14), transparent 72%),
+          #161922;
+      }
+
+      .story-copy {
+        padding: 14px;
+      }
+
+      .story-copy p {
+        margin: 8px 0 0;
+        color: var(--muted);
+        line-height: 1.65;
+      }
+
+      .summary-card {
+        background:
+          linear-gradient(135deg, rgba(220, 194, 136, 0.07), rgba(255, 255, 255, 0.028)),
+          rgba(255, 255, 255, 0.03);
+      }
+
+      .summary-actions,
+      .composer-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 14px;
+      }
+
+      .solid,
+      .ghost {
+        min-height: 44px;
+        border-radius: 999px;
+        padding: 0 16px;
+      }
+
+      .solid {
+        border: 0;
+        background: var(--accent);
+        color: #18130d;
+        font-weight: 800;
+      }
+
+      .ghost {
+        border: 1px solid var(--line-strong);
+        background: transparent;
+      }
+
+      .content-toolbar {
+        display: grid;
+        grid-template-columns: 1.3fr repeat(4, minmax(0, 0.8fr));
+        gap: 10px;
+        margin-bottom: 14px;
+      }
+
+      .filter-pill {
+        min-height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 12px;
+        border-radius: 14px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--muted);
+      }
+
+      .mobile-shell {
+        display: none;
+      }
+
+      @media (max-width: 980px) {
+        .prototype {
+          width: min(100% - 10px, 100%);
+          margin: 5px auto;
+          padding: 10px;
+          border-radius: 22px;
+        }
+
+        .desktop-shell {
+          display: none;
+        }
+
+        .shell-head {
+          grid-template-columns: 1fr;
+          justify-items: start;
+          gap: 10px;
+        }
+
+        .shell-intent {
+          justify-self: start;
+          text-align: left;
+        }
+
+        .mobile-shell {
+          display: block;
+        }
+
+        .mobile-pane {
+          display: none;
+          min-height: calc(100vh - 188px);
+          padding: 16px;
+          padding-bottom: 94px;
+          overflow: auto;
+          animation: fade-up 220ms ease;
+        }
+
+        .mobile-pane.is-active {
+          display: block;
+        }
+
+        .pulse-layout,
+        .today-layout,
+        .content-preview-grid,
+        .content-toolbar,
+        .kpi-row {
+          grid-template-columns: 1fr;
+        }
+
+        .page-tabs {
+          width: 100%;
+        }
+
+        .page-tab {
+          min-width: 0;
+        }
+
+        .mobile-dock {
+          position: fixed;
+          left: 50%;
+          bottom: max(10px, env(safe-area-inset-bottom));
+          transform: translateX(-50%);
+          z-index: 30;
+          display: inline-grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 8px;
+          width: min(420px, calc(100vw - 22px));
+          padding: 8px;
+          border: 1px solid var(--line-strong);
+          border-radius: 999px;
+          background: rgba(10, 11, 14, 0.96);
+          box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+          backdrop-filter: blur(20px);
+        }
+
+        .mobile-dock-item {
+          min-height: 54px;
+          border: 0;
+          border-radius: 999px;
+          background: transparent;
+          display: grid;
+          place-items: center;
+          gap: 6px;
+          color: var(--muted);
+          font-size: 0.68rem;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+        }
+
+        .mobile-dock-item.is-active {
+          color: var(--text);
+          background: rgba(220, 194, 136, 0.08);
+        }
+
+        .mobile-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: currentColor;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="prototype">
+      <header class="shell-head">
+        <div class="brand">
+          <div class="brand-mark">LF</div>
+          <div class="brand-copy">
+            <strong>LifeFlow Shell Study</strong>
+            <span>fixed rails desktop / 3-pane mobile / center-only routing</span>
+          </div>
+        </div>
+
+        <div class="shell-intent">
+          左右边栏作为常驻容器不参与页面切换，所有一级页面变化只发生在中间区域。PWA 移动端再把左、中、右三栏折叠成底部 3-tab 视图。
+        </div>
+
+        <div class="shell-pills">
+          <span class="shell-pill">rails stay fixed</span>
+          <span class="shell-pill">center switches only</span>
+        </div>
+      </header>
+
+      <section class="desktop-shell">
+        <aside class="rail">
+          <section class="rail-card">
+            <p class="section-kicker">Calendar</p>
+            <h3 style="margin-bottom: 12px;">September</h3>
+            <div class="meta" style="margin-bottom: 14px;">
+              <span>Week 36</span>
+              <span>2026</span>
+            </div>
+            <div class="month-grid">
+              <span class="day-cell">1</span>
+              <span class="day-cell">2</span>
+              <span class="day-cell">3</span>
+              <span class="day-cell is-strong">4</span>
+              <span class="day-cell is-strong">5</span>
+              <span class="day-cell">6</span>
+              <span class="day-cell">7</span>
+              <span class="day-cell">8</span>
+              <span class="day-cell">9</span>
+              <span class="day-cell">10</span>
+              <span class="day-cell">11</span>
+              <span class="day-cell is-strong">12</span>
+              <span class="day-cell">13</span>
+              <span class="day-cell">14</span>
+            </div>
+          </section>
+
+          <section class="rail-card">
+            <p class="section-kicker">Focus Queue</p>
+            <div class="rail-list">
+              <article class="rail-item">
+                <strong>今日重点</strong>
+                <div class="meta">
+                  <span>3 tasks</span>
+                  <span>2 done</span>
+                </div>
+              </article>
+              <article class="rail-item">
+                <strong>最近备注</strong>
+                <div class="meta">
+                  <span>认证流修复</span>
+                  <span>11:46</span>
+                </div>
+              </article>
+              <article class="rail-item">
+                <strong>阅读预览</strong>
+                <div class="meta">
+                  <span>Finance 2</span>
+                  <span>AI 3</span>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section class="rail-card">
+            <p class="section-kicker">Left Rail Rule</p>
+            <div class="feed-item">
+              <strong>它不切页，只增减组件</strong>
+              <p style="margin: 0; color: var(--muted); line-height: 1.65;">
+                这栏永远固定存在，未来无论是 Pulse、Today 还是 Content，都只改变中间区域。
+              </p>
+            </div>
+          </section>
+        </aside>
+
+        <section class="center-shell">
+          <div class="center-top">
+            <div class="surface-head">
+              <p class="section-kicker">Center Surface</p>
+              <h1>Pulse</h1>
+              <p>中间主区域承担页面切换，桌面端是唯一变化区域；移动端则折叠为“Center”主 tab。</p>
+            </div>
+
+            <nav class="page-tabs" aria-label="中间内容页切换">
+              <button class="page-tab is-active" data-center-page="pulse">Pulse</button>
+              <button class="page-tab" data-center-page="today">Today</button>
+              <button class="page-tab" data-center-page="content">Content</button>
+            </nav>
+          </div>
+
+          <div class="center-body">
+            <section class="page is-active" data-page="pulse">
+              <div class="pulse-layout">
+                <div class="story-stack">
+                  <section class="feature-band">
+                    <p class="section-kicker">Summary Surface</p>
+                    <h2>Pulse 负责汇总后面页面最值得被先看见的内容。</h2>
+                    <p>
+                      它是一个“呼吸正常”的首页，不复制 Today 的表单，也不复制 Content 的全量阅读。它只负责先把今天状态、本周总结和内容预览递给你。
+                    </p>
+                    <div class="kpi-row">
+                      <div class="kpi">
+                        <span>Today</span>
+                        <strong>5 / 8</strong>
+                      </div>
+                      <div class="kpi">
+                        <span>Week</span>
+                        <strong>6 days</strong>
+                      </div>
+                      <div class="kpi">
+                        <span>Unread</span>
+                        <strong>12</strong>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section class="summary-card">
+                    <p class="section-kicker">Weekly Summary Entry</p>
+                    <strong>本周总结不再单独成为一个大页面。</strong>
+                    <p style="margin: 0; color: var(--muted); line-height: 1.72;">
+                      它在 Pulse 中占据一个清晰的编辑入口。你可以在这里看到摘要、最近更新时间和一个明显的编辑按钮，而不是为它保留一整页 Weekly。
+                    </p>
+                    <div class="summary-actions">
+                      <button class="solid">编辑周总结</button>
+                      <button class="ghost">查看历史</button>
+                    </div>
+                  </section>
+                </div>
+
+                <div class="story-stack">
+                  <article class="story-card">
+                    <div class="story-cover"></div>
+                    <div class="story-copy">
+                      <strong>内容流预览</strong>
+                      <p>Pulse 只展示最值得立刻点开的 2-3 张卡片，完整筛选和浏览放在 Content。</p>
+                    </div>
+                  </article>
+                  <article class="story-card">
+                    <div class="story-cover" style="background:
+                      linear-gradient(135deg, rgba(151, 178, 178, 0.18), transparent 38%),
+                      linear-gradient(180deg, rgba(220, 194, 136, 0.12), transparent 72%),
+                      #13161d;"></div>
+                    <div class="story-copy">
+                      <strong>执行回声</strong>
+                      <p>显示最近备注、关键任务、当天完成率，让首页拥有节奏感，但不承载重操作。</p>
+                    </div>
+                  </article>
+                </div>
+              </div>
+            </section>
+
+            <section class="page" data-page="today">
+              <div class="today-layout">
+                <section class="composer-card">
+                  <p class="section-kicker">Heavy Interaction Zone</p>
+                  <h3>Today 保留为输入和拖拽主场</h3>
+                  <div class="input-grid">
+                    <input type="text" value="+ 新建任务名称" aria-label="任务名称" />
+                    <input type="text" value="#标签，多个请用逗号分隔" aria-label="任务标签" />
+                    <textarea aria-label="任务备注草稿">记录今天推进时遇到的问题、下一步、想法。</textarea>
+                  </div>
+                  <div class="composer-actions">
+                    <button class="solid">创建任务</button>
+                    <button class="ghost">保存草稿</button>
+                  </div>
+                </section>
+
+                <section class="composer-card">
+                  <p class="section-kicker">Task Stack</p>
+                  <h3>拖拽、完成、备注都留在这里</h3>
+                  <div class="task-stack" style="margin-top: 14px;">
+                    <article class="task-card">
+                      <span class="task-dot"></span>
+                      <div>
+                        <strong>修正认证流并验证登录体验</strong>
+                        <div class="meta">
+                          <span>Backend</span>
+                          <span>2 notes</span>
+                        </div>
+                      </div>
+                      <span class="drag mono">::</span>
+                    </article>
+                    <article class="task-card">
+                      <span class="task-dot is-done"></span>
+                      <div>
+                        <strong>删掉 Weekly 独立时间线入口</strong>
+                        <div class="meta">
+                          <span>cleanup</span>
+                          <span>done</span>
+                        </div>
+                      </div>
+                      <span class="drag mono">::</span>
+                    </article>
+                    <article class="task-card">
+                      <span class="task-dot"></span>
+                      <div>
+                        <strong>重构固定 rails + center routing 原型</strong>
+                        <div class="meta">
+                          <span>design</span>
+                          <span>in progress</span>
+                        </div>
+                      </div>
+                      <span class="drag mono">::</span>
+                    </article>
+                  </div>
+                </section>
+              </div>
+            </section>
+
+            <section class="page" data-page="content">
+              <section class="composer-card">
+                <p class="section-kicker">Unified Reader</p>
+                <h3>Finance / Science / AI 收成一个内容容器</h3>
+                <div class="mini-toggle-row">
+                  <button class="mini-toggle is-active">Finance</button>
+                  <button class="mini-toggle">Science</button>
+                  <button class="mini-toggle">AI</button>
+                </div>
+                <div class="content-toolbar">
+                  <input class="filter-input" type="search" value="搜索标题、摘要或来源" aria-label="搜索内容" />
+                  <div class="filter-pill">标签</div>
+                  <div class="filter-pill">来源</div>
+                  <div class="filter-pill">范围</div>
+                  <div class="filter-pill">排序</div>
+                </div>
+                <div class="content-preview-grid">
+                  <article class="story-card">
+                    <div class="story-cover"></div>
+                    <div class="story-copy">
+                      <strong>联储路径再定价如何影响成长资产</strong>
+                      <p>筛选、搜索、收藏都在同一容器里完成，不需要把一级导航拆得过碎。</p>
+                    </div>
+                  </article>
+                  <article class="story-card">
+                    <div class="story-cover" style="background:
+                      linear-gradient(135deg, rgba(220, 194, 136, 0.12), transparent 40%),
+                      linear-gradient(180deg, rgba(151, 178, 178, 0.18), transparent 72%),
+                      #141820;"></div>
+                    <div class="story-copy">
+                      <strong>Agent 工作流产品化开始进入新阶段</strong>
+                      <p>Pulse 只看预览，Content 才是完整阅读和筛选的正式舞台。</p>
+                    </div>
+                  </article>
+                </div>
+              </section>
+            </section>
+          </div>
+        </section>
+
+        <aside class="rail">
+          <section class="rail-card">
+            <p class="section-kicker">Weather</p>
+            <h3 style="margin-bottom: 10px;">Overcast</h3>
+            <div class="meta" style="margin-bottom: 14px;">
+              <span>Feels like 15°C</span>
+              <span>Shanghai</span>
+            </div>
+            <div class="weather-bars">
+              <span style="height: 24%;"></span>
+              <span style="height: 32%;"></span>
+              <span style="height: 48%;"></span>
+              <span style="height: 68%;"></span>
+              <span style="height: 92%;"></span>
+              <span style="height: 74%;"></span>
+              <span style="height: 84%;"></span>
+              <span style="height: 58%;"></span>
+              <span style="height: 36%;"></span>
+            </div>
+          </section>
+
+          <section class="rail-card">
+            <p class="section-kicker">Weekly Echo</p>
+            <div class="feed-list">
+              <article class="feed-item">
+                <strong>本周总结已更新</strong>
+                <div class="meta">
+                  <span>22:14</span>
+                  <span>Pulse entry</span>
+                </div>
+              </article>
+              <article class="feed-item">
+                <strong>周执行 6 / 7 天</strong>
+                <div class="meta">
+                  <span>consistency</span>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section class="rail-card">
+            <p class="section-kicker">Markets</p>
+            <div class="feed-list">
+              <article class="feed-item">
+                <strong>BTC-USD</strong>
+                <div class="meta">
+                  <span>$53,587</span>
+                  <span style="color: var(--danger);">-4.6%</span>
+                </div>
+              </article>
+              <article class="feed-item">
+                <strong>NVDA</strong>
+                <div class="meta">
+                  <span>$102.88</span>
+                  <span style="color: var(--danger);">-4.0%</span>
+                </div>
+              </article>
+              <article class="feed-item">
+                <strong>AMD</strong>
+                <div class="meta">
+                  <span>$134.05</span>
+                  <span style="color: var(--danger);">-3.8%</span>
+                </div>
+              </article>
+            </div>
+          </section>
+        </aside>
+      </section>
+
+      <section class="mobile-shell">
+        <article class="mobile-pane is-active" data-mobile-pane="left">
+          <p class="section-kicker">Left Rail As Page</p>
+          <h3 style="margin-bottom: 14px;">Calendar / Focus / Quick glance</h3>
+          <section class="rail-card">
+            <p class="section-kicker">Calendar</p>
+            <div class="month-grid">
+              <span class="day-cell">1</span>
+              <span class="day-cell">2</span>
+              <span class="day-cell">3</span>
+              <span class="day-cell is-strong">4</span>
+              <span class="day-cell is-strong">5</span>
+              <span class="day-cell">6</span>
+              <span class="day-cell">7</span>
+            </div>
+          </section>
+          <section class="rail-card">
+            <p class="section-kicker">Quick Queue</p>
+            <div class="rail-list">
+              <article class="rail-item">
+                <strong>左侧栏在手机里成为第一个 tab</strong>
+                <div class="meta"><span>固定结构</span></div>
+              </article>
+              <article class="rail-item">
+                <strong>用户先扫日历和摘要</strong>
+                <div class="meta"><span>轻量信息</span></div>
+              </article>
+            </div>
+          </section>
+        </article>
+
+        <article class="mobile-pane" data-mobile-pane="center">
+          <div class="center-top" style="padding-inline: 0; padding-top: 0; border-bottom: 0; display: grid; gap: 14px;">
+            <div class="surface-head">
+              <p class="section-kicker">Main Input Surface</p>
+              <h1 style="font-size: 2.5rem;">Today</h1>
+              <p>在手机里第二个 tab 作为主输入页面，默认承载 Today 这种高频输入和操作。</p>
+            </div>
+            <nav class="page-tabs" aria-label="移动端中间页切换">
+              <button class="page-tab" data-center-page="pulse">Pulse</button>
+              <button class="page-tab is-active" data-center-page="today">Today</button>
+              <button class="page-tab" data-center-page="content">Content</button>
+            </nav>
+          </div>
+
+          <section class="composer-card" style="margin-top: 14px;">
+            <p class="section-kicker">Primary Entry</p>
+            <h3>第二个 tab 默认就是你最常输入的地方</h3>
+            <div class="input-grid">
+              <input type="text" value="+ 新建任务名称" aria-label="任务名称" />
+              <textarea aria-label="任务备注">记录今天的推进、问题、灵感。</textarea>
+            </div>
+            <div class="composer-actions">
+              <button class="solid">创建任务</button>
+              <button class="ghost">稍后处理</button>
+            </div>
+          </section>
+        </article>
+
+        <article class="mobile-pane" data-mobile-pane="right">
+          <p class="section-kicker">Right Rail As Page</p>
+          <h3 style="margin-bottom: 14px;">Weather / Weekly echo / Markets</h3>
+          <section class="rail-card">
+            <p class="section-kicker">Weather</p>
+            <div class="weather-bars">
+              <span style="height: 30%;"></span>
+              <span style="height: 45%;"></span>
+              <span style="height: 68%;"></span>
+              <span style="height: 86%;"></span>
+              <span style="height: 72%;"></span>
+              <span style="height: 52%;"></span>
+              <span style="height: 34%;"></span>
+              <span style="height: 28%;"></span>
+              <span style="height: 22%;"></span>
+            </div>
+          </section>
+          <section class="rail-card">
+            <p class="section-kicker">Markets</p>
+            <div class="feed-list">
+              <article class="feed-item">
+                <strong>BTC-USD</strong>
+                <div class="meta"><span>$53,587</span><span style="color: var(--danger);">-4.6%</span></div>
+              </article>
+            </div>
+          </section>
+        </article>
+
+        <nav class="mobile-dock" aria-label="PWA 三栏切换">
+          <button class="mobile-dock-item is-active" data-mobile-target="left">
+            <span class="mobile-dot"></span>
+            <span>Left</span>
+          </button>
+          <button class="mobile-dock-item" data-mobile-target="center">
+            <span class="mobile-dot"></span>
+            <span>Center</span>
+          </button>
+          <button class="mobile-dock-item" data-mobile-target="right">
+            <span class="mobile-dot"></span>
+            <span>Right</span>
+          </button>
+        </nav>
+      </section>
+    </div>
+
+    <script>
+      const pageTabs = Array.from(document.querySelectorAll("[data-center-page]"));
+      const pages = Array.from(document.querySelectorAll("[data-page]"));
+      const headTitle = document.querySelector(".surface-head h1");
+      const pageNames = {
+        pulse: "Pulse",
+        today: "Today",
+        content: "Content",
+      };
+
+      pageTabs.forEach((tab) => {
+        tab.addEventListener("click", () => {
+          const target = tab.dataset.centerPage;
+          pageTabs.forEach((item) => item.classList.toggle("is-active", item === tab));
+          pages.forEach((page) => page.classList.toggle("is-active", page.dataset.page === target));
+          if (headTitle && pageNames[target]) {
+            headTitle.textContent = pageNames[target];
+          }
+        });
+      });
+
+      const mobileTabs = Array.from(document.querySelectorAll("[data-mobile-target]"));
+      const mobilePanes = Array.from(document.querySelectorAll("[data-mobile-pane]"));
+
+      mobileTabs.forEach((tab) => {
+        tab.addEventListener("click", () => {
+          const target = tab.dataset.mobileTarget;
+          mobileTabs.forEach((item) => item.classList.toggle("is-active", item === tab));
+          mobilePanes.forEach((pane) => pane.classList.toggle("is-active", pane.dataset.mobilePane === target));
+        });
+      });
+    </script>
+  </body>
+</html>

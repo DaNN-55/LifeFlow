@@ -1,0 +1,1066 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>LifeFlow Today Content FretFlow Prototype</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0a0b0d;
+        --panel: rgba(14, 16, 21, 0.92);
+        --panel-soft: rgba(20, 23, 30, 0.84);
+        --card: rgba(255, 255, 255, 0.035);
+        --card-2: rgba(255, 255, 255, 0.05);
+        --line: rgba(255, 255, 255, 0.08);
+        --line-strong: rgba(255, 255, 255, 0.15);
+        --text: #f4efe5;
+        --muted: #9498a4;
+        --muted-2: #626773;
+        --accent: #e1c486;
+        --accent-soft: rgba(225, 196, 134, 0.12);
+        --sage: #8fb4ab;
+        --danger: #c87777;
+        --radius-xl: 28px;
+        --radius-lg: 22px;
+        --radius-md: 16px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        min-height: 100%;
+        margin: 0;
+      }
+
+      body {
+        background:
+          radial-gradient(circle at top left, rgba(225, 196, 134, 0.08), transparent 28%),
+          radial-gradient(circle at top right, rgba(143, 180, 171, 0.08), transparent 26%),
+          linear-gradient(180deg, #111318 0%, var(--bg) 100%);
+        color: var(--text);
+        font-family: "Manrope", "PingFang SC", "Hiragino Sans GB", sans-serif;
+      }
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background:
+          linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+        background-size: 30px 30px;
+        opacity: 0.36;
+        mask-image: radial-gradient(circle at center, black 48%, transparent 88%);
+      }
+
+      button,
+      input,
+      textarea {
+        font: inherit;
+      }
+
+      button {
+        color: inherit;
+        cursor: pointer;
+      }
+
+      .mono,
+      .eyebrow,
+      .surface-tab,
+      .dock-item {
+        font-family: "IBM Plex Mono", monospace;
+      }
+
+      .prototype {
+        position: relative;
+        z-index: 1;
+        width: min(1460px, calc(100% - 26px));
+        margin: 12px auto;
+        padding: 16px;
+        border-radius: 34px;
+        border: 1px solid var(--line);
+        background: rgba(7, 8, 11, 0.74);
+        box-shadow: 0 30px 90px rgba(0, 0, 0, 0.42);
+        backdrop-filter: blur(20px);
+      }
+
+      .topbar {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        align-items: center;
+        gap: 16px;
+        padding: 8px 6px 18px;
+        border-bottom: 1px solid var(--line);
+        margin-bottom: 16px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .brand-mark {
+        width: 46px;
+        height: 46px;
+        border-radius: 16px;
+        display: grid;
+        place-items: center;
+        background:
+          linear-gradient(145deg, rgba(225, 196, 134, 0.16), rgba(143, 180, 171, 0.1)),
+          var(--panel-soft);
+        color: var(--accent);
+        border: 1px solid rgba(225, 196, 134, 0.16);
+        font-weight: 700;
+      }
+
+      .brand-copy strong {
+        display: block;
+      }
+
+      .brand-copy span {
+        color: var(--muted);
+        font-size: 0.82rem;
+      }
+
+      .shell-copy {
+        justify-self: center;
+        color: var(--muted);
+        max-width: 680px;
+        text-align: center;
+        line-height: 1.65;
+      }
+
+      .pill {
+        padding: 10px 14px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        color: var(--muted);
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .desktop-layout {
+        display: grid;
+        grid-template-columns: 280px minmax(0, 1fr) 280px;
+        gap: 16px;
+        min-height: calc(100vh - 118px);
+      }
+
+      .rail {
+        display: grid;
+        gap: 14px;
+        align-content: start;
+      }
+
+      .rail-card,
+      .center-shell,
+      .mobile-surface {
+        border-radius: 26px;
+        border: 1px solid var(--line);
+        background: linear-gradient(180deg, rgba(17, 20, 26, 0.94), rgba(11, 13, 17, 0.98));
+      }
+
+      .rail-card {
+        padding: 16px;
+      }
+
+      .eyebrow {
+        margin: 0 0 12px;
+        font-size: 0.68rem;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted-2);
+      }
+
+      .month-grid,
+      .mini-metrics {
+        display: grid;
+        gap: 8px;
+      }
+
+      .month-grid {
+        grid-template-columns: repeat(7, minmax(0, 1fr));
+      }
+
+      .day,
+      .metric,
+      .note-card,
+      .task-card,
+      .summary-card,
+      .story-card {
+        border-radius: 16px;
+        border: 1px solid var(--line);
+        background: var(--card);
+      }
+
+      .day {
+        min-height: 32px;
+        display: grid;
+        place-items: center;
+        color: var(--muted);
+        font-size: 0.76rem;
+      }
+
+      .day.is-active {
+        color: var(--text);
+        border-color: rgba(225, 196, 134, 0.28);
+        background: var(--accent-soft);
+      }
+
+      .note-stack,
+      .task-stack,
+      .story-grid {
+        display: grid;
+        gap: 10px;
+      }
+
+      .note-card,
+      .summary-card {
+        padding: 14px;
+      }
+
+      .note-card strong,
+      .task-card strong,
+      .summary-card strong,
+      .story-card strong {
+        display: block;
+        margin-bottom: 8px;
+      }
+
+      .meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        color: var(--muted);
+        font-size: 0.76rem;
+      }
+
+      .center-shell {
+        display: grid;
+        grid-template-rows: auto auto 1fr;
+        overflow: hidden;
+      }
+
+      .surface-head {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 18px 20px 14px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .surface-head h1 {
+        margin: 0;
+        font-family: "Fraunces", serif;
+        font-size: clamp(2.6rem, 3.1vw, 3.6rem);
+        line-height: 0.94;
+        letter-spacing: -0.05em;
+      }
+
+      .surface-head p {
+        margin: 10px 0 0;
+        color: var(--muted);
+        max-width: 620px;
+        line-height: 1.65;
+      }
+
+      .surface-tabs {
+        display: inline-grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+        padding: 8px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .surface-tab {
+        border: 0;
+        min-width: 118px;
+        border-radius: 999px;
+        background: transparent;
+        padding: 11px 16px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        font-size: 0.76rem;
+      }
+
+      .surface-tab.is-active {
+        background: var(--accent-soft);
+        color: var(--accent);
+      }
+
+      .surface-body {
+        padding: 18px;
+        overflow: auto;
+      }
+
+      .page {
+        display: none;
+        animation: rise 220ms ease;
+      }
+
+      .page.is-active {
+        display: block;
+      }
+
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(6px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .today-layout {
+        display: grid;
+        grid-template-columns: 1.08fr 0.92fr;
+        gap: 14px;
+      }
+
+      .composer,
+      .panel,
+      .content-panel {
+        padding: 16px;
+        border-radius: 22px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .composer input,
+      .composer textarea,
+      .search {
+        width: 100%;
+        min-height: 48px;
+        padding: 0 14px;
+        border-radius: 14px;
+        border: 1px solid var(--line);
+        background: var(--card-2);
+        color: var(--text);
+      }
+
+      .composer textarea {
+        min-height: 118px;
+        resize: vertical;
+        padding: 14px;
+      }
+
+      .form-stack,
+      .panel-stack,
+      .filter-row {
+        display: grid;
+        gap: 10px;
+      }
+
+      .task-card {
+        padding: 14px;
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 14px;
+        align-items: start;
+      }
+
+      .task-dot {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        margin-top: 4px;
+        border: 2px solid var(--sage);
+      }
+
+      .task-dot.done {
+        background: var(--sage);
+      }
+
+      .drag {
+        color: var(--muted);
+      }
+
+      .action-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 14px;
+      }
+
+      .solid,
+      .ghost {
+        min-height: 44px;
+        border-radius: 999px;
+        padding: 0 16px;
+      }
+
+      .solid {
+        border: 0;
+        background: var(--accent);
+        color: #19140c;
+        font-weight: 800;
+      }
+
+      .ghost {
+        border: 1px solid var(--line-strong);
+        background: transparent;
+      }
+
+      .summary-card {
+        background:
+          linear-gradient(135deg, rgba(225, 196, 134, 0.08), rgba(255, 255, 255, 0.025)),
+          rgba(255, 255, 255, 0.03);
+      }
+
+      .content-panel .filter-row {
+        grid-template-columns: 1.3fr repeat(4, minmax(0, 0.8fr));
+        margin-bottom: 14px;
+      }
+
+      .filter-pill {
+        min-height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 12px;
+        border-radius: 14px;
+        border: 1px solid var(--line);
+        background: var(--card);
+        color: var(--muted);
+      }
+
+      .story-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .story-card {
+        overflow: hidden;
+        padding: 0;
+      }
+
+      .story-cover {
+        height: 150px;
+        background:
+          linear-gradient(135deg, rgba(225, 196, 134, 0.16), transparent 40%),
+          linear-gradient(180deg, rgba(143, 180, 171, 0.12), transparent 72%),
+          #171a22;
+      }
+
+      .story-copy {
+        padding: 14px;
+      }
+
+      .story-copy p {
+        margin: 8px 0 0;
+        color: var(--muted);
+        line-height: 1.65;
+      }
+
+      .subtabs,
+      .channel-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 14px;
+      }
+
+      .subtab,
+      .channel-pill {
+        min-height: 40px;
+        padding: 0 14px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--muted);
+      }
+
+      .subtab.is-active,
+      .channel-pill.is-active {
+        color: var(--accent);
+        border-color: rgba(225, 196, 134, 0.22);
+        background: var(--accent-soft);
+      }
+
+      .split-grid {
+        display: grid;
+        grid-template-columns: 1.08fr 0.92fr;
+        gap: 14px;
+      }
+
+      .timeline-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .timeline-item,
+      .practice-card {
+        padding: 14px;
+        border-radius: 18px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .timeline-item {
+        display: grid;
+        grid-template-columns: 86px 1fr;
+        gap: 12px;
+      }
+
+      .timeline-time {
+        color: var(--accent);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 0.78rem;
+      }
+
+      .timeline-item p,
+      .practice-card p {
+        margin: 6px 0 0;
+        color: var(--muted);
+        line-height: 1.65;
+      }
+
+      .content-panel .story-grid {
+        margin-top: 8px;
+      }
+
+      .future-note {
+        margin-top: 14px;
+        padding: 14px;
+        border-radius: 18px;
+        border: 1px dashed rgba(225, 196, 134, 0.24);
+        background: rgba(225, 196, 134, 0.05);
+        color: var(--muted);
+        line-height: 1.7;
+      }
+
+      .fretflow-layout {
+        display: grid;
+        grid-template-columns: 1fr 0.9fr;
+        gap: 14px;
+      }
+
+      .mobile-shell {
+        display: none;
+      }
+
+      @media (max-width: 980px) {
+        .prototype {
+          width: min(100% - 10px, 100%);
+          margin: 5px auto;
+          padding: 10px;
+          border-radius: 22px;
+        }
+
+        .desktop-layout {
+          display: none;
+        }
+
+        .topbar {
+          grid-template-columns: 1fr;
+          justify-items: start;
+          gap: 10px;
+        }
+
+        .shell-copy {
+          justify-self: start;
+          text-align: left;
+        }
+
+        .mobile-shell {
+          display: block;
+        }
+
+        .mobile-surface {
+          min-height: calc(100vh - 142px);
+          padding: 18px;
+          padding-bottom: 96px;
+          overflow: auto;
+        }
+
+        .surface-head {
+          padding: 0 0 16px;
+          border-bottom: 1px solid var(--line);
+          margin-bottom: 16px;
+          flex-direction: column;
+          align-items: start;
+        }
+
+        .surface-tabs,
+        .subtabs,
+        .channel-row,
+        .split-grid,
+        .fretflow-layout,
+        .story-grid,
+        .today-layout,
+        .content-panel .filter-row {
+          grid-template-columns: 1fr;
+          width: 100%;
+        }
+
+        .surface-tab {
+          min-width: 0;
+        }
+
+        .dock {
+          position: fixed;
+          left: 50%;
+          bottom: max(10px, env(safe-area-inset-bottom));
+          transform: translateX(-50%);
+          z-index: 30;
+          display: inline-grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 8px;
+          width: min(420px, calc(100vw - 20px));
+          padding: 8px;
+          border-radius: 999px;
+          border: 1px solid var(--line-strong);
+          background: rgba(9, 10, 13, 0.96);
+          box-shadow: 0 24px 60px rgba(0, 0, 0, 0.42);
+        }
+
+        .dock-item {
+          min-height: 54px;
+          border: 0;
+          border-radius: 999px;
+          background: transparent;
+          display: grid;
+          place-items: center;
+          gap: 6px;
+          color: var(--muted);
+          font-size: 0.68rem;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+        }
+
+        .dock-item.is-active {
+          color: var(--text);
+          background: var(--accent-soft);
+        }
+
+        .dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: currentColor;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="prototype">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark">LF</div>
+          <div class="brand-copy">
+            <strong>LifeFlow IA Prototype</strong>
+            <span>desktop fixed rails / mobile center only</span>
+          </div>
+        </div>
+
+        <div class="shell-copy">
+          首页第一眼直接进入 Today。桌面端左右栏固定不动，只在中间切主页面。Weekly 不再单独占一级 tab，而是并入 Today 的 Review / Timeline。
+        </div>
+
+        <span class="pill mono">today / content / fretflow</span>
+      </header>
+
+      <section class="desktop-layout">
+        <aside class="rail">
+          <section class="rail-card">
+            <p class="eyebrow">Calendar</p>
+            <h3 style="margin: 0 0 12px;">September</h3>
+            <div class="month-grid">
+              <span class="day">1</span>
+              <span class="day">2</span>
+              <span class="day">3</span>
+              <span class="day is-active">4</span>
+              <span class="day is-active">5</span>
+              <span class="day">6</span>
+              <span class="day">7</span>
+              <span class="day">8</span>
+              <span class="day">9</span>
+              <span class="day">10</span>
+              <span class="day">11</span>
+              <span class="day is-active">12</span>
+              <span class="day">13</span>
+              <span class="day">14</span>
+            </div>
+          </section>
+
+          <section class="rail-card">
+            <p class="eyebrow">Quick Echo</p>
+            <div class="note-stack">
+              <article class="note-card">
+                <strong>今日重点 3 项</strong>
+                <div class="meta"><span>2 已完成</span><span>1 进行中</span></div>
+              </article>
+              <article class="note-card">
+                <strong>最近备注</strong>
+                <div class="meta"><span>认证流修复</span><span>11:46</span></div>
+              </article>
+              <article class="note-card">
+                <strong>二级结构</strong>
+                <div class="meta"><span>Today 内部含 Review / Timeline</span></div>
+              </article>
+            </div>
+          </section>
+        </aside>
+
+        <section class="center-shell">
+          <div class="surface-head">
+            <div>
+              <p class="eyebrow">Main Surface</p>
+              <h1 id="desktop-title">Today</h1>
+              <p>桌面端默认就是 Today。左右两栏只做固定组件区，所有页面切换只发生在中间主内容。</p>
+            </div>
+            <nav class="surface-tabs" aria-label="主内容切换">
+              <button class="surface-tab is-active" data-page-target="today">Today</button>
+              <button class="surface-tab" data-page-target="content">Content</button>
+              <button class="surface-tab" data-page-target="fretflow">FretFlow</button>
+            </nav>
+          </div>
+
+          <div class="surface-body">
+            <section class="page is-active" data-page="today">
+              <nav class="subtabs" aria-label="Today 内部视图">
+                <button class="subtab is-active">Today</button>
+                <button class="subtab">Review</button>
+                <button class="subtab">Timeline</button>
+              </nav>
+
+              <div class="today-layout">
+                <section class="composer">
+                  <p class="eyebrow">Primary Entry</p>
+                  <h3 style="margin: 0 0 14px;">打开网站第一眼就进入输入和推进区</h3>
+                  <div class="form-stack">
+                    <input type="text" value="+ 新建任务名称" aria-label="任务名称" />
+                    <input type="text" value="#标签，多个逗号分隔" aria-label="标签" />
+                    <textarea aria-label="备注输入">记录今天的推进、遇到的问题、下一步动作。</textarea>
+                  </div>
+                  <div class="action-row">
+                    <button class="solid">创建任务</button>
+                    <button class="ghost">保存草稿</button>
+                  </div>
+                </section>
+
+                <section class="panel">
+                  <p class="eyebrow">Execution Stack</p>
+                  <div class="task-stack">
+                    <article class="task-card">
+                      <span class="task-dot"></span>
+                      <div>
+                        <strong>修正认证流并验证 Turnstile 登录</strong>
+                        <div class="meta"><span>Backend</span><span>2 notes</span></div>
+                      </div>
+                      <span class="drag mono">::</span>
+                    </article>
+                    <article class="task-card">
+                      <span class="task-dot"></span>
+                      <div>
+                        <strong>拆出新的 IA prototype</strong>
+                        <div class="meta"><span>Design</span><span>in progress</span></div>
+                      </div>
+                      <span class="drag mono">::</span>
+                    </article>
+                    <article class="summary-card">
+                      <p class="eyebrow">Review Entry</p>
+                      <strong>Weekly 下沉到 Today 内部，而不是继续占一级导航</strong>
+                      <p style="margin: 0; color: var(--muted); line-height: 1.68;">
+                        Review 负责周总结和回顾，Timeline 负责时间线总览。Today 仍然是第一视觉。
+                      </p>
+                      <div class="action-row">
+                        <button class="solid">进入 Review</button>
+                        <button class="ghost">打开 Timeline</button>
+                      </div>
+                    </article>
+                  </div>
+                </section>
+              </div>
+
+              <div class="split-grid" style="margin-top: 14px;">
+                <section class="panel">
+                  <p class="eyebrow">Review Snapshot</p>
+                  <article class="summary-card">
+                    <strong>本周总结入口</strong>
+                    <p style="margin: 0; color: var(--muted); line-height: 1.72;">
+                      周总结不需要再撑起一个完整 Weekly 页面，可以在 Review 里展开全文、编辑本周总结、查看历史周总结。
+                    </p>
+                    <div class="action-row">
+                      <button class="solid">编辑本周总结</button>
+                      <button class="ghost">查看历史周总结</button>
+                    </div>
+                  </article>
+                </section>
+
+                <section class="panel">
+                  <p class="eyebrow">Timeline Snapshot</p>
+                  <div class="timeline-list">
+                    <article class="timeline-item">
+                      <div class="timeline-time">09:20</div>
+                      <div>
+                        <strong>完成任务：迁移认证门禁</strong>
+                        <p>记录状态切换、完成时间和关联备注，适合放在 Timeline 里统一查看。</p>
+                      </div>
+                    </article>
+                    <article class="timeline-item">
+                      <div class="timeline-time">11:46</div>
+                      <div>
+                        <strong>新增备注：Turnstile 本地联调</strong>
+                        <p>把任务变化、备注、恢复操作按时间顺序排成一条线，而不是再弹一个重 modal。</p>
+                      </div>
+                    </article>
+                  </div>
+                </section>
+              </div>
+            </section>
+
+            <section class="page" data-page="content">
+              <section class="content-panel">
+                <p class="eyebrow">Unified Reader</p>
+                <h3 style="margin: 0 0 14px;">Content 承载 Finance / Science / AI，并预留继续新增频道的空间</h3>
+                <div class="channel-row" aria-label="内容频道切换">
+                  <button class="channel-pill is-active">Finance</button>
+                  <button class="channel-pill">Science</button>
+                  <button class="channel-pill">AI</button>
+                  <button class="channel-pill">Macro</button>
+                  <button class="channel-pill">+</button>
+                </div>
+                <div class="filter-row">
+                  <input class="search" type="search" value="搜索标题、摘要或来源" aria-label="搜索内容" />
+                  <div class="filter-pill">频道</div>
+                  <div class="filter-pill">标签</div>
+                  <div class="filter-pill">来源</div>
+                  <div class="filter-pill">排序</div>
+                </div>
+                <div class="story-grid">
+                  <article class="story-card">
+                    <div class="story-cover"></div>
+                    <div class="story-copy">
+                      <strong>Finance 预览</strong>
+                      <p>这里只有完整阅读、筛选和收藏，不再让首页抢它的角色。</p>
+                    </div>
+                  </article>
+                  <article class="story-card">
+                    <div class="story-cover" style="background:
+                      linear-gradient(135deg, rgba(143, 180, 171, 0.18), transparent 40%),
+                      linear-gradient(180deg, rgba(225, 196, 134, 0.12), transparent 72%),
+                      #171b22;"></div>
+                    <div class="story-copy">
+                      <strong>AI / Science 继续留在同一个容器里</strong>
+                      <p>你后续新增频道时，优先加在这里，不继续膨胀一级 tab。</p>
+                    </div>
+                  </article>
+                </div>
+                <div class="future-note">
+                  未来再增加内容页时，优先作为 `Content` 的二级频道接入，例如 `Deep Tech`、`Policy`、`Reading List`，而不是再新增新的一级 tab。
+                </div>
+              </section>
+            </section>
+
+            <section class="page" data-page="fretflow">
+              <section class="content-panel">
+                <p class="eyebrow">Practice Space</p>
+                <h3 style="margin: 0 0 14px;">FretFlow 作为第三个一级 tab 独立存在，不并入 Content</h3>
+                <div class="fretflow-layout">
+                  <section class="panel" style="padding: 0; border: 0; background: transparent;">
+                    <div class="practice-card">
+                      <strong>今日练习计划</strong>
+                      <p>15 min picking / 20 min chord changes / 10 min fretboard recall</p>
+                    </div>
+                    <div class="practice-card" style="margin-top: 10px;">
+                      <strong>当前课程进度</strong>
+                      <p>CAGED 第 3 模块，主攻连接和音程定位。这里适合放你吉他自学站的核心入口和学习状态。</p>
+                    </div>
+                  </section>
+                  <section class="panel">
+                    <p class="eyebrow">Why Separate</p>
+                    <article class="summary-card">
+                      <strong>FretFlow 有独立心智，不应该被塞进 Content</strong>
+                      <p style="margin: 0; color: var(--muted); line-height: 1.72;">
+                        它更像一个练习工作台，而不是资讯阅读页。所以它占用第三个一级 tab 是合理的，也不会破坏扩展性。
+                      </p>
+                      <div class="action-row">
+                        <button class="solid">继续练习</button>
+                        <button class="ghost">查看课程目录</button>
+                      </div>
+                    </article>
+                  </section>
+                </div>
+              </section>
+            </section>
+          </div>
+        </section>
+
+        <aside class="rail">
+          <section class="rail-card">
+            <p class="eyebrow">Weather</p>
+            <div class="mini-metrics">
+              <div class="metric" style="padding: 14px;">
+                <strong style="display: block; margin-bottom: 8px;">Overcast</strong>
+                <div class="meta"><span>Feels like 15°C</span><span>Shanghai</span></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="rail-card">
+            <p class="eyebrow">Right Rail Rule</p>
+            <div class="note-stack">
+              <article class="note-card">
+                <strong>桌面端仍然保留</strong>
+                <p style="margin: 0; color: var(--muted); line-height: 1.65;">
+                  右栏继续承载天气、市场、周状态等摘要，但不决定主导航。
+                </p>
+              </article>
+              <article class="note-card">
+                <strong>移动端可以完全消失</strong>
+                <p style="margin: 0; color: var(--muted); line-height: 1.65;">
+                  你后面做 PWA 时，直接只保留中间主内容会更干净。
+                </p>
+              </article>
+              <article class="note-card">
+                <strong>一级导航固定为 3 个</strong>
+                <p style="margin: 0; color: var(--muted); line-height: 1.65;">
+                  Today / Content / FretFlow。更多扩展尽量收在二级导航里。
+                </p>
+              </article>
+            </div>
+          </section>
+        </aside>
+      </section>
+
+      <section class="mobile-shell">
+        <article class="mobile-surface">
+          <div class="surface-head">
+            <div>
+              <p class="eyebrow">Center Only PWA</p>
+              <h1 id="mobile-title">Today</h1>
+              <p>移动端砍掉左右栏，只留下中间主内容。底部导航固定 3 个：Today / Content / FretFlow。</p>
+            </div>
+            <nav class="surface-tabs" aria-label="PWA 主页面切换">
+              <button class="surface-tab is-active" data-mobile-page="today">Today</button>
+              <button class="surface-tab" data-mobile-page="content">Content</button>
+              <button class="surface-tab" data-mobile-page="fretflow">FretFlow</button>
+            </nav>
+          </div>
+
+          <section class="page is-active" data-mobile-view="today">
+            <div class="composer">
+              <p class="eyebrow">Main Input</p>
+              <nav class="subtabs" aria-label="移动端 Today 内部视图">
+                <button class="subtab is-active">Today</button>
+                <button class="subtab">Review</button>
+                <button class="subtab">Timeline</button>
+              </nav>
+              <div class="form-stack">
+                <input type="text" value="+ 新建任务名称" aria-label="任务名称" />
+                <textarea aria-label="任务输入">在手机上，打开应用第一眼就进入输入和操作区域。周总结和时间线则变成 Today 内部的次级视图。</textarea>
+              </div>
+              <div class="action-row">
+                <button class="solid">创建任务</button>
+                <button class="ghost">稍后整理</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="page" data-mobile-view="content">
+            <section class="content-panel">
+              <p class="eyebrow">Reading Mode</p>
+              <div class="filter-row" style="grid-template-columns: 1fr;">
+                <input class="search" type="search" value="搜索内容" aria-label="搜索内容" />
+                <div class="channel-row" style="margin: 0;">
+                  <button class="channel-pill is-active">Finance</button>
+                  <button class="channel-pill">Science</button>
+                  <button class="channel-pill">AI</button>
+                  <button class="channel-pill">+</button>
+                </div>
+              </div>
+              <div class="story-grid">
+                <article class="story-card">
+                  <div class="story-cover"></div>
+                  <div class="story-copy">
+                    <strong>Content 在移动端作为第二页</strong>
+                    <p>内容频道仍然在二级层扩展，不继续增加底部导航数量。</p>
+                  </div>
+                </article>
+              </div>
+            </section>
+          </section>
+
+          <section class="page" data-mobile-view="fretflow">
+            <section class="content-panel">
+              <p class="eyebrow">Practice Mode</p>
+              <div class="practice-card">
+                <strong>FretFlow 在移动端作为第三个主入口</strong>
+                <p>和 Today、Content 平级，专门承载练习计划、课程进度和吉他训练内容。</p>
+              </div>
+              <div class="practice-card" style="margin-top: 10px;">
+                <strong>今日练习</strong>
+                <p>Alternate picking 12min / chord transitions 15min / ear training 8min</p>
+              </div>
+            </section>
+          </section>
+        </article>
+
+        <nav class="dock" aria-label="PWA 底部导航">
+          <button class="dock-item is-active" data-mobile-page="today">
+            <span class="dot"></span>
+            <span>Today</span>
+          </button>
+          <button class="dock-item" data-mobile-page="content">
+            <span class="dot"></span>
+            <span>Content</span>
+          </button>
+          <button class="dock-item" data-mobile-page="fretflow">
+            <span class="dot"></span>
+            <span>FretFlow</span>
+          </button>
+        </nav>
+      </section>
+    </div>
+
+    <script>
+      const desktopTabs = Array.from(document.querySelectorAll("[data-page-target]"));
+      const desktopPages = Array.from(document.querySelectorAll("[data-page]"));
+      const desktopTitle = document.getElementById("desktop-title");
+      const desktopTitles = { today: "Today", content: "Content", fretflow: "FretFlow" };
+
+      desktopTabs.forEach((tab) => {
+        tab.addEventListener("click", () => {
+          const target = tab.dataset.pageTarget;
+          desktopTabs.forEach((item) => item.classList.toggle("is-active", item === tab));
+          desktopPages.forEach((page) => page.classList.toggle("is-active", page.dataset.page === target));
+          if (desktopTitle && desktopTitles[target]) {
+            desktopTitle.textContent = desktopTitles[target];
+          }
+        });
+      });
+
+      const mobileControls = Array.from(document.querySelectorAll("[data-mobile-page]"));
+      const mobileViews = Array.from(document.querySelectorAll("[data-mobile-view]"));
+      const mobileTitle = document.getElementById("mobile-title");
+      const mobileTitles = { today: "Today", content: "Content", fretflow: "FretFlow" };
+
+      mobileControls.forEach((control) => {
+        control.addEventListener("click", () => {
+          const target = control.dataset.mobilePage;
+          mobileControls.forEach((item) => item.classList.toggle("is-active", item.dataset.mobilePage === target));
+          mobileViews.forEach((view) => view.classList.toggle("is-active", view.dataset.mobileView === target));
+          if (mobileTitle && mobileTitles[target]) {
+            mobileTitle.textContent = mobileTitles[target];
+          }
+        });
+      });
+    </script>
+  </body>
+</html>
