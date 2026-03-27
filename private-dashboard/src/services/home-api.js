@@ -48,6 +48,22 @@ export function fetchFeaturedContent(channel, limit = 3) {
   return fetchNewsFeaturedContent(channel, limit);
 }
 
+export async function fetchNewsPreviewFeed(channel, limit = 5) {
+  const featuredPayload = await fetchNewsFeaturedContent(channel, limit).catch(() => ({ items: [] }));
+  const featuredItems = Array.isArray(featuredPayload?.items) ? featuredPayload.items : [];
+  if (featuredItems.length) {
+    return featuredItems;
+  }
+
+  const listPayload = await fetchContentList({
+    channel,
+    page: 1,
+    pageSize: limit,
+    sort: "latest",
+  }).catch(() => ({ items: [] }));
+  return Array.isArray(listPayload?.items) ? listPayload.items : [];
+}
+
 export async function fetchFavoritesPreview(channel = "all") {
   const selectedChannels = channel === "all" ? contentTabs.map((tab) => tab.id) : [channel];
   const responses = await Promise.all(

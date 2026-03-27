@@ -11,7 +11,7 @@ import {
   createEmptyHomeState,
   createEmptyWeatherState,
   fetchFavoritesPreview,
-  fetchFeaturedContent,
+  fetchNewsPreviewFeed,
   fetchGitHubPreview,
   fetchStockWidget,
   fetchWeatherWidget,
@@ -362,9 +362,9 @@ export const useHomeStore = defineStore("home", {
       }
 
       await refreshContent(targetChannel, 18).catch(() => null);
-      const payload = await fetchFeaturedContent(targetChannel, 12).catch(() => ({ items: [] }));
-      const items = Array.isArray(payload?.items)
-        ? payload.items.map((item) => ({
+      const previewItems = await fetchNewsPreviewFeed(targetChannel, 12).catch(() => []);
+      const items = Array.isArray(previewItems)
+        ? previewItems.map((item) => ({
             ...item,
             channel: item?.channel || targetChannel,
           }))
