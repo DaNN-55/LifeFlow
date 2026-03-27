@@ -5,10 +5,7 @@ import {
   replaceDashboardUserCache,
   updateDashboardUserCache,
 } from "./dashboard-cache";
-import { fetchAccountProfile } from "./account-api";
 import { fetchSyncBootstrap, fetchSyncChanges } from "./sync-api";
-import { fetchTaskTimeline, fetchWeeklySummary } from "./weekly-api";
-import { addDays, formatWeekInputValue, getStartOfWeek, parseIsoDate } from "../utils/date";
 
 const syncStateByUser = new Map();
 const RESERVED_MUTATION_KEYS = new Set([
@@ -41,68 +38,12 @@ function getUserSyncState(userId) {
   return syncStateByUser.get(resolvedUserId);
 }
 
-function isMissingSyncEndpoint(error) {
-  return Number(error?.status || 0) === 404;
-}
-
 function isInvalidSyncCursor(value = "") {
   const raw = String(value || "").trim();
   if (!raw) {
     return true;
   }
   return Number.isNaN(Date.parse(raw));
-}
-
-function buildWeekValuesBetween(startDate, endDate = new Date()) {
-  const start = getStartOfWeek(startDate);
-  const end = getStartOfWeek(endDate);
-  const values = [];
-
-  for (let cursor = new Date(start); cursor <= end; cursor = addDays(cursor, 7)) {
-    values.push(formatWeekInputValue(cursor));
-  }
-
-  return Array.from(new Set(values));
-}
-
-async function fetchLegacyDashboardSnapshot() {
-  const [profilePayload, timelinePayload] = await Promise.all([
-    fetchAccountProfile().catch(() => null),
-    fetchTaskTimeline(),
-  ]);
-
-  const tasks = Array.isArray(timelinePayload?.tasks) ? timelinePayload.tasks : [];
-  const dailyRecords = Array.isArray(timelinePayload?.records) ? timelinePayload.records : [];
-  const createdAt = parseIsoDate(profilePayload?.user?.createdAt) || new Date();
-  const weekValues = buildWeekValuesBetween(createdAt, new Date());
-  const weeklySummaryResponses = await Promise.all(
-    weekValues.map((week) => fetchWeeklySummary(week).catch(() => ({ summary: null }))),
-  );
-  const weeklySummaries = weeklySummaryResponses
-    .map((payload, index) => {
-      const week = weekValues[index];
-      const summary = payload?.summary;
-      if (!summary) {
-        return null;
-      }
-      return {
-        week,
-        content: String(summary?.content || ""),
-        updatedAt: String(summary?.updatedAt || ""),
-      };
-    })
-    .filter(Boolean);
-
-  return {
-    cursor: new Date().toISOString(),
-    resetAt: "",
-    reset: true,
-    snapshot: {
-      tasks,
-      dailyRecords,
-      weeklySummaries,
-    },
-  };
 }
 
 export function hasDashboardSnapshotData(snapshot = {}) {
@@ -157,24 +98,17 @@ async function runDashboardSync(userId) {
   const since = isInvalidSyncCursor(cachedCursor) ? "" : cachedCursor;
   let payload;
 
-  try {
-    if (since) {
-      try {
-        payload = await fetchSyncChanges(since);
-      } catch (error) {
-        if (Number(error?.status || 0) !== 400) {
-          throw error;
-        }
-        payload = await fetchSyncBootstrap();
+  if (since) {
+    try {
+      payload = await fetchSyncChanges(since);
+    } catch (error) {
+      if (Number(error?.status || 0) !== 400) {
+        throw error;
       }
-    } else {
       payload = await fetchSyncBootstrap();
     }
-  } catch (error) {
-    if (!isMissingSyncEndpoint(error)) {
-      throw error;
-    }
-    payload = await fetchLegacyDashboardSnapshot();
+  } else {
+    payload = await fetchSyncBootstrap();
   }
 
   return applySyncPayload(userId, payload, since);

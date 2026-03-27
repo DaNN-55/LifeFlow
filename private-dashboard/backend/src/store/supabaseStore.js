@@ -11,6 +11,10 @@ function normalizeContentSourceIdentity(source = {}) {
   };
 }
 
+function isUniqueViolation(error) {
+  return String(error?.code || "").trim() === "23505";
+}
+
 class SupabaseStore {
   constructor({ supabaseUrl, supabaseServiceRoleKey }) {
     this.client = createClient(supabaseUrl, supabaseServiceRoleKey, {
@@ -489,7 +493,7 @@ class SupabaseStore {
   async listContentSources(scope = {}, channel = "") {
     let query = this.client
       .from("content_sources")
-      .select("id, channel, type, name, url, enabled, sort_order, parser_key, is_default, created_at, updated_at")
+      .select("id, channel, type, name, url, enabled, sort_order, parser_key, created_at, updated_at")
       .eq("user_id", scope.userId || "")
       .order("sort_order", { ascending: true });
 
@@ -507,7 +511,7 @@ class SupabaseStore {
   async getContentSource(scope = {}, sourceId) {
     const { data, error } = await this.client
       .from("content_sources")
-      .select("id, channel, type, name, url, enabled, sort_order, parser_key, is_default, created_at, updated_at")
+      .select("id, channel, type, name, url, enabled, sort_order, parser_key, created_at, updated_at")
       .eq("user_id", scope.userId || "")
       .eq("id", sourceId)
       .maybeSingle();
@@ -518,23 +522,28 @@ class SupabaseStore {
     return data;
   }
 
-  async createContentSource(scope = {}, source) {
-    const identity = normalizeContentSourceIdentity(source);
-    const { data: existingSource, error: existingError } = await this.client
+  async findContentSourceByIdentity(scope = {}, identity = {}) {
+    const { data, error } = await this.client
       .from("content_sources")
-      .select("id, channel, type, name, url, enabled, sort_order, parser_key, is_default, created_at, updated_at")
+      .select("id, channel, type, name, url, enabled, sort_order, parser_key, created_at, updated_at")
       .eq("user_id", scope.userId || "")
-      .eq("channel", identity.channel)
-      .eq("type", identity.type)
-      .eq("url", identity.url)
-      .eq("parser_key", identity.parser_key)
+      .eq("channel", String(identity.channel || "").trim())
+      .eq("type", String(identity.type || "").trim())
+      .eq("url", String(identity.url || "").trim())
+      .eq("parser_key", String(identity.parser_key || "").trim())
       .order("created_at", { ascending: true })
       .limit(1)
       .maybeSingle();
 
-    if (existingError) {
-      throw existingError;
+    if (error) {
+      throw error;
     }
+    return data;
+  }
+
+  async createContentSource(scope = {}, source) {
+    const identity = normalizeContentSourceIdentity(source);
+    const existingSource = await this.findContentSourceByIdentity(scope, identity);
     if (existingSource) {
       return existingSource;
     }
@@ -542,10 +551,13 @@ class SupabaseStore {
     const { data, error } = await this.client
       .from("content_sources")
       .insert({ ...source, user_id: scope.userId || "" })
-      .select("id, channel, type, name, url, enabled, sort_order, parser_key, is_default, created_at, updated_at")
+      .select("id, channel, type, name, url, enabled, sort_order, parser_key, created_at, updated_at")
       .single();
 
     if (error) {
+      if (isUniqueViolation(error)) {
+        return this.findContentSourceByIdentity(scope, identity);
+      }
       throw error;
     }
     return data;
@@ -557,7 +569,7 @@ class SupabaseStore {
       .update({ ...patch, updated_at: new Date().toISOString() })
       .eq("user_id", scope.userId || "")
       .eq("id", sourceId)
-      .select("id, channel, type, name, url, enabled, sort_order, parser_key, is_default, created_at, updated_at")
+      .select("id, channel, type, name, url, enabled, sort_order, parser_key, created_at, updated_at")
       .maybeSingle();
 
     if (error) {
@@ -629,6 +641,21 @@ class SupabaseStore {
       throw error;
     }
     return data;
+  }
+
+  async replaceContentItems(scope = {}, channel = "", items = []) {
+    let deleteQuery = this.client
+      .from("content_items")
+      .delete()
+      .eq("user_id", scope.userId || "");
+    if (channel) {
+      deleteQuery = deleteQuery.eq("channel", channel);
+    }
+    const { error } = await deleteQuery;
+    if (error) {
+      throw error;
+    }
+    return this.upsertContentItems(scope, items);
   }
 
   async listContent(scope = {}, filters = {}) {

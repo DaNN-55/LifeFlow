@@ -8,11 +8,13 @@ create table if not exists public.content_sources (
   enabled boolean not null default true,
   sort_order integer not null default 0,
   parser_key text not null default '',
-  is_default boolean not null default false,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now()),
   primary key (user_id, id)
 );
+
+create unique index if not exists uniq_content_sources_user_identity
+  on public.content_sources (user_id, channel, type, url, parser_key);
 
 create table if not exists public.content_items (
   user_id text not null references public.users(id) on delete cascade,

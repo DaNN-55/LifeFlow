@@ -72,9 +72,7 @@ const lifeProgress = computed(() => {
 });
 
 const sidebarPreferences = computed(() => ({
-  freshNews: Object.prototype.hasOwnProperty.call(sessionStore.user?.preferences?.sidebar || {}, "freshNews")
-    ? sessionStore.user?.preferences?.sidebar?.freshNews !== false
-    : sessionStore.user?.preferences?.sidebar?.financeFeed !== false || sessionStore.user?.preferences?.sidebar?.scienceFeed !== false,
+  freshNews: sessionStore.user?.preferences?.sidebar?.freshNews !== false,
   calendar: sessionStore.user?.preferences?.sidebar?.calendar !== false,
   github: sessionStore.user?.preferences?.sidebar?.github !== false,
   favorites: sessionStore.user?.preferences?.sidebar?.favorites !== false,

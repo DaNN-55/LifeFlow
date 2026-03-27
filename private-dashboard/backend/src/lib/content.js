@@ -50,10 +50,6 @@ function getChannelCache(userId, channel) {
   return cacheByChannel.get(key);
 }
 
-function getCachedChannelItems(userId, channel) {
-  return getChannelCache(userId, channel).items || [];
-}
-
 function setCachedChannelItems(userId, channel, items) {
   const cache = getChannelCache(userId, channel);
   cache.items = items;
@@ -75,18 +71,6 @@ function getChannelCacheStatus(userId, channel) {
   };
 }
 
-function clearContentCache(userId, channel = "") {
-  if (channel) {
-    cacheByChannel.delete(getCacheKey(userId, channel));
-    return;
-  }
-  for (const key of [...cacheByChannel.keys()]) {
-    if (key.startsWith(`${userId}:`)) {
-      cacheByChannel.delete(key);
-    }
-  }
-}
-
 async function refreshChannelContent({ store, userId, channel, limit = DEFAULT_REFRESH_LIMIT }) {
   const cacheKey = getCacheKey(userId, channel);
   if (refreshInFlight.has(cacheKey)) {
@@ -97,6 +81,7 @@ async function refreshChannelContent({ store, userId, channel, limit = DEFAULT_R
     const sources = (await store.listContentSources({ userId }, channel)).filter((source) => source.enabled);
     if (sources.length === 0) {
       setCachedChannelItems(userId, channel, []);
+      await store.replaceContentItems({ userId }, channel, []);
       const stats = {
         totalSources: 0,
         successCount: 0,
@@ -132,6 +117,7 @@ async function refreshChannelContent({ store, userId, channel, limit = DEFAULT_R
 
     const deduped = dedupeContentItems(collected).slice(0, limit);
     setCachedChannelItems(userId, channel, deduped);
+    await store.replaceContentItems({ userId }, channel, deduped);
     const stats = {
       totalSources: sources.length,
       successCount,
@@ -320,91 +306,6 @@ function dedupeContentItems(items) {
     const rightTime = new Date(right.published_at || right.fetched_at || 0).getTime();
     return rightTime - leftTime;
   });
-}
-
-function listCachedContent({
-  userId,
-  channel,
-  page = 1,
-  pageSize = DEFAULT_PAGE_SIZE,
-  q = "",
-  tag = "",
-  sourceId = "",
-  sort = "latest",
-  favoritesOnly = false,
-  favoriteUrls = [],
-}) {
-  let items = [...getCachedChannelItems(userId, channel)];
-  const favoriteUrlSet = new Set((favoriteUrls || []).filter(Boolean));
-  const query = String(q || "").trim().toLowerCase();
-
-  items = items.map((item) => ({
-    ...item,
-    is_favorite: favoriteUrlSet.has(item.canonical_url),
-  }));
-
-  if (favoritesOnly) {
-    items = items.filter((item) => item.is_favorite);
-  }
-  if (query) {
-    items = items.filter((item) =>
-      [item.title, item.summary_zh, item.body_zh, item.source_name, item.author]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(query)),
-    );
-  }
-  if (tag) {
-    items = items.filter((item) => Array.isArray(item.tags) && item.tags.includes(tag));
-  }
-  if (sourceId) {
-    items = items.filter((item) => item.source_id === sourceId);
-  }
-  if (sort === "oldest") {
-    items.reverse();
-  }
-  const total = items.length;
-  const safePage = Math.max(1, Number(page || 1));
-  const safePageSize = Math.max(1, Math.min(40, Number(pageSize || DEFAULT_PAGE_SIZE)));
-  const start = (safePage - 1) * safePageSize;
-  return {
-    items: items.slice(start, start + safePageSize),
-    total,
-    page: safePage,
-    pageSize: safePageSize,
-  };
-}
-
-function getCachedContentFacets(userId, channel, sources = [], favoriteUrls = []) {
-  const items = getCachedChannelItems(userId, channel);
-  const tags = [...new Set(items.flatMap((item) => (Array.isArray(item.tags) ? item.tags : [])))].sort();
-  return {
-    tags,
-    sources: (sources || []).map((source) => ({
-      id: source.id,
-      name: source.name,
-      favoriteCount: items.filter(
-        (item) => item.source_id === source.id && favoriteUrls.includes(item.canonical_url),
-      ).length,
-    })),
-  };
-}
-
-function getCachedFeaturedContent(userId, channel, limit = 3, favoriteUrls = []) {
-  const favoriteSet = new Set((favoriteUrls || []).filter(Boolean));
-  return getCachedChannelItems(userId, channel)
-    .slice(0, limit)
-    .map((item) => ({ ...item, is_favorite: favoriteSet.has(item.canonical_url) }));
-}
-
-function getCachedContentItem(userId, itemId, favoriteUrls = []) {
-  const favoriteSet = new Set((favoriteUrls || []).filter(Boolean));
-  for (const channel of CHANNELS) {
-    const match = getCachedChannelItems(userId, channel).find((item) => item.id === itemId);
-    if (match) {
-      return { ...match, is_favorite: favoriteSet.has(match.canonical_url) };
-    }
-  }
-  return null;
 }
 
 function normalizeTags(tags) {
@@ -653,12 +554,7 @@ module.exports = {
   DEFAULT_REFRESH_LIMIT,
   CACHE_TTL_MS,
   refreshChannelContent,
-  listCachedContent,
-  getCachedContentFacets,
-  getCachedFeaturedContent,
-  getCachedContentItem,
   getChannelCacheStatus,
-  clearContentCache,
   createContentId,
   extractFeedItemImage,
 };

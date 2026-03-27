@@ -63,3 +63,40 @@ test("memory store can rename user and delete all sessions for that user", async
   assert.equal(await store.getSessionWithUser("session-b"), null);
   assert.equal((await store.getSessionWithUser("session-c"))?.user?.id, otherUser.id);
 });
+
+test("memory store dedupes content sources by source identity", async () => {
+  const store = new MemoryStore();
+  const user = await store.createUser({
+    id: "user-4",
+    username: "content-user",
+    password_hash: "hash-4",
+    recovery_code_hash: "recovery-4",
+    preferences: {},
+  });
+
+  const first = await store.createContentSource({ userId: user.id }, {
+    id: "source-1",
+    channel: "news",
+    type: "rsshub",
+    name: "AI Papers",
+    url: "/papers/category/arxiv/cs.AI",
+    parser_key: "",
+    enabled: true,
+    sort_order: 1,
+  });
+  const second = await store.createContentSource({ userId: user.id }, {
+    id: "source-2",
+    channel: "news",
+    type: "rsshub",
+    name: "AI Papers Duplicate",
+    url: "/papers/category/arxiv/cs.AI",
+    parser_key: "",
+    enabled: true,
+    sort_order: 2,
+  });
+
+  const sources = await store.listContentSources({ userId: user.id }, "news");
+  assert.equal(first.id, "source-1");
+  assert.equal(second.id, "source-1");
+  assert.equal(sources.length, 1);
+});

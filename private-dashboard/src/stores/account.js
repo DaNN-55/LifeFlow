@@ -27,8 +27,6 @@ function createDefaultSidebarPreferences() {
     calendar: true,
     github: true,
     freshNews: true,
-    financeFeed: true,
-    scienceFeed: true,
     favorites: true,
     weather: true,
     stock: true,
@@ -58,9 +56,7 @@ function normalizePreferences(preferences = {}) {
     sidebar: {
       ...createDefaultSidebarPreferences(),
       ...sidebarPreferences,
-      freshNews: Object.prototype.hasOwnProperty.call(sidebarPreferences, "freshNews")
-        ? sidebarPreferences.freshNews !== false
-        : sidebarPreferences.financeFeed !== false || sidebarPreferences.scienceFeed !== false,
+      freshNews: sidebarPreferences.freshNews !== false,
     },
     profile: {
       ...createDefaultProfilePreferences(),

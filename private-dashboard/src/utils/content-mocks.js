@@ -60,7 +60,6 @@ export function buildMockSources(channel) {
           url: `https://example.com/${channel}/${createSourceId(channel, item[2])}`,
           parser_key: "",
           enabled: true,
-          is_default: true,
         },
       ]),
     ).values(),
@@ -75,7 +74,6 @@ function normalizeMockSource(channel, source = {}) {
     url: String(source.url || `https://example.com/${channel}/${createSourceId(channel, source.name || "source")}`),
     parser_key: String(source.parser_key || source.parserKey || ""),
     enabled: typeof source.enabled === "boolean" ? source.enabled : true,
-    is_default: Boolean(source.is_default),
   };
 }
 
@@ -91,7 +89,6 @@ export function deriveMockSourcesFromItems(channel, items = []) {
           url: item.source_url || item.canonical_url || `https://example.com/${channel}/${item.source_id || "source"}`,
           parser_key: "",
           enabled: true,
-          is_default: true,
         },
       ]),
     ).values(),
@@ -191,7 +188,6 @@ export function getMockContentPayloadFromItems(itemsInput, currentState) {
           type: "rss",
           url: item.source_url,
           enabled: true,
-          is_default: true,
         },
       ]),
     ).values(),

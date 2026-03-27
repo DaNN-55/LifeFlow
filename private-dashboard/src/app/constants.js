@@ -12,7 +12,6 @@ export const AUTH_GATE_ENABLED = true;
 export const ACCOUNT_CONTROLS_ENABLED = true;
 export const AUTH_CHALLENGE_ENABLED = true;
 export const AUTH_PREVIEW_ENABLED = true;
-export const CONTENT_SOURCE_BUNDLE_VERSION = "rsshub-defaults-v2";
 
 export const topTabs = [
   { id: "pulse", label: "Pulse", to: "/pulse" },

@@ -20,8 +20,6 @@ export function createEmptyWeatherState() {
 export function createEmptyHomeState() {
   return {
     channelFeeds: Object.fromEntries(contentTabs.map((tab) => [tab.id, []])),
-    financeFeed: [],
-    scienceFeed: [],
     freshNewsFeed: [],
     favorites: {
       status: "idle",
@@ -42,10 +40,6 @@ export function createEmptyHomeState() {
       message: "",
     },
   };
-}
-
-export function fetchFeaturedContent(channel, limit = 3) {
-  return fetchNewsFeaturedContent(channel, limit);
 }
 
 export async function fetchNewsPreviewFeed(channel, limit = 5) {

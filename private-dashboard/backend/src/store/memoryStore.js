@@ -383,6 +383,16 @@ class MemoryStore {
     return persisted;
   }
 
+  async replaceContentItems(scope = {}, channel = "", items = []) {
+    const { contentItems } = this.ensureUserScope(scope.userId);
+    for (const [itemId, item] of contentItems.entries()) {
+      if (!channel || item.channel === channel) {
+        contentItems.delete(itemId);
+      }
+    }
+    return this.upsertContentItems(scope, items);
+  }
+
   async listContent(scope = {}, filters = {}) {
     const { contentItems } = this.ensureUserScope(scope.userId);
     const page = Math.max(1, Number(filters.page || 1));

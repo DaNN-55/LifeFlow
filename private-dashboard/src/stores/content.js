@@ -74,7 +74,6 @@ function normalizeSource(source = {}) {
     type: String(source.type || "rss"),
     parser_key: String(source.parser_key || ""),
     enabled: typeof source.enabled === "boolean" ? source.enabled : true,
-    is_default: Boolean(source.is_default),
   };
 }
 
@@ -116,7 +115,6 @@ function normalizeContentPreferences(content = {}) {
     hiddenSources: {
       ...(content?.hiddenSources || {}),
     },
-    sourceBundleVersion: typeof content?.sourceBundleVersion === "string" ? content.sourceBundleVersion : "",
   };
 }
 
@@ -221,7 +219,6 @@ export const useContentStore = defineStore("content", {
         type: "rss",
         url: "",
         parserKey: "",
-        channel: "",
         enabled: true,
       },
       sourceFeedback: null,
@@ -429,7 +426,6 @@ export const useContentStore = defineStore("content", {
         type: "rss",
         url: "",
         parserKey: "",
-        channel: "",
         enabled: true,
       };
     },
@@ -739,7 +735,6 @@ export const useContentStore = defineStore("content", {
         type: source.type,
         url: source.url,
         parserKey: source.parser_key || "",
-        channel: source.channel || channel,
         enabled: source.enabled,
       };
     },
@@ -750,8 +745,7 @@ export const useContentStore = defineStore("content", {
         return;
       }
       const payload = {
-        channel: this.sourceForm.channel || channel,
-        legacyChannel: this.sourceForm.channel || "",
+        channel,
         name: this.sourceForm.name.trim(),
         type: this.sourceForm.type,
         url: this.sourceForm.url.trim(),
@@ -773,7 +767,6 @@ export const useContentStore = defineStore("content", {
             url: payload.url,
             parser_key: payload.parserKey,
             enabled: payload.enabled,
-            is_default: false,
           });
           const nextSources = this.sourceEditingId
             ? localChannel.sources.map((source) => (source.id === this.sourceEditingId ? { ...source, ...nextSource } : source))

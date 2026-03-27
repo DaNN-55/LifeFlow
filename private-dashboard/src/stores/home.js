@@ -210,16 +210,10 @@ export const useHomeStore = defineStore("home", {
           : {
               news: Array.isArray(home.freshNewsFeed)
                 ? home.freshNewsFeed
-                : Array.isArray(home.financeFeed)
-                  ? home.financeFeed
-                  : Array.isArray(home.scienceFeed)
-                    ? home.scienceFeed
-                    : [],
+                : [],
             },
       );
       this.channelFeeds = channelFeeds;
-      this.financeFeed = [];
-      this.scienceFeed = [];
       if (Array.isArray(home.freshNewsFeed)) {
         this.freshNewsFeed = home.freshNewsFeed;
       } else {
@@ -330,15 +324,11 @@ export const useHomeStore = defineStore("home", {
         }
       });
       this.channelFeeds = nextChannelFeeds;
-      this.financeFeed = [];
-      this.scienceFeed = [];
       if (results.every((result) => result.status === "rejected")) {
         this.freshNewsFeed = [];
         const sessionStore = useSessionStore();
         applyDashboardMutation(sessionStore.user?.id, {
           channelFeeds: this.channelFeeds,
-          financeFeed: this.financeFeed,
-          scienceFeed: this.scienceFeed,
           freshNewsFeed: this.freshNewsFeed,
         });
         return;
@@ -356,8 +346,6 @@ export const useHomeStore = defineStore("home", {
           ...normalizeChannelFeedMap(this.channelFeeds),
           [targetChannel]: [],
         };
-        this.financeFeed = [];
-        this.scienceFeed = [];
         return [];
       }
 
@@ -373,8 +361,6 @@ export const useHomeStore = defineStore("home", {
         ...normalizeChannelFeedMap(this.channelFeeds),
         [targetChannel]: items,
       };
-      this.financeFeed = [];
-      this.scienceFeed = [];
       return items;
     },
     rebuildFreshNewsFeed(persist = true) {
@@ -385,8 +371,6 @@ export const useHomeStore = defineStore("home", {
       const sessionStore = useSessionStore();
       applyDashboardMutation(sessionStore.user?.id, {
         channelFeeds: this.channelFeeds,
-        financeFeed: this.financeFeed,
-        scienceFeed: this.scienceFeed,
         freshNewsFeed: this.freshNewsFeed,
       });
     },

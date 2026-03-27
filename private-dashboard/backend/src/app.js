@@ -16,11 +16,7 @@ const {
   CHANNELS,
   DEFAULT_PAGE_SIZE,
   refreshChannelContent,
-  listCachedContent,
-  getCachedContentFacets,
-  getCachedFeaturedContent,
   getChannelCacheStatus,
-  clearContentCache,
 } = require("./lib/content");
 
 const SESSION_COOKIE_NAME = "lifeflow_session";
@@ -106,8 +102,7 @@ const accountPreferencesSchema = z.object({
   sidebar: z.object({
     calendar: z.boolean().optional(),
     github: z.boolean().optional(),
-    financeFeed: z.boolean().optional(),
-    scienceFeed: z.boolean().optional(),
+    freshNews: z.boolean().optional(),
     favorites: z.boolean().optional(),
     weather: z.boolean().optional(),
     stock: z.boolean().optional(),
@@ -115,7 +110,6 @@ const accountPreferencesSchema = z.object({
   content: z.object({
     readItems: z.record(z.string()).optional(),
     hiddenSources: z.record(z.string()).optional(),
-    sourceBundleVersion: z.string().max(64).optional(),
   }).optional(),
   profile: z.object({
     birthDate: z.string().max(32).optional(),
@@ -987,8 +981,7 @@ function createApp({ config, store }) {
             sourceId: query.sourceId || "",
             sort: query.sort || "latest",
           })
-        : listCachedContent({
-            userId: request.userContext.userId,
+        : await store.listContent(request.userContext, {
             channel: query.channel,
             page: query.page || 1,
             pageSize: query.pageSize || DEFAULT_PAGE_SIZE,
@@ -996,19 +989,17 @@ function createApp({ config, store }) {
             tag: query.tag || "",
             sourceId: query.sourceId || "",
             sort: query.sort || "latest",
-            favoriteUrls,
           });
       const facets = favoritesOnly
         ? await store.listFavoriteContentFacets(request.userContext, query.channel)
-        : getCachedContentFacets(
-            request.userContext.userId,
-            query.channel,
-            await store.listContentSources(request.userContext, query.channel),
-            favoriteUrls,
-          );
+        : await store.listContentFacets(request.userContext, query.channel);
       const cacheStatus = getChannelCacheStatus(request.userContext.userId, query.channel);
       response.json({
         ...result,
+        items: (result.items || []).map((item) => ({
+          ...item,
+          is_favorite: favoriteUrls.includes(item.canonical_url),
+        })),
         tags: facets.tags || [],
         sources: facets.sources || [],
         cache: cacheStatus,
@@ -1021,16 +1012,20 @@ function createApp({ config, store }) {
   app.get("/api/content/featured", requireAuthenticated, async (request, response, next) => {
     try {
       const query = contentListQuerySchema.pick({ channel: true }).extend({
-        limit: z.coerce.number().int().min(1).max(6).optional(),
+        limit: z.coerce.number().int().min(1).max(12).optional(),
       }).parse(request.query || {});
       const favoriteUrls = await store.listFavoriteContentUrls(request.userContext, query.channel);
-      const items = getCachedFeaturedContent(
-        request.userContext.userId,
+      const items = await store.getFeaturedContent(
+        request.userContext,
         query.channel,
         query.limit || 3,
-        favoriteUrls,
       );
-      response.json({ items });
+      response.json({
+        items: (items || []).map((item) => ({
+          ...item,
+          is_favorite: favoriteUrls.includes(item.canonical_url),
+        })),
+      });
     } catch (error) {
       next(error);
     }
@@ -1107,7 +1102,6 @@ function createApp({ config, store }) {
         enabled: typeof parsed.enabled === "boolean" ? parsed.enabled : true,
         sort_order: parsed.sortOrder || existing.length + 1,
         parser_key: parsed.parserKey || "",
-        is_default: false,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       });

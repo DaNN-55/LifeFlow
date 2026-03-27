@@ -175,14 +175,6 @@ async function refreshCaptcha(options = {}) {
   }
 }
 
-async function tryLegacyCaptchaFallback(silent = true) {
-  challenge.provider = "captcha";
-  challenge.turnstileSiteKey = "";
-  challenge.loading = false;
-  await refreshCaptcha({ silent });
-  return Boolean(captcha.id && captcha.svg);
-}
-
 function clearTurnstileToken() {
   challenge.turnstileToken = "";
 }
@@ -277,11 +269,8 @@ async function loadAuthChallengeConfig(options = {}) {
       }
     }
 
-    if (!payload && lastError && (lastError?.status === 404 || isLikelyNetworkError(lastError))) {
-      const legacyReady = await tryLegacyCaptchaFallback(silent);
-      if (legacyReady) {
-        return;
-      }
+    if (!payload?.challenge) {
+      throw lastError || new Error("Auth challenge payload missing");
     }
 
     const nextProvider =
@@ -322,10 +311,6 @@ async function loadAuthChallengeConfig(options = {}) {
     await refreshCaptcha({ silent: true });
     if (!silent && (feedback.value.startsWith("验证码") || feedback.value.includes("认证服务"))) {
       feedback.value = "";
-    }
-
-    if (!payload?.challenge?.provider && lastError) {
-      throw lastError;
     }
   } catch (error) {
     challenge.provider = "";
