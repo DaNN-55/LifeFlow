@@ -2,12 +2,11 @@ import { defineStore } from "pinia";
 
 import { contentTabs, defaultWidgets } from "../app/constants";
 import {
-  loadCachedDailyRecord,
-  loadCachedHomeData,
-  saveCachedDailyRecords,
-  saveCachedHomeData,
-} from "../services/dashboard-cache";
-import { fetchDailyRecord } from "../services/today-api";
+  applyDashboardMutation,
+  hasDashboardSnapshotData,
+  loadDashboardSnapshot,
+  syncDashboardSnapshot,
+} from "../services/sync-service";
 import {
   createEmptyHomeState,
   createEmptyWeatherState,
@@ -158,6 +157,34 @@ export const useHomeStore = defineStore("home", {
     },
   },
   actions: {
+    applyCachedHome(home = {}) {
+      if (Array.isArray(home.financeFeed)) {
+        this.financeFeed = home.financeFeed;
+      }
+      if (Array.isArray(home.scienceFeed)) {
+        this.scienceFeed = home.scienceFeed;
+      }
+      if (Array.isArray(home.freshNewsFeed)) {
+        this.freshNewsFeed = home.freshNewsFeed;
+      } else {
+        this.rebuildFreshNewsFeed(false);
+      }
+      if (home.favorites && typeof home.favorites === "object") {
+        this.favorites = home.favorites;
+      }
+      if (home.github && typeof home.github === "object") {
+        this.github = home.github;
+      }
+      if (home.weather && typeof home.weather === "object") {
+        this.weather = {
+          ...createEmptyWeatherState(),
+          ...home.weather,
+        };
+      }
+      if (home.stock && typeof home.stock === "object") {
+        this.stock = home.stock;
+      }
+    },
     async bootstrap() {
       const sessionStore = useSessionStore();
       if (!sessionStore.user?.id) {
@@ -166,39 +193,22 @@ export const useHomeStore = defineStore("home", {
         return;
       }
 
-      const cachedHome = loadCachedHomeData(sessionStore.user.id);
-      if (Array.isArray(cachedHome.financeFeed)) {
-        this.financeFeed = cachedHome.financeFeed;
-      }
-      if (Array.isArray(cachedHome.scienceFeed)) {
-        this.scienceFeed = cachedHome.scienceFeed;
-      }
-      if (Array.isArray(cachedHome.freshNewsFeed)) {
-        this.freshNewsFeed = cachedHome.freshNewsFeed;
-      } else {
-        this.rebuildFreshNewsFeed(false);
-      }
-      if (cachedHome.favorites && typeof cachedHome.favorites === "object") {
-        this.favorites = cachedHome.favorites;
-      }
-      if (cachedHome.github && typeof cachedHome.github === "object") {
-        this.github = cachedHome.github;
-      }
-      if (cachedHome.weather && typeof cachedHome.weather === "object") {
-        this.weather = {
-          ...createEmptyWeatherState(),
-          ...cachedHome.weather,
-        };
-      }
-      if (cachedHome.stock && typeof cachedHome.stock === "object") {
-        this.stock = cachedHome.stock;
-      }
+      const cachedSnapshot = loadDashboardSnapshot(sessionStore.user.id);
+      const cachedHome = cachedSnapshot?.home || {};
+      this.applyCachedHome(cachedHome);
       const currentSessionId = loadSessionId();
       const lastSidebarRefreshSessionId = String(cachedHome.sidebarRefreshSessionId || "");
       const shouldAutoRefreshSidebar = Boolean(currentSessionId && currentSessionId !== lastSidebarRefreshSessionId);
       const shouldPrimeFreshNews = !shouldAutoRefreshSidebar && this.freshNewsFeed.length === 0;
 
-      const jobs = [this.loadCalendar(this.calendarSelectedDate)];
+      if (hasDashboardSnapshotData(cachedSnapshot)) {
+        await this.loadCalendar(this.calendarSelectedDate, cachedSnapshot);
+      }
+
+      const remoteSnapshot = await syncDashboardSnapshot(sessionStore.user.id);
+      this.applyCachedHome(remoteSnapshot?.home || {});
+
+      const jobs = [this.loadCalendar(this.calendarSelectedDate, remoteSnapshot)];
       if (shouldAutoRefreshSidebar) {
         jobs.push(this.refreshSidebarAfterLogin(currentSessionId));
       } else if (shouldPrimeFreshNews) {
@@ -218,12 +228,11 @@ export const useHomeStore = defineStore("home", {
       ]);
 
       const sessionStore = useSessionStore();
-      saveCachedHomeData(sessionStore.user?.id, {
+      applyDashboardMutation(sessionStore.user?.id, {
         sidebarRefreshSessionId: String(sessionId || ""),
       });
     },
-    async loadCalendar(dateString = this.calendarSelectedDate) {
-      const sessionStore = useSessionStore();
+    async loadCalendar(dateString = this.calendarSelectedDate, snapshot = null) {
       this.loadingCalendar = true;
       this.calendarSelectedDate = /^\d{4}-\d{2}-\d{2}$/.test(String(dateString || "")) ? String(dateString) : getTodayDateString();
       const { dates, monthLabel } = createCalendarGrid(this.calendarSelectedDate);
@@ -232,29 +241,10 @@ export const useHomeStore = defineStore("home", {
       const todayKey = getTodayDateString();
       const selectedMonth = parseLocalDate(this.calendarSelectedDate).getMonth();
       const selectedYear = parseLocalDate(this.calendarSelectedDate).getFullYear();
-      const cachedRecords = dates.map((date) => {
-        const key = formatDateKey(date);
-        return loadCachedDailyRecord(sessionStore.user?.id, key);
-      });
-      const missingDates = dates.filter((_, index) => !cachedRecords[index]);
-      if (missingDates.length) {
-        const fetchedRecords = await Promise.all(
-          missingDates.map(async (date) => {
-            const key = formatDateKey(date);
-            try {
-              const payload = await fetchDailyRecord(key);
-              return payload?.record || { date: key, payload: { tasks: {} } };
-            } catch {
-              return { date: key, payload: { tasks: {} } };
-            }
-          }),
-        );
-        saveCachedDailyRecords(sessionStore.user?.id, fetchedRecords);
-      }
-
+      const resolvedSnapshot = snapshot || loadDashboardSnapshot(useSessionStore().user?.id);
       const records = dates.map((date) => {
         const key = formatDateKey(date);
-        return loadCachedDailyRecord(sessionStore.user?.id, key) || { date: key, payload: { tasks: {} } };
+        return resolvedSnapshot?.dailyRecords?.[key] || { date: key, payload: { tasks: {} } };
       });
 
       this.calendarDays = dates.map((date, index) => {
@@ -309,7 +299,7 @@ export const useHomeStore = defineStore("home", {
         return;
       }
       const sessionStore = useSessionStore();
-      saveCachedHomeData(sessionStore.user?.id, {
+      applyDashboardMutation(sessionStore.user?.id, {
         financeFeed: this.financeFeed,
         scienceFeed: this.scienceFeed,
         freshNewsFeed: this.freshNewsFeed,
@@ -323,7 +313,7 @@ export const useHomeStore = defineStore("home", {
         message: items.length ? "最近收藏资讯" : "当前还没有收藏资讯。",
       };
       const sessionStore = useSessionStore();
-      saveCachedHomeData(sessionStore.user?.id, {
+      applyDashboardMutation(sessionStore.user?.id, {
         favorites: this.favorites,
       });
     },
@@ -335,7 +325,7 @@ export const useHomeStore = defineStore("home", {
         message: "GitHub 预览暂时不可用",
       }));
       const sessionStore = useSessionStore();
-      saveCachedHomeData(sessionStore.user?.id, {
+      applyDashboardMutation(sessionStore.user?.id, {
         github: this.github,
       });
     },
@@ -355,14 +345,14 @@ export const useHomeStore = defineStore("home", {
         status: weather?.location ? "ready" : "error",
       };
       const sessionStore = useSessionStore();
-      saveCachedHomeData(sessionStore.user?.id, {
+      applyDashboardMutation(sessionStore.user?.id, {
         weather: this.weather,
       });
     },
     async refreshStocks() {
       this.stock = await fetchStockWidget(this.stockSymbolsInput);
       const sessionStore = useSessionStore();
-      saveCachedHomeData(sessionStore.user?.id, {
+      applyDashboardMutation(sessionStore.user?.id, {
         stock: this.stock,
       });
     },

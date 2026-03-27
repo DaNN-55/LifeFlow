@@ -3,6 +3,7 @@ import { defineStore } from "pinia";
 import { signOutAccount } from "../services/account-api";
 import { fetchSession, probeHealth } from "../services/api-client";
 import { loadPreviewMode, savePreviewMode, saveSessionId } from "../services/config";
+import { resetDashboardSyncState } from "../services/sync-service";
 import { getUserFacingErrorMessage } from "../utils/error-message";
 
 export const useSessionStore = defineStore("session", {
@@ -16,6 +17,7 @@ export const useSessionStore = defineStore("session", {
   }),
   actions: {
     applySession(payload, feedback = "") {
+      const previousUserId = this.user?.id || "";
       this.user = payload?.user || null;
       this.previewMode = false;
       savePreviewMode(false);
@@ -23,6 +25,12 @@ export const useSessionStore = defineStore("session", {
       this.status = this.user ? "ready" : "guest";
       if (this.user) {
         this.apiStatus = "ready";
+      }
+      if (previousUserId) {
+        resetDashboardSyncState(previousUserId);
+      }
+      if (this.user?.id) {
+        resetDashboardSyncState(this.user.id);
       }
       this.feedback = feedback || (this.user ? `已识别 ${this.user.username}` : "当前未登录");
     },
@@ -80,6 +88,7 @@ export const useSessionStore = defineStore("session", {
       };
     },
     async signOut() {
+      const previousUserId = this.user?.id || "";
       try {
         await signOutAccount();
       } catch {
@@ -91,6 +100,9 @@ export const useSessionStore = defineStore("session", {
       this.previewMode = false;
       this.status = "guest";
       this.feedback = "已退出登录";
+      if (previousUserId) {
+        resetDashboardSyncState(previousUserId);
+      }
     },
   },
 });

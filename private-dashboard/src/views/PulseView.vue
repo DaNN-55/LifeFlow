@@ -3,10 +3,9 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 
 import ToolbarSelect from "../components/common/ToolbarSelect.vue";
-import { saveCachedDailyRecord } from "../services/dashboard-cache";
 import { fetchPulseQuote } from "../services/pulse-api";
-import { fetchDailyRecord, saveDailyRecord } from "../services/today-api";
 import { useSessionStore } from "../stores/session";
+import { useTodayStore } from "../stores/today";
 import { useWeeklyStore } from "../stores/weekly";
 import { formatDateTime, formatWeekInputValue, getTodayDateString } from "../utils/date";
 import { getUserFacingErrorMessage } from "../utils/error-message";
@@ -22,6 +21,7 @@ const FALLBACK_QUOTE = {
 
 const router = useRouter();
 const sessionStore = useSessionStore();
+const todayStore = useTodayStore();
 const weeklyStore = useWeeklyStore();
 const rootRef = ref(null);
 const activeNotesTaskId = ref("");
@@ -169,28 +169,12 @@ async function submitPulseNote() {
   weeklyStore.setSaveStatus("正在同步备注到云端...");
 
   try {
-    const payload = await fetchDailyRecord(today);
-    const record = payload?.record || { date: today, payload: { tasks: {} } };
-    const nextTasks = { ...(record.payload?.tasks || {}) };
-    const currentTaskState = nextTasks[task.id] && typeof nextTasks[task.id] === "object"
-      ? nextTasks[task.id]
-      : {};
-
-    nextTasks[task.id] = {
-      completed: Boolean(currentTaskState.completed),
-      notes: [
-        ...(Array.isArray(currentTaskState.notes) ? currentTaskState.notes : []),
-        {
-          id: `note-${Date.now()}`,
-          text,
-          createdAt: new Date().toISOString(),
-        },
-      ],
-    };
-
-    const response = await saveDailyRecord(today, { tasks: nextTasks });
-    if (sessionStore.user?.id && response?.record) {
-      saveCachedDailyRecord(sessionStore.user.id, response.record);
+    if (!todayStore.tasks.length) {
+      await todayStore.bootstrap();
+    }
+    const saved = await todayStore.appendTaskNoteForDate(task.id, text, today);
+    if (!saved) {
+      throw new Error(todayStore.error || "备注保存失败");
     }
     noteDraft.value = "";
     await loadPulse();

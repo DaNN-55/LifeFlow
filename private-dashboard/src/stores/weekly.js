@@ -1,24 +1,12 @@
 import { defineStore } from "pinia";
 
+import { saveWeeklySummary } from "../services/weekly-api";
 import {
-  fetchDailyRecord,
-  fetchTaskTimeline,
-  fetchWeeklySummary,
-  listTasks,
-  saveWeeklySummary,
-} from "../services/weekly-api";
-import {
-  loadCachedHomeData,
-  loadCachedDailyRecord,
-  loadCachedDailyRecords,
-  loadCachedTasks,
-  loadDashboardUserCache,
-  loadCachedWeeklySummary,
-  saveCachedHomeData,
-  saveCachedDailyRecords,
-  saveCachedTasks,
-  saveCachedWeeklySummary,
-} from "../services/dashboard-cache";
+  applyDashboardMutation,
+  hasDashboardSnapshotData,
+  loadDashboardSnapshot,
+  syncDashboardSnapshot,
+} from "../services/sync-service";
 import { updateTask } from "../services/today-api";
 import {
   addDays,
@@ -164,10 +152,9 @@ function buildSummaryExcerpt(content = "", maxLength = 84) {
   return text.length > maxLength ? `${text.slice(0, maxLength).trim()}...` : text;
 }
 
-function buildCachedTimelineAggregation(userId) {
-  const cache = loadDashboardUserCache(userId);
-  const tasks = Array.isArray(cache?.tasks) ? cache.tasks : [];
-  const records = Object.values(cache?.dailyRecords || {})
+function buildCachedTimelineAggregation(snapshot = {}) {
+  const tasks = Array.isArray(snapshot?.tasks) ? snapshot.tasks : [];
+  const records = Object.values(snapshot?.dailyRecords || {})
     .filter((record) => record && typeof record === "object" && record.date)
     .sort((left, right) => String(left.date).localeCompare(String(right.date)));
   const dateKeys = records.map((record) => String(record.date));
@@ -260,15 +247,8 @@ function buildAggregationFromRecords(tasks = [], dateKeys = [], records = [], to
   return aggregation;
 }
 
-async function fetchFreshWeekRecords(dateKeys = []) {
-  const records = await Promise.all(
-    dateKeys.map((date) =>
-      fetchDailyRecord(date)
-        .then((payload) => payload?.record || createEmptyRecord(date))
-        .catch(() => createEmptyRecord(date)),
-    ),
-  );
-  return records;
+function getRecordsFromSnapshot(snapshot = {}, dateKeys = []) {
+  return dateKeys.map((date) => snapshot?.dailyRecords?.[date] || createEmptyRecord(date));
 }
 
 export const useWeeklyStore = defineStore("weekly", {
@@ -460,6 +440,35 @@ export const useWeeklyStore = defineStore("weekly", {
         };
       }
     },
+    applyWeekReviewFromSnapshot(snapshot = {}) {
+      const normalizedTasks = (snapshot?.tasks || []).map(normalizeTask).sort((left, right) => left.order - right.order);
+      const dateKeys = buildWeekDateKeys(this.selectedWeek);
+      const records = getRecordsFromSnapshot(snapshot, dateKeys);
+      const summary = snapshot?.weeklySummaries?.[this.selectedWeek] || { week: this.selectedWeek, content: "", updatedAt: "" };
+
+      this.aggregation = buildAggregationFromRecords(normalizedTasks, dateKeys, records, 7);
+      this.ensureSummaryState(this.selectedWeek, {
+        week: this.selectedWeek,
+        content: summary?.content || "",
+        updatedAt: summary?.updatedAt || "",
+      });
+    },
+    applyMonthReviewFromSnapshot(snapshot = {}) {
+      const normalizedTasks = (snapshot?.tasks || []).map(normalizeTask).sort((left, right) => left.order - right.order);
+      const dateKeys = buildMonthDateKeys(this.selectedMonth);
+      const records = getRecordsFromSnapshot(snapshot, dateKeys);
+      const summaryWeeks = getMonthWeekValues(this.selectedMonth);
+
+      summaryWeeks.forEach((week) => {
+        const summary = snapshot?.weeklySummaries?.[week] || { week, content: "", updatedAt: "" };
+        this.ensureSummaryState(week, summary);
+      });
+
+      this.aggregation = buildAggregationFromRecords(normalizedTasks, dateKeys, records, dateKeys.length);
+    },
+    applyTimelineFromSnapshot(snapshot = {}) {
+      this.timelineAggregation = buildCachedTimelineAggregation(snapshot);
+    },
     async bootstrap() {
       const sessionStore = useSessionStore();
       if (!sessionStore.user?.id) {
@@ -471,10 +480,27 @@ export const useWeeklyStore = defineStore("weekly", {
       this.loading = true;
       this.error = "";
       try {
+        const sessionStore = useSessionStore();
+        const cachedSnapshot = loadDashboardSnapshot(sessionStore.user?.id);
+        const hasCachedData = hasDashboardSnapshotData(cachedSnapshot);
+
+        if (hasCachedData) {
+          if (this.mode === "month") {
+            this.applyMonthReviewFromSnapshot(cachedSnapshot);
+            this.setSaveStatus(`已从本地缓存载入 ${formatMonthRangeText(this.selectedMonth)} 的月度复盘`);
+          } else {
+            this.applyWeekReviewFromSnapshot(cachedSnapshot);
+            this.setSaveStatus(`已从本地缓存载入 ${formatWeekRangeText(this.selectedWeek)} 的周复盘`);
+          }
+        }
+
+        const remoteSnapshot = await syncDashboardSnapshot(sessionStore.user?.id);
         if (this.mode === "month") {
-          await this.loadMonthReview();
+          this.applyMonthReviewFromSnapshot(remoteSnapshot);
+          this.setSaveStatus(hasCachedData ? `已完成 ${formatMonthRangeText(this.selectedMonth)} 的增量同步` : `已从云端载入 ${formatMonthRangeText(this.selectedMonth)} 的月度复盘`);
         } else {
-          await this.loadWeekReview();
+          this.applyWeekReviewFromSnapshot(remoteSnapshot);
+          this.setSaveStatus(hasCachedData ? `已完成 ${formatWeekRangeText(this.selectedWeek)} 的增量同步` : `已从云端载入 ${formatWeekRangeText(this.selectedWeek)} 的周复盘`);
         }
       } catch (error) {
         this.error = getUserFacingErrorMessage(error, "Weekly 模块加载失败");
@@ -484,152 +510,30 @@ export const useWeeklyStore = defineStore("weekly", {
       }
     },
     async loadWeekReview() {
-      const sessionStore = useSessionStore();
-      const userId = sessionStore.user?.id;
-      const dateKeys = buildWeekDateKeys(this.selectedWeek);
-      let tasks = loadCachedTasks(userId);
-      if (!tasks.length) {
-        const taskPayload = await listTasks();
-        tasks = taskPayload?.tasks || [];
-        saveCachedTasks(userId, tasks);
-      }
-
-      const cachedRecords = loadCachedDailyRecords(userId, dateKeys);
-      const missingDateKeys = dateKeys.filter((_, index) => !cachedRecords[index]);
-      if (missingDateKeys.length) {
-        const fetchedRecords = await Promise.all(
-          missingDateKeys.map((date) =>
-            fetchDailyRecord(date)
-              .then((payload) => payload?.record || createEmptyRecord(date))
-              .catch(() => createEmptyRecord(date)),
-          ),
-        );
-        saveCachedDailyRecords(userId, fetchedRecords);
-      }
-
-      const records = dateKeys.map((date) => loadCachedDailyRecord(userId, date) || createEmptyRecord(date));
-      let normalizedTasks = tasks.map(normalizeTask).sort((left, right) => left.order - right.order);
-      let aggregation = buildAggregationFromRecords(normalizedTasks, dateKeys, records, 7);
-
-      if (normalizedTasks.length && !hasAnyTaskHistory(aggregation)) {
-        const [freshTaskPayload, freshRecords] = await Promise.all([
-          listTasks().catch(() => ({ tasks })),
-          fetchFreshWeekRecords(dateKeys),
-        ]);
-        tasks = freshTaskPayload?.tasks || tasks;
-        normalizedTasks = tasks.map(normalizeTask).sort((left, right) => left.order - right.order);
-        saveCachedTasks(userId, tasks);
-        saveCachedDailyRecords(userId, freshRecords);
-        aggregation = buildAggregationFromRecords(normalizedTasks, dateKeys, freshRecords, 7);
-      }
-
-      let summary = loadCachedWeeklySummary(userId, this.selectedWeek);
-      if (!summary) {
-        const summaryPayload = await fetchWeeklySummary(this.selectedWeek);
-        summary = {
-          week: this.selectedWeek,
-          content: summaryPayload?.summary?.content || "",
-          updatedAt: summaryPayload?.summary?.updatedAt || "",
-        };
-        saveCachedWeeklySummary(userId, summary);
-      }
-
-      this.aggregation = aggregation;
-      this.ensureSummaryState(this.selectedWeek, {
-        week: this.selectedWeek,
-        content: summary?.content || "",
-        updatedAt: summary?.updatedAt || "",
-      });
-      this.setSaveStatus(`已从本地缓存载入 ${formatWeekRangeText(this.selectedWeek)} 的周复盘`);
+      await this.loadCurrentView();
     },
     async loadMonthReview() {
-      const sessionStore = useSessionStore();
-      const userId = sessionStore.user?.id;
-      let tasks = loadCachedTasks(userId);
-      if (!tasks.length) {
-        const taskPayload = await listTasks();
-        tasks = taskPayload?.tasks || [];
-        saveCachedTasks(userId, tasks);
-      }
-
-      const normalizedTasks = tasks.map(normalizeTask).sort((left, right) => left.order - right.order);
-      const dateKeys = buildMonthDateKeys(this.selectedMonth);
-      const cachedRecords = loadCachedDailyRecords(userId, dateKeys);
-      const missingDateKeys = dateKeys.filter((_, index) => !cachedRecords[index]);
-      if (missingDateKeys.length) {
-        const fetchedRecords = await Promise.all(
-          missingDateKeys.map((date) =>
-            fetchDailyRecord(date)
-              .then((payload) => payload?.record || createEmptyRecord(date))
-              .catch(() => createEmptyRecord(date)),
-          ),
-        );
-        saveCachedDailyRecords(userId, fetchedRecords);
-      }
-
-      const records = dateKeys.map((date) => loadCachedDailyRecord(userId, date) || createEmptyRecord(date));
-      const aggregation = buildAggregationFromRecords(normalizedTasks, dateKeys, records, dateKeys.length);
-
-      const summaryWeeks = getMonthWeekValues(this.selectedMonth);
-      const missingWeeks = summaryWeeks.filter((week) => !loadCachedWeeklySummary(userId, week));
-      if (missingWeeks.length) {
-        const fetchedSummaries = await Promise.all(
-          missingWeeks.map(async (week) => {
-            const summaryPayload = await fetchWeeklySummary(week).catch(() => ({ summary: null }));
-            const summary = {
-              week,
-              content: summaryPayload?.summary?.content || "",
-              updatedAt: summaryPayload?.summary?.updatedAt || "",
-            };
-            saveCachedWeeklySummary(userId, summary);
-            return summary;
-          }),
-        );
-        fetchedSummaries.forEach((summary) => {
-          this.ensureSummaryState(summary.week, summary);
-        });
-      }
-
-      summaryWeeks.forEach((week) => {
-        const summary = loadCachedWeeklySummary(userId, week) || { week, content: "", updatedAt: "" };
-        this.ensureSummaryState(week, summary);
-      });
-
-      this.aggregation = aggregation;
-      this.setSaveStatus(`已从本地缓存载入 ${formatMonthRangeText(this.selectedMonth)} 的月度复盘`);
+      await this.loadCurrentView();
     },
     async loadTimelineView() {
       const sessionStore = useSessionStore();
-      const userId = sessionStore.user?.id;
-      if (!userId) {
+      if (!sessionStore.user?.id) {
         return;
       }
 
       this.loading = true;
       this.error = "";
       try {
-        const cachedHome = loadCachedHomeData(userId);
-        if (cachedHome?.timelineHydratedAt) {
-          this.timelineAggregation = buildCachedTimelineAggregation(userId);
+        const cachedSnapshot = loadDashboardSnapshot(sessionStore.user?.id);
+        const hasCachedData = hasDashboardSnapshotData(cachedSnapshot);
+        if (hasCachedData) {
+          this.applyTimelineFromSnapshot(cachedSnapshot);
           this.setSaveStatus("Timeline 已从本地缓存载入完整历史记录");
-          return;
         }
 
-        const payload = await fetchTaskTimeline();
-        const tasks = Array.isArray(payload?.tasks) ? payload.tasks : [];
-        const records = Array.isArray(payload?.records) ? payload.records : [];
-        const startDate = String(payload?.start || "");
-        const endDate = String(payload?.end || "");
-        const totalDays = Number(payload?.totalDays || 0) || buildRecentDateKeys(31).length;
-        const dateKeys = startDate && endDate ? buildDateKeysBetween(startDate, endDate) : buildRecentDateKeys(totalDays);
-        const normalizedTasks = tasks.map(normalizeTask).sort((left, right) => left.order - right.order);
-        saveCachedTasks(userId, tasks);
-        saveCachedDailyRecords(userId, records);
-        saveCachedHomeData(userId, {
-          timelineHydratedAt: new Date().toISOString(),
-        });
-        this.timelineAggregation = buildAggregationFromRecords(normalizedTasks, dateKeys, records, totalDays);
-        this.setSaveStatus("Timeline 已直接从云端载入完整历史记录");
+        const remoteSnapshot = await syncDashboardSnapshot(sessionStore.user?.id);
+        this.applyTimelineFromSnapshot(remoteSnapshot);
+        this.setSaveStatus(hasCachedData ? "Timeline 增量同步已完成" : "Timeline 已从云端载入完整历史记录");
       } catch (error) {
         this.error = getUserFacingErrorMessage(error, "Timeline 加载失败");
         this.setSaveStatus(this.error);
@@ -681,6 +585,15 @@ export const useWeeklyStore = defineStore("weekly", {
       try {
         const sessionStore = useSessionStore();
         const content = String(this.currentSummaryDraft || "").trim();
+        const optimisticSummary = {
+          week: this.selectedWeek,
+          content,
+          updatedAt: new Date().toISOString(),
+        };
+        this.ensureSummaryState(this.selectedWeek, optimisticSummary);
+        applyDashboardMutation(sessionStore.user?.id, {
+          weeklySummary: optimisticSummary,
+        });
         const response = await saveWeeklySummary(this.selectedWeek, content);
         const summary = {
           week: this.selectedWeek,
@@ -688,7 +601,9 @@ export const useWeeklyStore = defineStore("weekly", {
           updatedAt: response?.summary?.updatedAt || new Date().toISOString(),
         };
         this.ensureSummaryState(this.selectedWeek, summary);
-        saveCachedWeeklySummary(sessionStore.user?.id, summary);
+        applyDashboardMutation(sessionStore.user?.id, {
+          weeklySummary: summary,
+        });
         this.summaryDrafts = {
           ...this.summaryDrafts,
           [this.selectedWeek]: content,
@@ -710,10 +625,20 @@ export const useWeeklyStore = defineStore("weekly", {
         return;
       }
       try {
-        await updateTask(taskId, { archived: false, archivedAt: null });
-        task.archived = false;
-        task.archivedAt = "";
-        saveCachedTasks(sessionStore.user?.id, this.aggregation.tasks);
+        const response = await updateTask(taskId, { archived: false, archivedAt: null });
+        applyDashboardMutation(sessionStore.user?.id, {
+          task: response?.task || {
+            ...task,
+            archived: false,
+            archivedAt: "",
+          },
+        });
+        const snapshot = loadDashboardSnapshot(sessionStore.user?.id);
+        if (this.mode === "month") {
+          this.applyMonthReviewFromSnapshot(snapshot);
+        } else {
+          this.applyWeekReviewFromSnapshot(snapshot);
+        }
         this.setSaveStatus(`已恢复任务：${task.name}`);
       } catch (error) {
         this.handleActionError(error, "任务恢复失败");

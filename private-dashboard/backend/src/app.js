@@ -184,6 +184,10 @@ const contentRefreshSchema = z.object({
   limit: z.coerce.number().int().min(1).max(40).optional(),
 });
 
+const syncChangesQuerySchema = z.object({
+  since: z.string().datetime().optional(),
+});
+
 function buildDateKeysBetween(startDate, endDate) {
   const dates = [];
   const start = new Date(startDate);
@@ -197,6 +201,25 @@ function buildDateKeysBetween(startDate, endDate) {
   }
 
   return dates;
+}
+
+async function buildSyncSnapshot(store, userContext) {
+  const [tasks, dailyRecords, weeklySummaries, syncState] = await Promise.all([
+    store.listTasks(userContext),
+    store.listDailyRecords(userContext),
+    store.listWeeklySummaries(userContext),
+    store.getUserSyncState(userContext.userId),
+  ]);
+
+  return {
+    cursor: String(syncState?.dataUpdatedAt || new Date().toISOString()),
+    resetAt: String(syncState?.dataResetAt || ""),
+    snapshot: {
+      tasks,
+      dailyRecords,
+      weeklySummaries,
+    },
+  };
 }
 
 const contentFavoriteSchema = z.object({
@@ -694,6 +717,63 @@ function createApp({ config, store }) {
       await store.deleteUserAccount(user.id);
       clearSessionCookie(request, response);
       response.json({ ok: true });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/sync/bootstrap", requireAuthenticated, async (request, response, next) => {
+    try {
+      const payload = await buildSyncSnapshot(store, request.userContext);
+      response.json(payload);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/sync/changes", requireAuthenticated, async (request, response, next) => {
+    try {
+      const query = syncChangesQuerySchema.parse(request.query || {});
+      if (!query.since) {
+        const payload = await buildSyncSnapshot(store, request.userContext);
+        response.json({
+          ...payload,
+          reset: true,
+        });
+        return;
+      }
+
+      const syncState = await store.getUserSyncState(request.userContext.userId);
+      const cursor = String(syncState?.dataUpdatedAt || new Date().toISOString());
+      const resetAt = String(syncState?.dataResetAt || "");
+      const sinceMs = new Date(query.since).getTime();
+      const resetMs = new Date(resetAt).getTime();
+
+      if (!Number.isNaN(resetMs) && resetMs > sinceMs) {
+        const payload = await buildSyncSnapshot(store, request.userContext);
+        response.json({
+          ...payload,
+          reset: true,
+        });
+        return;
+      }
+
+      const [tasks, dailyRecords, weeklySummaries] = await Promise.all([
+        store.listTasksUpdatedSince(request.userContext, query.since),
+        store.listDailyRecordsUpdatedSince(request.userContext, query.since),
+        store.listWeeklySummariesUpdatedSince(request.userContext, query.since),
+      ]);
+
+      response.json({
+        cursor,
+        reset: false,
+        resetAt,
+        changes: {
+          tasks,
+          dailyRecords,
+          weeklySummaries,
+        },
+      });
     } catch (error) {
       next(error);
     }

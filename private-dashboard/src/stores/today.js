@@ -2,20 +2,18 @@ import { defineStore } from "pinia";
 
 import { TASK_COLOR_PALETTES, getRandomTaskColor } from "../app/task-constants";
 import {
-  loadCachedDailyRecord,
-  loadCachedTasks,
-  saveCachedDailyRecord,
-  saveCachedTasks,
-} from "../services/dashboard-cache";
-import {
   createTask,
   deleteTask,
-  fetchDailyRecord,
-  listTasks,
   saveAccountPreferences,
   saveDailyRecord,
   updateTask,
 } from "../services/today-api";
+import {
+  applyDashboardMutation,
+  hasDashboardSnapshotData,
+  loadDashboardSnapshot,
+  syncDashboardSnapshot,
+} from "../services/sync-service";
 import { formatDateKey, formatDisplayDate, formatDateTime, getTodayDateString, parseLocalDate } from "../utils/date";
 import { getUserFacingErrorMessage } from "../utils/error-message";
 import { getTaskIcon as resolveTaskIcon } from "../utils/task-icons";
@@ -68,6 +66,23 @@ function normalizeRecord(record = {}, tasks = [], selectedDate = getTodayDateStr
     payload: {
       tasks: normalizedTasks,
     },
+  };
+}
+
+function buildRecordPayloadFromTasks(tasks = [], record = {}) {
+  return {
+    tasks: Object.fromEntries(
+      tasks.map((task) => {
+        const taskState = record?.payload?.tasks?.[task.id] || createEmptyTaskState();
+        return [
+          task.id,
+          {
+            completed: Boolean(taskState.completed),
+            notes: Array.isArray(taskState.notes) ? taskState.notes : [],
+          },
+        ];
+      }),
+    ),
   };
 }
 
@@ -149,13 +164,24 @@ export const useTodayStore = defineStore("today", {
     },
   },
   actions: {
-    persistLocalCache() {
+    applySnapshot(snapshot = {}) {
+      const normalizedTasks = Array.isArray(snapshot?.tasks)
+        ? snapshot.tasks.map(normalizeTask).sort((left, right) => left.order - right.order)
+        : [];
+      this.tasks = normalizedTasks;
+      this.record = normalizeRecord(snapshot?.dailyRecords?.[this.selectedDate], normalizedTasks, this.selectedDate);
+      this.ready = true;
+    },
+    persistLocalCache(mutation = {}) {
       const sessionStore = useSessionStore();
       if (!sessionStore.user?.id) {
         return;
       }
-      saveCachedTasks(sessionStore.user.id, this.tasks);
-      saveCachedDailyRecord(sessionStore.user.id, this.record);
+      applyDashboardMutation(sessionStore.user.id, {
+        tasks: this.tasks,
+        dailyRecord: this.record,
+        ...mutation,
+      });
     },
     handleActionError(error, fallbackMessage) {
       this.error = getUserFacingErrorMessage(error, fallbackMessage);
@@ -176,34 +202,17 @@ export const useTodayStore = defineStore("today", {
       this.error = "";
 
       try {
-        const cachedTasks = loadCachedTasks(sessionStore.user.id);
-        const cachedRecord = loadCachedDailyRecord(sessionStore.user.id, this.selectedDate);
+        const cachedSnapshot = loadDashboardSnapshot(sessionStore.user.id);
+        const hasCachedData = hasDashboardSnapshotData(cachedSnapshot);
 
-        if (cachedTasks.length) {
-          this.tasks = cachedTasks.map(normalizeTask);
-        }
-        if (cachedRecord) {
-          this.record = normalizeRecord(cachedRecord, this.tasks, this.selectedDate);
+        if (hasCachedData) {
+          this.applySnapshot(cachedSnapshot);
+          this.setSaveState("数据已从本地缓存载入", "success");
         }
 
-        if (cachedTasks.length && cachedRecord) {
-          this.ready = true;
-          this.saveStatus = "数据已从本地缓存载入";
-          this.saveTone = "success";
-          return;
-        }
-
-        const [tasksPayload, recordPayload] = await Promise.all([
-          cachedTasks.length ? Promise.resolve({ tasks: cachedTasks }) : listTasks(),
-          cachedRecord ? Promise.resolve({ record: cachedRecord }) : fetchDailyRecord(this.selectedDate),
-        ]);
-
-        this.tasks = (tasksPayload?.tasks || []).map(normalizeTask);
-        this.record = normalizeRecord(recordPayload?.record, this.tasks, this.selectedDate);
-        this.persistLocalCache();
-        this.ready = true;
-        this.saveStatus = cachedTasks.length || cachedRecord ? "本地缓存已补齐" : "数据已从云端载入";
-        this.saveTone = "success";
+        const remoteSnapshot = await syncDashboardSnapshot(sessionStore.user.id);
+        this.applySnapshot(remoteSnapshot);
+        this.setSaveState(hasCachedData ? "增量同步已完成" : "数据已从云端载入", "success");
       } catch (error) {
         this.handleActionError(error, "Today 模块加载失败");
         this.ready = false;
@@ -246,34 +255,55 @@ export const useTodayStore = defineStore("today", {
       this.saveTone = tone;
     },
     buildRecordPayload() {
-      return {
-        tasks: Object.fromEntries(
-          this.tasks.map((task) => {
-            const taskState = this.ensureTaskRecord(task.id);
-            return [
-              task.id,
-              {
-                completed: Boolean(taskState.completed),
-                notes: Array.isArray(taskState.notes) ? taskState.notes : [],
-              },
-            ];
-          }),
-        ),
-      };
+      return buildRecordPayloadFromTasks(this.tasks, this.record);
     },
-    async persistRecord(successMessage) {
+    getRecordForDate(date) {
+      const targetDate = /^\d{4}-\d{2}-\d{2}$/.test(String(date || "")) ? String(date) : this.selectedDate;
+      if (targetDate === this.selectedDate) {
+        return normalizeRecord(this.record, this.tasks, targetDate);
+      }
+
+      const sessionStore = useSessionStore();
+      const snapshot = loadDashboardSnapshot(sessionStore.user?.id);
+      return normalizeRecord(snapshot?.dailyRecords?.[targetDate], this.tasks, targetDate);
+    },
+    async persistRecord(successMessage, date = this.selectedDate, mutator = null) {
+      const targetDate = /^\d{4}-\d{2}-\d{2}$/.test(String(date || "")) ? String(date) : this.selectedDate;
+      const nextRecord = this.getRecordForDate(targetDate);
+      if (typeof mutator === "function") {
+        mutator(nextRecord);
+      }
+
+      if (targetDate === this.selectedDate) {
+        this.record = normalizeRecord(nextRecord, this.tasks, targetDate);
+      }
+      this.persistLocalCache({
+        dailyRecord: {
+          ...nextRecord,
+          payload: buildRecordPayloadFromTasks(this.tasks, nextRecord),
+        },
+      });
+
       try {
         this.setSaveState("正在同步到云端...", "progress");
-        const response = await saveDailyRecord(this.selectedDate, this.buildRecordPayload());
-        this.record = normalizeRecord(response?.record, this.tasks, this.selectedDate);
-        this.persistLocalCache();
+        const response = await saveDailyRecord(targetDate, buildRecordPayloadFromTasks(this.tasks, nextRecord));
+        const persistedRecord = normalizeRecord(response?.record, this.tasks, targetDate);
+        if (targetDate === this.selectedDate) {
+          this.record = persistedRecord;
+        }
+        this.persistLocalCache({
+          dailyRecord: persistedRecord,
+        });
         this.setSaveState(successMessage, "success");
+        return persistedRecord;
       } catch (error) {
         this.handleActionError(error, "今日记录同步失败");
+        return null;
       }
     },
     async persistTask(taskId, payload, successMessage) {
       try {
+        this.persistLocalCache();
         this.setSaveState("正在同步到云端...", "progress");
         const response = await updateTask(taskId, payload);
         const normalized = normalizeTask(response?.task || payload);
@@ -340,9 +370,15 @@ export const useTodayStore = defineStore("today", {
       if (!task) {
         return;
       }
-      const taskState = this.ensureTaskRecord(taskId);
-      taskState.completed = !taskState.completed;
-      await this.persistRecord(`已保存 ${task.name} 的完成状态`);
+      await this.persistRecord(
+        `已保存 ${task.name} 的完成状态`,
+        this.selectedDate,
+        (record) => {
+          const taskState = record.payload.tasks[taskId] || createEmptyTaskState();
+          taskState.completed = !taskState.completed;
+          record.payload.tasks[taskId] = taskState;
+        },
+      );
     },
     async setTaskColor(taskId, color) {
       const task = this.tasks.find((item) => item.id === taskId);
@@ -359,26 +395,67 @@ export const useTodayStore = defineStore("today", {
       if (!task || !draft) {
         return;
       }
-      const taskState = this.ensureTaskRecord(taskId);
-      taskState.notes.push({
-        id: `note-${Date.now()}`,
-        text: draft,
-        createdAt: buildNoteCreatedAt(this.selectedDate),
-      });
       this.noteDrafts = {
         ...this.noteDrafts,
         [taskId]: "",
       };
-      await this.persistRecord(`已追加 ${task.name} 的备注`);
+      await this.persistRecord(
+        `已追加 ${task.name} 的备注`,
+        this.selectedDate,
+        (record) => {
+          const taskState = record.payload.tasks[taskId] || createEmptyTaskState();
+          taskState.notes = [
+            ...(Array.isArray(taskState.notes) ? taskState.notes : []),
+            {
+              id: `note-${Date.now()}`,
+              text: draft,
+              createdAt: buildNoteCreatedAt(this.selectedDate),
+            },
+          ];
+          record.payload.tasks[taskId] = taskState;
+        },
+      );
     },
     async deleteTaskNote(taskId, noteId) {
       const task = this.tasks.find((item) => item.id === taskId);
-      const taskState = this.ensureTaskRecord(taskId);
       if (!task) {
         return;
       }
-      taskState.notes = taskState.notes.filter((note) => note.id !== noteId);
-      await this.persistRecord(`已删除 ${task.name} 的备注`);
+      await this.persistRecord(
+        `已删除 ${task.name} 的备注`,
+        this.selectedDate,
+        (record) => {
+          const taskState = record.payload.tasks[taskId] || createEmptyTaskState();
+          taskState.notes = (taskState.notes || []).filter((note) => note.id !== noteId);
+          record.payload.tasks[taskId] = taskState;
+        },
+      );
+    },
+    async appendTaskNoteForDate(taskId, text, date = this.selectedDate) {
+      const task = this.tasks.find((item) => item.id === taskId);
+      const draft = String(text || "").trim();
+      if (!task || !draft) {
+        return false;
+      }
+
+      const persisted = await this.persistRecord(
+        `已追加 ${task.name} 的备注`,
+        date,
+        (record) => {
+          const taskState = record.payload.tasks[taskId] || createEmptyTaskState();
+          taskState.notes = [
+            ...(Array.isArray(taskState.notes) ? taskState.notes : []),
+            {
+              id: `note-${Date.now()}`,
+              text: draft,
+              createdAt: buildNoteCreatedAt(date),
+            },
+          ];
+          record.payload.tasks[taskId] = taskState;
+        },
+      );
+
+      return Boolean(persisted);
     },
     async createTask(name, tagsInput, color, icon = "") {
       const normalizedName = String(name || "").trim();

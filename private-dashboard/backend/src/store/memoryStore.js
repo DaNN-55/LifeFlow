@@ -13,6 +13,26 @@ class MemoryStore {
     this.schemaMode = "user-scoped";
   }
 
+  getNowIso() {
+    return new Date().toISOString();
+  }
+
+  async touchUserSyncState(userId, options = {}) {
+    const user = await this.getUserById(userId);
+    if (!user) {
+      return null;
+    }
+
+    const now = this.getNowIso();
+    const next = {
+      ...user,
+      data_updated_at: now,
+      data_reset_at: options.reset ? now : user.data_reset_at || "",
+    };
+    this.usersByUsername.set(next.username, next);
+    return next;
+  }
+
   async init() {
     return this;
   }
@@ -54,8 +74,13 @@ class MemoryStore {
 
   async createTask(scope = {}, task) {
     const { tasks } = this.ensureUserScope(scope.userId);
-    tasks.set(task.id, task);
-    return task;
+    const next = {
+      ...task,
+      updated_at: task.updated_at || this.getNowIso(),
+    };
+    tasks.set(next.id, next);
+    await this.touchUserSyncState(scope.userId);
+    return next;
   }
 
   async updateTask(scope = {}, taskId, patch) {
@@ -70,7 +95,9 @@ class MemoryStore {
         next[key] = value;
       }
     });
+    next.updated_at = this.getNowIso();
     tasks.set(taskId, next);
+    await this.touchUserSyncState(scope.userId);
     return next;
   }
 
@@ -80,9 +107,10 @@ class MemoryStore {
     for (const [date, record] of dailyRecords.entries()) {
       if (record.payload?.tasks?.[taskId]) {
         delete record.payload.tasks[taskId];
-        dailyRecords.set(date, { ...record, updatedAt: new Date().toISOString() });
+        dailyRecords.set(date, { ...record, updatedAt: this.getNowIso() });
       }
     }
+    await this.touchUserSyncState(scope.userId, { reset: true });
   }
 
   async getDailyRecord(scope = {}, date) {
@@ -97,9 +125,10 @@ class MemoryStore {
     const record = {
       date: key,
       payload,
-      updatedAt: new Date().toISOString(),
+      updatedAt: this.getNowIso(),
     };
     dailyRecords.set(key, record);
+    await this.touchUserSyncState(scope.userId);
     return record;
   }
 
@@ -112,6 +141,11 @@ class MemoryStore {
       .sort((left, right) => left.date.localeCompare(right.date));
   }
 
+  async listDailyRecords(scope = {}) {
+    const { dailyRecords } = this.ensureUserScope(scope.userId);
+    return [...dailyRecords.values()].sort((left, right) => left.date.localeCompare(right.date));
+  }
+
   async getWeeklySummary(scope = {}, week) {
     const { weeklySummaries } = this.ensureUserScope(scope.userId);
     return weeklySummaries.get(week) || null;
@@ -122,10 +156,43 @@ class MemoryStore {
     const summary = {
       week,
       content: payload.content || "",
-      updatedAt: new Date().toISOString(),
+      updatedAt: this.getNowIso(),
     };
     weeklySummaries.set(week, summary);
+    await this.touchUserSyncState(scope.userId);
     return summary;
+  }
+
+  async listWeeklySummaries(scope = {}) {
+    const { weeklySummaries } = this.ensureUserScope(scope.userId);
+    return [...weeklySummaries.values()].sort((left, right) => left.week.localeCompare(right.week));
+  }
+
+  async listTasksUpdatedSince(scope = {}, since) {
+    const threshold = new Date(since).getTime();
+    if (Number.isNaN(threshold)) {
+      return this.listTasks(scope);
+    }
+    const tasks = await this.listTasks(scope);
+    return tasks.filter((task) => new Date(task.updated_at || task.created_at || 0).getTime() > threshold);
+  }
+
+  async listDailyRecordsUpdatedSince(scope = {}, since) {
+    const threshold = new Date(since).getTime();
+    if (Number.isNaN(threshold)) {
+      return this.listDailyRecords(scope);
+    }
+    const records = await this.listDailyRecords(scope);
+    return records.filter((record) => new Date(record.updatedAt || 0).getTime() > threshold);
+  }
+
+  async listWeeklySummariesUpdatedSince(scope = {}, since) {
+    const threshold = new Date(since).getTime();
+    if (Number.isNaN(threshold)) {
+      return this.listWeeklySummaries(scope);
+    }
+    const summaries = await this.listWeeklySummaries(scope);
+    return summaries.filter((summary) => new Date(summary.updatedAt || 0).getTime() > threshold);
   }
 
   async findUserByUsername(username) {
@@ -140,6 +207,8 @@ class MemoryStore {
     const next = {
       ...user,
       preferences: user.preferences && typeof user.preferences === "object" ? user.preferences : {},
+      data_updated_at: user.data_updated_at || this.getNowIso(),
+      data_reset_at: user.data_reset_at || "",
     };
     this.usersByUsername.set(next.username, next);
     return next;
@@ -201,6 +270,8 @@ class MemoryStore {
         username: user.username,
         preferences: user.preferences || {},
         created_at: user.created_at || "",
+        data_updated_at: user.data_updated_at || "",
+        data_reset_at: user.data_reset_at || "",
       },
       counts: {
         tasks: scope.tasks.size,
@@ -216,6 +287,8 @@ class MemoryStore {
       username: user.username,
       preferences: user.preferences || {},
       created_at: user.created_at || "",
+      data_updated_at: user.data_updated_at || "",
+      data_reset_at: user.data_reset_at || "",
     }));
   }
 
@@ -494,6 +567,18 @@ class MemoryStore {
     this.contentSourcesByUser.set(userId, new Map());
     this.contentItemsByUser.set(userId, new Map());
     this.contentFavoritesByUser.set(userId, new Map());
+    await this.touchUserSyncState(userId, { reset: true });
+  }
+
+  async getUserSyncState(userId) {
+    const user = await this.getUserById(userId);
+    if (!user) {
+      return null;
+    }
+    return {
+      dataUpdatedAt: user.data_updated_at || user.created_at || "",
+      dataResetAt: user.data_reset_at || "",
+    };
   }
 
   async deleteUserAccount(userId) {

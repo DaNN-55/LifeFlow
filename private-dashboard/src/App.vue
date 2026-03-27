@@ -3,6 +3,7 @@ import { computed, onMounted, watch } from "vue";
 import { RouterView, useRoute } from "vue-router";
 
 import AppShell from "./components/layout/AppShell.vue";
+import { primeDashboardSync } from "./services/sync-service";
 import { useAppStore } from "./stores/app";
 import { useSessionStore } from "./stores/session";
 
@@ -22,6 +23,16 @@ watch(
       appStore.setTheme(theme);
     }
   },
+);
+
+watch(
+  () => sessionStore.user?.id,
+  (userId) => {
+    if (userId) {
+      primeDashboardSync(userId);
+    }
+  },
+  { immediate: true },
 );
 </script>
 

@@ -4,7 +4,9 @@ create table if not exists public.users (
   password_hash text not null,
   recovery_code_hash text not null default '',
   preferences jsonb not null default '{}'::jsonb,
-  created_at timestamptz not null default timezone('utc', now())
+  created_at timestamptz not null default timezone('utc', now()),
+  data_updated_at timestamptz not null default timezone('utc', now()),
+  data_reset_at timestamptz
 );
 
 create table if not exists public.user_sessions (
@@ -23,6 +25,7 @@ create table if not exists public.tasks (
   archived boolean not null default false,
   archived_at timestamptz,
   created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now()),
   primary key (user_id, id)
 );
 
@@ -112,6 +115,7 @@ create table if not exists public.content_favorites (
 );
 
 create index if not exists idx_tasks_user_display_order on public.tasks (user_id, display_order);
+create index if not exists idx_tasks_user_updated_at on public.tasks (user_id, updated_at desc);
 create index if not exists idx_daily_records_user_updated_at on public.daily_records (user_id, updated_at desc);
 create index if not exists idx_weekly_summaries_user_updated_at on public.weekly_summaries (user_id, updated_at desc);
 create index if not exists idx_user_sessions_user_id on public.user_sessions (user_id);

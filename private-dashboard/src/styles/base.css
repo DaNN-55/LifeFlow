@@ -7583,25 +7583,25 @@ body:not([data-theme="light"]) .fretflow-degree-table-cell:focus-visible {
 }
 
 body:not([data-theme="light"]) .auth-gate-actions .auth-login-button {
-  border-color: color-mix(in srgb, #f8fafc 30%, var(--line));
-  background: color-mix(in srgb, var(--card) 94%, rgba(15, 23, 42, 0.9));
-  color: #f8fafc;
+  border-color: #ffffff;
+  background: #ffffff;
+  color: #111111;
   box-shadow: none;
 }
 
 body:not([data-theme="light"]) .auth-gate-actions .auth-login-button:hover,
 body:not([data-theme="light"]) .auth-gate-actions .auth-login-button:focus-visible {
-  border-color: color-mix(in srgb, #ffffff 44%, var(--line));
-  background: color-mix(in srgb, var(--card-2) 92%, rgba(15, 23, 42, 0.88));
-  color: #ffffff;
-  box-shadow: 0 8px 18px rgba(2, 6, 23, 0.18);
-  transform: translateY(-1px);
+  border-color: #ffffff;
+  background: #ffffff;
+  color: #111111;
+  box-shadow: none;
+  transform: none;
 }
 
 body:not([data-theme="light"]) .auth-gate-actions .auth-login-button:disabled {
-  border-color: color-mix(in srgb, var(--line) 96%, transparent);
-  background: color-mix(in srgb, var(--card) 90%, rgba(15, 23, 42, 0.82));
-  color: color-mix(in srgb, var(--muted) 78%, var(--text));
+  border-color: color-mix(in srgb, #ffffff 72%, transparent);
+  background: color-mix(in srgb, #ffffff 82%, transparent);
+  color: color-mix(in srgb, #111111 72%, #ffffff);
   box-shadow: none;
 }
 

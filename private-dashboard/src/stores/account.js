@@ -13,7 +13,7 @@ import {
 import { saveAuthConfig, saveSessionId } from "../services/config";
 import { createTask, deleteTask, fetchDailyRecord, listTasks, saveAccountPreferences, saveDailyRecord, updateTask } from "../services/today-api";
 import { fetchWeeklySummary, saveWeeklySummary } from "../services/weekly-api";
-import { clearDashboardUserCache } from "../services/dashboard-cache";
+import { clearDashboardSnapshot } from "../services/sync-service";
 import { addDays, formatDateKey, formatDateTime, formatWeekInputValue, getStartOfWeek, parseIsoDate } from "../utils/date";
 import { getUserFacingErrorMessage } from "../utils/error-message";
 import { useContentStore } from "./content";
@@ -630,7 +630,7 @@ export const useAccountStore = defineStore("account", {
     },
     async resetAccountDataLocally() {
       const sessionStore = useSessionStore();
-      clearDashboardUserCache(sessionStore.user?.id);
+      clearDashboardSnapshot(sessionStore.user?.id);
       const todayStore = useTodayStore();
       const weeklyStore = useWeeklyStore();
       const homeStore = useHomeStore();
@@ -673,7 +673,7 @@ export const useAccountStore = defineStore("account", {
         await deleteAccount(password);
         saveSessionId("");
         sessionStore.applySession(null, "账号已删除");
-        clearDashboardUserCache(userId);
+        clearDashboardSnapshot(userId);
         this.forms.account.deletePassword = "";
         this.closeAllModals();
         await this.resetAccountDataLocally();

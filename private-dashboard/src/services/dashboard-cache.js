@@ -1,5 +1,5 @@
 const DASHBOARD_CACHE_STORAGE_KEY = "lifeflow-private-dashboard-vue-dashboard-cache";
-const DASHBOARD_CACHE_VERSION = 1;
+const DASHBOARD_CACHE_VERSION = 2;
 
 function createEmptyUserCache() {
   return {
@@ -7,17 +7,61 @@ function createEmptyUserCache() {
     dailyRecords: {},
     weeklySummaries: {},
     home: {},
+    sync: {
+      cursor: "",
+      resetAt: "",
+      lastSyncedAt: "",
+    },
     updatedAt: "",
   };
+}
+
+function normalizeRecordMap(records = {}, keyField) {
+  if (!records || typeof records !== "object") {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(records)
+      .filter(([key, value]) => key && value && typeof value === "object")
+      .map(([key, value]) => [String(value?.[keyField] || key), value]),
+  );
 }
 
 function normalizeUserCache(cache = {}) {
   return {
     tasks: Array.isArray(cache?.tasks) ? cache.tasks : [],
-    dailyRecords: cache?.dailyRecords && typeof cache.dailyRecords === "object" ? { ...cache.dailyRecords } : {},
-    weeklySummaries: cache?.weeklySummaries && typeof cache.weeklySummaries === "object" ? { ...cache.weeklySummaries } : {},
+    dailyRecords: normalizeRecordMap(cache?.dailyRecords, "date"),
+    weeklySummaries: normalizeRecordMap(cache?.weeklySummaries, "week"),
     home: cache?.home && typeof cache.home === "object" ? { ...cache.home } : {},
+    sync: {
+      cursor: String(cache?.sync?.cursor || ""),
+      resetAt: String(cache?.sync?.resetAt || ""),
+      lastSyncedAt: String(cache?.sync?.lastSyncedAt || ""),
+    },
     updatedAt: String(cache?.updatedAt || ""),
+  };
+}
+
+function normalizeRootCache(parsed = null) {
+  if (!parsed || typeof parsed !== "object") {
+    return {
+      version: DASHBOARD_CACHE_VERSION,
+      users: {},
+    };
+  }
+
+  const version = Number(parsed.version || 0);
+  if (version !== 1 && version !== DASHBOARD_CACHE_VERSION) {
+    return {
+      version: DASHBOARD_CACHE_VERSION,
+      users: {},
+    };
+  }
+
+  return {
+    version: DASHBOARD_CACHE_VERSION,
+    users: parsed.users && typeof parsed.users === "object" ? parsed.users : {},
   };
 }
 
@@ -25,16 +69,7 @@ function loadRootCache() {
   try {
     const raw = localStorage.getItem(DASHBOARD_CACHE_STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : null;
-    if (!parsed || parsed.version !== DASHBOARD_CACHE_VERSION) {
-      return {
-        version: DASHBOARD_CACHE_VERSION,
-        users: {},
-      };
-    }
-    return {
-      version: DASHBOARD_CACHE_VERSION,
-      users: parsed.users && typeof parsed.users === "object" ? parsed.users : {},
-    };
+    return normalizeRootCache(parsed);
   } catch {
     return {
       version: DASHBOARD_CACHE_VERSION,
@@ -51,7 +86,7 @@ function saveRootCache(root) {
   }
 }
 
-function withUserCache(userId, updater) {
+export function updateDashboardUserCache(userId, updater) {
   const resolvedUserId = String(userId || "").trim();
   if (!resolvedUserId) {
     return createEmptyUserCache();
@@ -73,6 +108,21 @@ function withUserCache(userId, updater) {
   return root.users[resolvedUserId];
 }
 
+function withUserCache(userId, updater) {
+  return updateDashboardUserCache(userId, updater);
+}
+
+function toRecordMap(items = [], keyField) {
+  const map = {};
+  items.forEach((item) => {
+    const key = String(item?.[keyField] || "").trim();
+    if (key) {
+      map[key] = item;
+    }
+  });
+  return map;
+}
+
 export function loadDashboardUserCache(userId) {
   const resolvedUserId = String(userId || "").trim();
   if (!resolvedUserId) {
@@ -90,6 +140,54 @@ export function clearDashboardUserCache(userId) {
   const root = loadRootCache();
   delete root.users[resolvedUserId];
   saveRootCache(root);
+}
+
+export function replaceDashboardUserCache(userId, snapshot = {}, sync = {}) {
+  return withUserCache(userId, (cache) => ({
+    ...cache,
+    tasks: Array.isArray(snapshot?.tasks) ? snapshot.tasks : [],
+    dailyRecords: toRecordMap(snapshot?.dailyRecords || [], "date"),
+    weeklySummaries: toRecordMap(snapshot?.weeklySummaries || [], "week"),
+    home: snapshot?.home && typeof snapshot.home === "object" ? { ...snapshot.home } : cache.home,
+    sync: {
+      ...cache.sync,
+      cursor: String(sync?.cursor || ""),
+      resetAt: String(sync?.resetAt || ""),
+      lastSyncedAt: String(sync?.lastSyncedAt || new Date().toISOString()),
+    },
+  }));
+}
+
+export function mergeDashboardUserCache(userId, changes = {}, sync = {}) {
+  return withUserCache(userId, (cache) => {
+    const nextTasks = Array.isArray(changes?.tasks) && changes.tasks.length
+      ? [
+          ...cache.tasks.filter(
+            (task) => !changes.tasks.some((candidate) => String(candidate?.id || "") === String(task?.id || "")),
+          ),
+          ...changes.tasks,
+        ]
+      : cache.tasks;
+
+    return {
+      ...cache,
+      tasks: nextTasks,
+      dailyRecords: {
+        ...cache.dailyRecords,
+        ...toRecordMap(changes?.dailyRecords || [], "date"),
+      },
+      weeklySummaries: {
+        ...cache.weeklySummaries,
+        ...toRecordMap(changes?.weeklySummaries || [], "week"),
+      },
+      sync: {
+        ...cache.sync,
+        cursor: String(sync?.cursor || cache.sync.cursor || ""),
+        resetAt: String(sync?.resetAt || cache.sync.resetAt || ""),
+        lastSyncedAt: String(sync?.lastSyncedAt || new Date().toISOString()),
+      },
+    };
+  });
 }
 
 export function loadCachedTasks(userId) {

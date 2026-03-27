@@ -1,5 +1,7 @@
 const { createClient } = require("@supabase/supabase-js");
 
+const USER_SELECT_FIELDS = "id, username, password_hash, recovery_code_hash, preferences, created_at, data_updated_at, data_reset_at";
+
 class SupabaseStore {
   constructor({ supabaseUrl, supabaseServiceRoleKey }) {
     this.client = createClient(supabaseUrl, supabaseServiceRoleKey, {
@@ -12,10 +14,29 @@ class SupabaseStore {
     return this;
   }
 
+  async touchUserSyncState(userId, options = {}) {
+    const payload = {
+      data_updated_at: new Date().toISOString(),
+    };
+
+    if (options.reset) {
+      payload.data_reset_at = payload.data_updated_at;
+    }
+
+    const { error } = await this.client
+      .from("users")
+      .update(payload)
+      .eq("id", userId);
+
+    if (error) {
+      throw error;
+    }
+  }
+
   async listTasks(scope = {}) {
     const { data, error } = await this.client
       .from("tasks")
-      .select("id, name, color, display_order, archived, archived_at, created_at")
+      .select("id, name, color, display_order, archived, archived_at, created_at, updated_at")
       .eq("user_id", scope.userId || "")
       .order("display_order", { ascending: true });
 
@@ -29,14 +50,15 @@ class SupabaseStore {
   async createTask(scope = {}, task) {
     const { data, error } = await this.client
       .from("tasks")
-      .insert({ ...task, user_id: scope.userId || "" })
-      .select("id, name, color, display_order, archived, archived_at, created_at")
+      .insert({ ...task, user_id: scope.userId || "", updated_at: new Date().toISOString() })
+      .select("id, name, color, display_order, archived, archived_at, created_at, updated_at")
       .single();
 
     if (error) {
       throw error;
     }
 
+    await this.touchUserSyncState(scope.userId);
     return data;
   }
 
@@ -57,19 +79,21 @@ class SupabaseStore {
     if (typeof patch.archived_at !== "undefined") {
       updatePayload.archived_at = patch.archived_at;
     }
+    updatePayload.updated_at = new Date().toISOString();
 
     const { data, error } = await this.client
       .from("tasks")
       .update(updatePayload)
       .eq("user_id", scope.userId || "")
       .eq("id", taskId)
-      .select("id, name, color, display_order, archived, archived_at, created_at")
+      .select("id, name, color, display_order, archived, archived_at, created_at, updated_at")
       .single();
 
     if (error) {
       throw error;
     }
 
+    await this.touchUserSyncState(scope.userId);
     return data;
   }
 
@@ -83,6 +107,8 @@ class SupabaseStore {
     if (error) {
       throw error;
     }
+
+    await this.touchUserSyncState(scope.userId, { reset: true });
   }
 
   async getDailyRecord(scope = {}, date) {
@@ -127,11 +153,30 @@ class SupabaseStore {
       throw error;
     }
 
+    await this.touchUserSyncState(scope.userId);
     return {
       date: data.record_date,
       payload: data.payload,
       updatedAt: data.updated_at,
     };
+  }
+
+  async listDailyRecords(scope = {}) {
+    const { data, error } = await this.client
+      .from("daily_records")
+      .select("record_date, payload, updated_at")
+      .eq("user_id", scope.userId || "")
+      .order("record_date", { ascending: true });
+
+    if (error) {
+      throw error;
+    }
+
+    return (data || []).map((record) => ({
+      date: record.record_date,
+      payload: record.payload,
+      updatedAt: record.updated_at,
+    }));
   }
 
   async listDailyRecordsBetween(scope = {}, startDate, endDate) {
@@ -196,6 +241,7 @@ class SupabaseStore {
       throw error;
     }
 
+    await this.touchUserSyncState(scope.userId);
     return {
       week: data.week_key,
       content: data.content || "",
@@ -203,10 +249,81 @@ class SupabaseStore {
     };
   }
 
+  async listWeeklySummaries(scope = {}) {
+    const { data, error } = await this.client
+      .from("weekly_summaries")
+      .select("week_key, content, updated_at")
+      .eq("user_id", scope.userId || "")
+      .order("week_key", { ascending: true });
+
+    if (error) {
+      throw error;
+    }
+
+    return (data || []).map((summary) => ({
+      week: summary.week_key,
+      content: summary.content || "",
+      updatedAt: summary.updated_at,
+    }));
+  }
+
+  async listTasksUpdatedSince(scope = {}, since) {
+    const { data, error } = await this.client
+      .from("tasks")
+      .select("id, name, color, display_order, archived, archived_at, created_at, updated_at")
+      .eq("user_id", scope.userId || "")
+      .gt("updated_at", since)
+      .order("display_order", { ascending: true });
+
+    if (error) {
+      throw error;
+    }
+
+    return data || [];
+  }
+
+  async listDailyRecordsUpdatedSince(scope = {}, since) {
+    const { data, error } = await this.client
+      .from("daily_records")
+      .select("record_date, payload, updated_at")
+      .eq("user_id", scope.userId || "")
+      .gt("updated_at", since)
+      .order("record_date", { ascending: true });
+
+    if (error) {
+      throw error;
+    }
+
+    return (data || []).map((record) => ({
+      date: record.record_date,
+      payload: record.payload,
+      updatedAt: record.updated_at,
+    }));
+  }
+
+  async listWeeklySummariesUpdatedSince(scope = {}, since) {
+    const { data, error } = await this.client
+      .from("weekly_summaries")
+      .select("week_key, content, updated_at")
+      .eq("user_id", scope.userId || "")
+      .gt("updated_at", since)
+      .order("week_key", { ascending: true });
+
+    if (error) {
+      throw error;
+    }
+
+    return (data || []).map((summary) => ({
+      week: summary.week_key,
+      content: summary.content || "",
+      updatedAt: summary.updated_at,
+    }));
+  }
+
   async findUserByUsername(username) {
     const { data, error } = await this.client
       .from("users")
-      .select("id, username, password_hash, recovery_code_hash, preferences, created_at")
+      .select(USER_SELECT_FIELDS)
       .eq("username", username)
       .maybeSingle();
 
@@ -220,7 +337,7 @@ class SupabaseStore {
   async getUserById(userId) {
     const { data, error } = await this.client
       .from("users")
-      .select("id, username, password_hash, recovery_code_hash, preferences, created_at")
+      .select(USER_SELECT_FIELDS)
       .eq("id", userId)
       .maybeSingle();
 
@@ -235,7 +352,7 @@ class SupabaseStore {
     const { data, error } = await this.client
       .from("users")
       .insert(user)
-      .select("id, username, password_hash, recovery_code_hash, preferences, created_at")
+      .select(USER_SELECT_FIELDS)
       .single();
 
     if (error) {
@@ -250,7 +367,7 @@ class SupabaseStore {
       .from("users")
       .update({ password_hash: passwordHash })
       .eq("id", userId)
-      .select("id, username, password_hash, recovery_code_hash, preferences, created_at")
+      .select(USER_SELECT_FIELDS)
       .maybeSingle();
 
     if (error) {
@@ -265,7 +382,7 @@ class SupabaseStore {
       .from("users")
       .update({ preferences: preferences && typeof preferences === "object" ? preferences : {} })
       .eq("id", userId)
-      .select("id, username, password_hash, recovery_code_hash, preferences, created_at")
+      .select(USER_SELECT_FIELDS)
       .maybeSingle();
 
     if (error) {
@@ -280,7 +397,7 @@ class SupabaseStore {
       .from("users")
       .update({ username })
       .eq("id", userId)
-      .select("id, username, password_hash, recovery_code_hash, preferences, created_at")
+      .select(USER_SELECT_FIELDS)
       .maybeSingle();
 
     if (error) {
@@ -295,7 +412,7 @@ class SupabaseStore {
       .from("users")
       .update({ recovery_code_hash: recoveryCodeHash })
       .eq("id", userId)
-      .select("id, username, password_hash, recovery_code_hash, preferences, created_at")
+      .select(USER_SELECT_FIELDS)
       .maybeSingle();
 
     if (error) {
@@ -337,6 +454,8 @@ class SupabaseStore {
         username: user.username,
         preferences: user.preferences || {},
         created_at: user.created_at,
+        data_updated_at: user.data_updated_at || "",
+        data_reset_at: user.data_reset_at || "",
       },
       counts: {
         tasks: tasksCount || 0,
@@ -349,7 +468,7 @@ class SupabaseStore {
   async listUsers() {
     const { data, error } = await this.client
       .from("users")
-      .select("id, username, created_at");
+      .select("id, username, created_at, data_updated_at, data_reset_at");
 
     if (error) {
       throw error;
@@ -692,7 +811,7 @@ class SupabaseStore {
   async getSessionWithUser(sessionId) {
     const { data, error } = await this.client
       .from("user_sessions")
-      .select("id, user_id, expires_at, created_at, users!inner(id, username, password_hash, recovery_code_hash, preferences, created_at)")
+      .select(`id, user_id, expires_at, created_at, users!inner(${USER_SELECT_FIELDS})`)
       .eq("id", sessionId)
       .maybeSingle();
 
@@ -758,6 +877,29 @@ class SupabaseStore {
         favoritesResult.error
       );
     }
+
+    await this.touchUserSyncState(userId, { reset: true });
+  }
+
+  async getUserSyncState(userId) {
+    const { data, error } = await this.client
+      .from("users")
+      .select("data_updated_at, data_reset_at, created_at")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    if (!data) {
+      return null;
+    }
+
+    return {
+      dataUpdatedAt: data.data_updated_at || data.created_at || "",
+      dataResetAt: data.data_reset_at || "",
+    };
   }
 
   async deleteUserAccount(userId) {
