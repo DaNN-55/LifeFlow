@@ -18,6 +18,7 @@ import {
   formatDisplayStockCode,
   normalizeSymbols,
 } from "../services/home-api";
+import { fetchContentSources, refreshContent } from "../services/content-api";
 import {
   addDays,
   formatDateKey,
@@ -89,21 +90,40 @@ function buildFreshNewsKey(item = {}) {
   return String(item?.id || item?.canonical_url || item?.source_url || item?.title || "").trim();
 }
 
-function shuffleItems(items = []) {
-  const pool = Array.isArray(items) ? items.slice() : [];
-  for (let index = pool.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1));
-    [pool[index], pool[swapIndex]] = [pool[swapIndex], pool[index]];
+function getNewsTypeKey(item = {}) {
+  const explicitType = String(item?.content_type || "").trim();
+  if (explicitType) {
+    return explicitType;
   }
-  return pool;
+  const firstTag = Array.isArray(item?.tags) ? String(item.tags[0] || "").trim() : "";
+  return firstTag || "资讯";
 }
 
-function buildFreshNewsFeed(financeFeed = [], scienceFeed = [], limit = 5) {
-  const merged = [...financeFeed, ...scienceFeed]
-    .map((item) => ({
-      ...item,
-      channel: item?.channel || (scienceFeed.includes(item) ? "science" : "finance"),
-    }))
+function createChannelFeedMap() {
+  return Object.fromEntries(contentTabs.map((tab) => [tab.id, []]));
+}
+
+function normalizeChannelFeedMap(value = {}) {
+  const normalized = createChannelFeedMap();
+  for (const tab of contentTabs) {
+    normalized[tab.id] = Array.isArray(value?.[tab.id]) ? value[tab.id] : [];
+  }
+  return normalized;
+}
+
+function getNewsSortTime(item = {}) {
+  return new Date(item?.published_at || item?.fetched_at || item?.created_at || 0).getTime();
+}
+
+function buildFreshNewsFeed(channelFeeds = {}, limit = 5) {
+  const normalizedFeeds = normalizeChannelFeedMap(channelFeeds);
+  const merged = contentTabs
+    .flatMap((tab) =>
+      normalizedFeeds[tab.id].map((item) => ({
+        ...item,
+        channel: item?.channel || tab.id,
+      })),
+    )
     .filter((item) => buildFreshNewsKey(item));
 
   const deduped = [];
@@ -117,7 +137,33 @@ function buildFreshNewsFeed(financeFeed = [], scienceFeed = [], limit = 5) {
     deduped.push(item);
   });
 
-  return shuffleItems(deduped).slice(0, limit);
+  const sorted = deduped.sort((left, right) => getNewsSortTime(right) - getNewsSortTime(left));
+  const picked = [];
+  const usedTypes = new Set();
+
+  for (const item of sorted) {
+    const typeKey = getNewsTypeKey(item);
+    if (usedTypes.has(typeKey)) {
+      continue;
+    }
+    usedTypes.add(typeKey);
+    picked.push(item);
+    if (picked.length >= limit) {
+      return picked;
+    }
+  }
+
+  for (const item of sorted) {
+    if (picked.includes(item)) {
+      continue;
+    }
+    picked.push(item);
+    if (picked.length >= limit) {
+      break;
+    }
+  }
+
+  return picked;
 }
 
 export const useHomeStore = defineStore("home", {
@@ -158,12 +204,22 @@ export const useHomeStore = defineStore("home", {
   },
   actions: {
     applyCachedHome(home = {}) {
-      if (Array.isArray(home.financeFeed)) {
-        this.financeFeed = home.financeFeed;
-      }
-      if (Array.isArray(home.scienceFeed)) {
-        this.scienceFeed = home.scienceFeed;
-      }
+      const channelFeeds = normalizeChannelFeedMap(
+        home.channelFeeds && typeof home.channelFeeds === "object"
+          ? home.channelFeeds
+          : {
+              news: Array.isArray(home.freshNewsFeed)
+                ? home.freshNewsFeed
+                : Array.isArray(home.financeFeed)
+                  ? home.financeFeed
+                  : Array.isArray(home.scienceFeed)
+                    ? home.scienceFeed
+                    : [],
+            },
+      );
+      this.channelFeeds = channelFeeds;
+      this.financeFeed = [];
+      this.scienceFeed = [];
       if (Array.isArray(home.freshNewsFeed)) {
         this.freshNewsFeed = home.freshNewsFeed;
       } else {
@@ -266,40 +322,69 @@ export const useHomeStore = defineStore("home", {
       await this.loadCalendar(dateString);
     },
     async refreshFeeds() {
-      const [finance, science] = await Promise.allSettled([
-        this.refreshFeed("finance"),
-        this.refreshFeed("science"),
-      ]);
-      if (finance.status === "rejected") {
-        this.financeFeed = [];
-      }
-      if (science.status === "rejected") {
-        this.scienceFeed = [];
+      const results = await Promise.allSettled(contentTabs.map((tab) => this.refreshFeed(tab.id)));
+      const nextChannelFeeds = normalizeChannelFeedMap(this.channelFeeds);
+      results.forEach((result, index) => {
+        if (result.status === "rejected") {
+          nextChannelFeeds[contentTabs[index].id] = [];
+        }
+      });
+      this.channelFeeds = nextChannelFeeds;
+      this.financeFeed = [];
+      this.scienceFeed = [];
+      if (results.every((result) => result.status === "rejected")) {
+        this.freshNewsFeed = [];
+        const sessionStore = useSessionStore();
+        applyDashboardMutation(sessionStore.user?.id, {
+          channelFeeds: this.channelFeeds,
+          financeFeed: this.financeFeed,
+          scienceFeed: this.scienceFeed,
+          freshNewsFeed: this.freshNewsFeed,
+        });
+        return;
       }
       this.rebuildFreshNewsFeed();
     },
     async refreshFeed(channel) {
-      const targetChannel = channel === "science" ? "science" : "finance";
-      const payload = await fetchFeaturedContent(targetChannel, 3).catch(() => ({ items: [] }));
+      const targetChannel = contentTabs.some((tab) => tab.id === channel) ? channel : (contentTabs[0]?.id || "news");
+      const sourcePayload = await fetchContentSources(targetChannel).catch(() => ({ sources: [] }));
+      const enabledSources = Array.isArray(sourcePayload?.sources)
+        ? sourcePayload.sources.filter((source) => source?.enabled !== false)
+        : [];
+      if (!enabledSources.length) {
+        this.channelFeeds = {
+          ...normalizeChannelFeedMap(this.channelFeeds),
+          [targetChannel]: [],
+        };
+        this.financeFeed = [];
+        this.scienceFeed = [];
+        return [];
+      }
+
+      await refreshContent(targetChannel, 18).catch(() => null);
+      const payload = await fetchFeaturedContent(targetChannel, 12).catch(() => ({ items: [] }));
       const items = Array.isArray(payload?.items)
         ? payload.items.map((item) => ({
             ...item,
             channel: item?.channel || targetChannel,
           }))
         : [];
-      if (targetChannel === "science") {
-        this.scienceFeed = items;
-      } else {
-        this.financeFeed = items;
-      }
+      this.channelFeeds = {
+        ...normalizeChannelFeedMap(this.channelFeeds),
+        [targetChannel]: items,
+      };
+      this.financeFeed = [];
+      this.scienceFeed = [];
+      return items;
     },
     rebuildFreshNewsFeed(persist = true) {
-      this.freshNewsFeed = buildFreshNewsFeed(this.financeFeed, this.scienceFeed);
+      this.freshNewsFeed = buildFreshNewsFeed(this.channelFeeds);
       if (!persist) {
         return;
       }
       const sessionStore = useSessionStore();
       applyDashboardMutation(sessionStore.user?.id, {
+        channelFeeds: this.channelFeeds,
         financeFeed: this.financeFeed,
         scienceFeed: this.scienceFeed,
         freshNewsFeed: this.freshNewsFeed,

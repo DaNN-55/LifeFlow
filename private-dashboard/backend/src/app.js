@@ -15,7 +15,6 @@ const { formatDateKey, getWeekRangeFromWeekValue } = require("./lib/date");
 const {
   CHANNELS,
   DEFAULT_PAGE_SIZE,
-  ensureDefaultSources,
   refreshChannelContent,
   listCachedContent,
   getCachedContentFacets,
@@ -976,7 +975,6 @@ function createApp({ config, store }) {
   app.get("/api/content", requireAuthenticated, async (request, response, next) => {
     try {
       const query = contentListQuerySchema.parse(request.query || {});
-      await ensureDefaultSources(store, request.userContext.userId, query.channel);
       const favoriteUrls = await store.listFavoriteContentUrls(request.userContext, query.channel);
       const favoritesOnly = query.favorite === "favorites";
       const result = favoritesOnly
@@ -1025,7 +1023,6 @@ function createApp({ config, store }) {
       const query = contentListQuerySchema.pick({ channel: true }).extend({
         limit: z.coerce.number().int().min(1).max(6).optional(),
       }).parse(request.query || {});
-      await ensureDefaultSources(store, request.userContext.userId, query.channel);
       const favoriteUrls = await store.listFavoriteContentUrls(request.userContext, query.channel);
       const items = getCachedFeaturedContent(
         request.userContext.userId,
@@ -1090,7 +1087,7 @@ function createApp({ config, store }) {
   app.get("/api/content-sources", requireAuthenticated, async (request, response, next) => {
     try {
       const query = contentListQuerySchema.pick({ channel: true }).parse(request.query || {});
-      const sources = await ensureDefaultSources(store, request.userContext.userId, query.channel);
+      const sources = await store.listContentSources(request.userContext, query.channel);
       response.json({ sources });
     } catch (error) {
       next(error);

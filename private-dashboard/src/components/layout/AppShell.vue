@@ -188,8 +188,7 @@ async function openCalendarDate(date) {
 }
 
 function openFavoritesChannel(channel) {
-  const targetChannel = ["finance", "science", "ai"].includes(channel) ? channel : "finance";
-  router.push(`/content/${targetChannel}`);
+  router.push("/content");
 }
 
 function handleDocumentPointerDown(event) {
@@ -439,10 +438,10 @@ watch(
         />
         <FeedPreviewCard
           v-if="sidebarPreferences.freshNews"
-          title="Fresh News"
-          kicker="Unified feed"
+          title="News"
+          kicker="Latest feed"
           icon="newspaper"
-          channel="fresh-news"
+          channel="news"
           link-to="/content"
           :items="homeStore.freshNewsFeed"
           :format-date-time="homeStore.formatDateTime"

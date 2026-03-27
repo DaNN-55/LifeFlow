@@ -3273,6 +3273,13 @@ a {
   gap: 2px;
 }
 
+.feed-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
 .feed-item h3 {
   margin: 0;
   font-size: 0.96rem;
@@ -3302,6 +3309,20 @@ a {
 .feed-meta {
   margin: 0;
   font-size: 0.7rem;
+}
+
+.feed-type-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--card));
+  color: color-mix(in srgb, var(--text) 72%, var(--accent));
+  font-size: 0.62rem;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .show-more {

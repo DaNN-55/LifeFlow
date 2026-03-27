@@ -1,12 +1,9 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from "vue";
-import { useRouter } from "vue-router";
 
-import SegmentedTabs from "../components/common/SegmentedTabs.vue";
 import ToolbarSelect from "../components/common/ToolbarSelect.vue";
 import ContentCard from "../components/content/ContentCard.vue";
 import ContentSourceDialog from "../components/content/ContentSourceDialog.vue";
-import { contentTabs } from "../app/constants";
 import { useContentStore } from "../stores/content";
 import { useSessionStore } from "../stores/session";
 import { getContentMetaTone } from "../utils/content";
@@ -20,16 +17,11 @@ const props = defineProps({
 
 const sessionStore = useSessionStore();
 const contentStore = useContentStore();
-const router = useRouter();
 
 const isAuthenticated = computed(() => Boolean(sessionStore.user?.id));
 const isLocalMode = computed(() => contentState.value?.mode === "local");
 const showSourceControls = computed(() => isLocalMode.value || isAuthenticated.value);
 const importInputRef = ref(null);
-const channelConfig = computed(
-  () => contentTabs.find((tab) => tab.id === props.channel) || { label: props.channel, kicker: "Content" },
-);
-const contentTabItems = computed(() => contentTabs.map((tab) => ({ value: tab.id, label: tab.label })));
 const contentState = computed(() => contentStore.getChannelState(props.channel));
 const sourceForm = computed({
   get: () => contentStore.sourceForm,
@@ -135,13 +127,6 @@ async function loadChannelFromTop(overrides = {}) {
   await scrollCenterStageToTop();
 }
 
-async function switchChannel(channel) {
-  if (!channel || channel === props.channel) {
-    return;
-  }
-  await router.push(`/content/${channel}`);
-}
-
 onMounted(async () => {
   await loadContentChannel();
   await scrollCenterStageToTop();
@@ -169,7 +154,7 @@ watch(
       <div class="panel-header">
         <div>
           <p class="panel-kicker">Unified reader</p>
-          <h1>Content</h1>
+          <h1>News</h1>
         </div>
         <div class="content-stream-actions">
           <button v-if="showSourceControls" type="button" class="task-cancel-action" @click="contentStore.openSourceModal(channel)">
@@ -186,19 +171,11 @@ watch(
           <div class="content-stream-meta content-stage-meta" :data-tone="getContentMetaTone(contentState)">
             {{ contentStore.getMetaText(channel) }}
           </div>
-          <SegmentedTabs
-            :items="contentTabItems"
-            :model-value="channel"
-            aria-label="内容频道切换"
-            container-class="content-view-tabs"
-            button-class="content-view-tab"
-            @update:model-value="switchChannel"
-          />
         </div>
 
         <div v-if="isLocalMode" class="local-mode-strip">
           <p class="local-mode-copy">
-            未登录时已切到本地模式，你可以直接用本地缓存测试这三个内容频道，筛选状态也会保留在本地。
+            未登录时已切到本地模式，你可以直接用本地缓存测试 News 页面，筛选状态也会保留在本地。
             当前页已读 {{ readCount }} / {{ contentState.items.length }}。
           </p>
           <div class="local-mode-actions">
@@ -226,8 +203,8 @@ watch(
           <button type="button" class="task-cancel-action" @click="resetFilters">清空筛选</button>
         </div>
 
-        <div class="content-toolbar toolbar-filter-bar">
-          <label class="content-toolbar-field">
+        <div class="weekly-review-controls content-toolbar toolbar-filter-bar">
+          <label class="weekly-filter-field content-toolbar-field">
             <span class="weekly-filter-label">搜索</span>
             <div class="toolbar-control toolbar-search-control">
               <span class="material-symbols-outlined toolbar-control-icon" aria-hidden="true">search</span>
@@ -240,7 +217,7 @@ watch(
             </div>
           </label>
 
-          <label class="content-toolbar-field">
+          <label class="weekly-filter-field content-toolbar-field">
             <span class="weekly-filter-label">标签</span>
             <ToolbarSelect
               :model-value="contentState.tag"
@@ -250,7 +227,7 @@ watch(
             />
           </label>
 
-          <label class="content-toolbar-field">
+          <label class="weekly-filter-field content-toolbar-field">
             <span class="weekly-filter-label">来源</span>
             <ToolbarSelect
               :model-value="contentState.sourceId"
@@ -260,7 +237,7 @@ watch(
             />
           </label>
 
-          <label class="content-toolbar-field">
+          <label class="weekly-filter-field content-toolbar-field">
             <span class="weekly-filter-label">范围</span>
             <ToolbarSelect
               :model-value="contentState.favoriteFilter"
@@ -270,7 +247,7 @@ watch(
             />
           </label>
 
-          <label class="content-toolbar-field">
+          <label class="weekly-filter-field content-toolbar-field">
             <span class="weekly-filter-label">排序</span>
             <ToolbarSelect
               :model-value="contentState.sort"
@@ -328,7 +305,7 @@ watch(
 
     <ContentSourceDialog
       :open="contentStore.sourceModalChannel === channel"
-      :title="`${channelConfig.label} 信源管理`"
+      title="News 信源管理"
       :sources="contentStore.getVisibleSources(channel)"
       :hidden-sources="contentStore.getHiddenSources(channel)"
       :failures="contentStore.currentSourceFailures"
@@ -341,7 +318,6 @@ watch(
       @hide-source="contentStore.hideSource"
       @unhide-source="contentStore.unhideSource"
       @toggle-source-enabled="contentStore.toggleSourceEnabled"
-      @restore-defaults="contentStore.restoreDefaultSources"
       @update:form="sourceForm = $event"
     />
   </section>

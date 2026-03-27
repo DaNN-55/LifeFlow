@@ -18,63 +18,10 @@ const DEFAULT_PAGE_SIZE = 10;
 const DEFAULT_REFRESH_LIMIT = 30;
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_RSSHUB_INSTANCE = "https://rsshub.zhsh.me";
+const CHANNELS = ["news"];
 const cacheByChannel = new Map();
 const refreshInFlight = new Map();
 const articleImageCache = new Map();
-
-function createRsshubSource(name, route, instance = "") {
-  return {
-    name,
-    type: "rsshub",
-    url: route,
-    parser_key: instance,
-  };
-}
-
-const EXTRA_CHANNEL_CONFIGS = [
-  {
-    id: "ai",
-    defaultSources: [
-      createRsshubSource("AI Papers · cs.AI", "/papers/category/arxiv/cs.AI"),
-      createRsshubSource("AI Papers · cs.LG", "/papers/category/arxiv/cs.LG"),
-      createRsshubSource("AI Papers · cs.CL", "/papers/category/arxiv/cs.CL"),
-      createRsshubSource("AI Papers · cs.CV", "/papers/category/arxiv/cs.CV"),
-    ],
-  },
-];
-
-const CHANNEL_CONFIGS = {
-  finance: {
-    defaultSources: [
-      createRsshubSource("华尔街见闻 · 实时快讯（要闻）", "/wallstreetcn/live/global/2"),
-      createRsshubSource("华尔街见闻 · 实时快讯（A股）", "/wallstreetcn/live/a-stock/2"),
-      createRsshubSource("华尔街见闻 · 最热文章", "/wallstreetcn/hot/day"),
-      createRsshubSource("同花顺 · 7×24 要闻（重要,A股）", "/10jqka/realtimenews/重要,A股"),
-    ],
-  },
-  science: {
-    defaultSources: [
-      createRsshubSource("Nature · Latest Research", "/nature/research/nature"),
-      createRsshubSource("Nature · Latest News", "/nature/news"),
-      createRsshubSource("Papers · Astrophysics", "/papers/category/arxiv/astro-ph"),
-      createRsshubSource("Papers · Physics", "/papers/category/arxiv/physics"),
-      createRsshubSource("Papers · Quantitative Biology", "/papers/category/arxiv/q-bio"),
-    ],
-  },
-  ...Object.fromEntries(
-    EXTRA_CHANNEL_CONFIGS.map((config) => [
-      config.id,
-      {
-        defaultSources: Array.isArray(config.defaultSources) ? config.defaultSources : [],
-      },
-    ]),
-  ),
-};
-
-const CHANNELS = Object.keys(CHANNEL_CONFIGS);
-const DEFAULT_SOURCES = Object.fromEntries(
-  Object.entries(CHANNEL_CONFIGS).map(([channel, config]) => [channel, config.defaultSources || []]),
-);
 
 function getCacheKey(userId, channel) {
   return `${userId}:${channel}`;
@@ -85,36 +32,6 @@ function createContentId(channel, canonicalUrl) {
     .createHash("sha1")
     .update(`${channel}:${canonicalUrl}`)
     .digest("hex");
-}
-
-async function ensureDefaultSources(store, userId, channel) {
-  const scope = { userId };
-  const existing = await store.listContentSources(scope, channel);
-  const defaults = DEFAULT_SOURCES[channel] || [];
-  const existingKeys = new Set(
-    existing.map((source) => `${String(source.type || "").trim()}::${String(source.url || "").trim()}`),
-  );
-  for (const [index, source] of defaults.entries()) {
-    const dedupeKey = `${String(source.type || "").trim()}::${String(source.url || "").trim()}`;
-    if (existingKeys.has(dedupeKey)) {
-      continue;
-    }
-    await store.createContentSource(scope, {
-      id: crypto.randomUUID(),
-      channel,
-      type: source.type,
-      name: source.name,
-      url: source.url,
-      enabled: true,
-      sort_order: index + 1,
-      parser_key: source.parser_key || "",
-      is_default: true,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    });
-    existingKeys.add(dedupeKey);
-  }
-  return store.listContentSources(scope, channel);
 }
 
 function createEmptyChannelCache() {
@@ -177,7 +94,7 @@ async function refreshChannelContent({ store, userId, channel, limit = DEFAULT_R
   }
 
   const job = (async () => {
-    const sources = (await ensureDefaultSources(store, userId, channel)).filter((source) => source.enabled);
+    const sources = (await store.listContentSources({ userId }, channel)).filter((source) => source.enabled);
     if (sources.length === 0) {
       setCachedChannelItems(userId, channel, []);
       const stats = {
@@ -734,9 +651,7 @@ module.exports = {
   CHANNELS,
   DEFAULT_PAGE_SIZE,
   DEFAULT_REFRESH_LIMIT,
-  DEFAULT_SOURCES,
   CACHE_TTL_MS,
-  ensureDefaultSources,
   refreshChannelContent,
   listCachedContent,
   getCachedContentFacets,

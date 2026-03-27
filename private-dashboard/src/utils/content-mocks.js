@@ -96,10 +96,10 @@ export function deriveMockSourcesFromItems(channel, items = []) {
       ]),
     ).values(),
   );
-  return derived.length ? derived : buildMockSources(channel);
+  return derived;
 }
 
-export function buildMockContentFromSources(channel, favoriteMap = {}, sourcesInput = buildMockSources(channel)) {
+export function buildMockContentFromSources(channel, favoriteMap = {}, sourcesInput = []) {
   const fallback = [
     ["频道观察", "这是一个待接入真实 RSS 的自定义频道示例。", "Custom Feed", "资讯"],
     ["新增频道已准备好", "你可以在配置中继续添加专属信源。", "LifeFlow", "更新"],
@@ -143,7 +143,7 @@ export function buildMockContentFromSources(channel, favoriteMap = {}, sourcesIn
   });
 }
 
-export function buildMockContent(channel, favoriteMap = {}, sourcesInput = buildMockSources(channel)) {
+export function buildMockContent(channel, favoriteMap = {}, sourcesInput = []) {
   return buildMockContentFromSources(channel, favoriteMap, sourcesInput);
 }
 
@@ -208,5 +208,5 @@ export function getMockContentPayloadFromItems(itemsInput, currentState) {
 }
 
 export function getMockContentPayload(channel, currentState, favoriteMap = {}) {
-  return getMockContentPayloadFromItems(buildMockContent(channel, favoriteMap), currentState);
+  return getMockContentPayloadFromItems(buildMockContent(channel, favoriteMap, []), currentState);
 }

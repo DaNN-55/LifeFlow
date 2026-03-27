@@ -15,6 +15,17 @@ const props = defineProps({
 
 const cardId = computed(() => `${props.channel}-feed-title`);
 const targetPath = computed(() => props.linkTo || `/content/${props.channel}`);
+
+function getTypeLabel(item = {}) {
+  const explicitType = String(item?.content_type || "").trim();
+  if (explicitType) {
+    return explicitType;
+  }
+  if (Array.isArray(item?.tags) && item.tags.length) {
+    return String(item.tags[0] || "").trim();
+  }
+  return "";
+}
 </script>
 
 <template>
@@ -35,7 +46,10 @@ const targetPath = computed(() => props.linkTo || `/content/${props.channel}`);
           </a>
         </h3>
         <div class="feed-meta-stack">
-          <p class="feed-meta">{{ item.source_name || "未知来源" }}</p>
+          <div class="feed-meta-row">
+            <p class="feed-meta">{{ item.source_name || "未知来源" }}</p>
+            <span v-if="getTypeLabel(item)" class="feed-type-chip">{{ getTypeLabel(item) }}</span>
+          </div>
           <p class="feed-meta">{{ formatDateTime(item.published_at || item.fetched_at) }}</p>
         </div>
       </article>

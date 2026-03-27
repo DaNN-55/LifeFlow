@@ -1,5 +1,6 @@
 import { MAX_STOCK_WIDGET_ITEMS, contentTabs, defaultWidgets } from "../app/constants";
 import { fetchJson } from "./api-client";
+import { fetchContentList, fetchFeaturedContent as fetchNewsFeaturedContent } from "./content-api";
 
 export function createEmptyWeatherState() {
   return {
@@ -18,6 +19,7 @@ export function createEmptyWeatherState() {
 
 export function createEmptyHomeState() {
   return {
+    channelFeeds: Object.fromEntries(contentTabs.map((tab) => [tab.id, []])),
     financeFeed: [],
     scienceFeed: [],
     freshNewsFeed: [],
@@ -43,19 +45,20 @@ export function createEmptyHomeState() {
 }
 
 export function fetchFeaturedContent(channel, limit = 3) {
-  return fetchJson(`/api/content/featured?channel=${encodeURIComponent(channel)}&limit=${encodeURIComponent(limit)}`, {
-    timeoutMs: 5000,
-  });
+  return fetchNewsFeaturedContent(channel, limit);
 }
 
 export async function fetchFavoritesPreview(channel = "all") {
   const selectedChannels = channel === "all" ? contentTabs.map((tab) => tab.id) : [channel];
   const responses = await Promise.all(
     selectedChannels.map((channelId) =>
-      fetchJson(
-        `/api/content?channel=${encodeURIComponent(channelId)}&favorite=favorites&page=1&pageSize=3&sort=latest`,
-        { timeoutMs: 5000 },
-      ).catch(() => ({ items: [] })),
+      fetchContentList({
+        channel: channelId,
+        favorite: "favorites",
+        page: 1,
+        pageSize: 3,
+        sort: "latest",
+      }).catch(() => ({ items: [] })),
     ),
   );
 

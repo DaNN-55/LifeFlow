@@ -100,7 +100,7 @@ const emit = defineEmits([
                   </span>
                 </label>
                 <label class="account-card-toggle">
-                  <span>Fresh News</span>
+                  <span>News</span>
                   <span class="account-toggle-switch">
                     <input
                       type="checkbox"
@@ -111,8 +111,6 @@ const emit = defineEmits([
                           sidebar: {
                             ...profileForm.sidebar,
                             freshNews: $event.target.checked,
-                            financeFeed: $event.target.checked,
-                            scienceFeed: $event.target.checked,
                           },
                         })
                       "

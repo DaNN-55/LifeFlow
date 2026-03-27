@@ -20,7 +20,6 @@ const emit = defineEmits([
   "hide-source",
   "unhide-source",
   "toggle-source-enabled",
-  "restore-defaults",
   "update:form",
 ]);
 
@@ -127,11 +126,6 @@ function getDisplayUrl(source = {}) {
         <p class="content-source-hint">
           {{ form.type === "rsshub" ? "可填写 route 或完整 RSSHub 链接。" : "支持普通 RSS / Atom 链接，也支持网站自动识别。" }}
         </p>
-
-        <div class="content-source-form-actions">
-          <p class="content-source-hint">恢复默认后，会清掉当前频道自定义信源并重新回填默认 RSSHub 源。</p>
-          <button type="button" class="task-cancel-action" @click="emit('restore-defaults')">恢复默认 RSSHub 信源</button>
-        </div>
       </div>
 
       <div class="content-source-list">
@@ -153,7 +147,7 @@ function getDisplayUrl(source = {}) {
               {{ source.enabled ? "停用" : "启用" }}
             </button>
             <button type="button" class="task-cancel-action" @click="emit('hide-source', source.id)">隐藏来源</button>
-            <button v-if="!source.is_default" type="button" class="dialog-danger settings-save" @click="emit('delete-source', source.id)">删除</button>
+            <button type="button" class="settings-save is-danger" @click="emit('delete-source', source.id)">删除</button>
           </div>
         </article>
 

@@ -17,7 +17,7 @@ export const CONTENT_SOURCE_BUNDLE_VERSION = "rsshub-defaults-v2";
 export const topTabs = [
   { id: "pulse", label: "Pulse", to: "/pulse" },
   { id: "today", label: "Today", to: "/today" },
-  { id: "content", label: "Content", to: "/content" },
+  { id: "content", label: "News", to: "/content" },
   {
     id: "fretflow",
     label: "FretFlow",
@@ -33,9 +33,7 @@ export const topTabs = [
 ];
 
 export const contentTabs = [
-  { id: "finance", label: "Finance", kicker: "Market pulse" },
-  { id: "science", label: "Science", kicker: "Research radar" },
-  { id: "ai", label: "AI", kicker: "Model watch" },
+  { id: "news", label: "News", kicker: "Fresh stream" },
 ];
 
 export const defaultWidgets = {

@@ -307,6 +307,15 @@ class MemoryStore {
 
   async createContentSource(scope = {}, source) {
     const { contentSources } = this.ensureUserScope(scope.userId);
+    const duplicateSource = [...contentSources.values()].find((entry) =>
+      entry.channel === source.channel &&
+      entry.type === source.type &&
+      entry.url === source.url &&
+      String(entry.parser_key || "") === String(source.parser_key || ""),
+    );
+    if (duplicateSource) {
+      return duplicateSource;
+    }
     contentSources.set(source.id, source);
     return source;
   }
@@ -330,9 +339,23 @@ class MemoryStore {
 
   async deleteContentSource(scope = {}, sourceId) {
     const { contentSources, contentItems } = this.ensureUserScope(scope.userId);
-    contentSources.delete(sourceId);
+    const targetSource = contentSources.get(sourceId);
+    if (!targetSource) {
+      return;
+    }
+    const sourceIds = [...contentSources.values()]
+      .filter((entry) =>
+        entry.channel === targetSource.channel &&
+        entry.type === targetSource.type &&
+        entry.url === targetSource.url &&
+        String(entry.parser_key || "") === String(targetSource.parser_key || ""),
+      )
+      .map((entry) => entry.id);
+    for (const id of sourceIds) {
+      contentSources.delete(id);
+    }
     for (const [itemId, item] of contentItems.entries()) {
-      if (item.source_id === sourceId) {
+      if (sourceIds.includes(item.source_id)) {
         contentItems.delete(itemId);
       }
     }

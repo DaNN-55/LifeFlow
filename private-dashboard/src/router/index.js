@@ -45,18 +45,11 @@ const routes = [
   },
   {
     path: "/content",
-    redirect: {
-      name: "content",
-      params: {
-        channel: "finance",
-      },
-    },
-  },
-  {
-    path: "/content/:channel(finance|science|ai)",
     name: "content",
     component: ContentView,
-    props: true,
+    props: {
+      channel: "news",
+    },
   },
   {
     path: "/fretflow",

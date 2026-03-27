@@ -45,6 +45,14 @@ function isMissingSyncEndpoint(error) {
   return Number(error?.status || 0) === 404;
 }
 
+function isInvalidSyncCursor(value = "") {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return true;
+  }
+  return Number.isNaN(Date.parse(raw));
+}
+
 function buildWeekValuesBetween(startDate, endDate = new Date()) {
   const start = getStartOfWeek(startDate);
   const end = getStartOfWeek(endDate);
@@ -145,13 +153,23 @@ function applySyncPayload(userId, payload = {}, fallbackCursor = "") {
 
 async function runDashboardSync(userId) {
   const current = loadDashboardUserCache(userId);
-  const since = String(current?.sync?.cursor || "");
+  const cachedCursor = String(current?.sync?.cursor || "");
+  const since = isInvalidSyncCursor(cachedCursor) ? "" : cachedCursor;
   let payload;
 
   try {
-    payload = since
-      ? await fetchSyncChanges(since)
-      : await fetchSyncBootstrap();
+    if (since) {
+      try {
+        payload = await fetchSyncChanges(since);
+      } catch (error) {
+        if (Number(error?.status || 0) !== 400) {
+          throw error;
+        }
+        payload = await fetchSyncBootstrap();
+      }
+    } else {
+      payload = await fetchSyncBootstrap();
+    }
   } catch (error) {
     if (!isMissingSyncEndpoint(error)) {
       throw error;

@@ -2,6 +2,15 @@ const { createClient } = require("@supabase/supabase-js");
 
 const USER_SELECT_FIELDS = "id, username, password_hash, recovery_code_hash, preferences, created_at, data_updated_at, data_reset_at";
 
+function normalizeContentSourceIdentity(source = {}) {
+  return {
+    channel: String(source.channel || "").trim(),
+    type: String(source.type || "").trim(),
+    url: String(source.url || "").trim(),
+    parser_key: String(source.parser_key || "").trim(),
+  };
+}
+
 class SupabaseStore {
   constructor({ supabaseUrl, supabaseServiceRoleKey }) {
     this.client = createClient(supabaseUrl, supabaseServiceRoleKey, {
@@ -510,6 +519,26 @@ class SupabaseStore {
   }
 
   async createContentSource(scope = {}, source) {
+    const identity = normalizeContentSourceIdentity(source);
+    const { data: existingSource, error: existingError } = await this.client
+      .from("content_sources")
+      .select("id, channel, type, name, url, enabled, sort_order, parser_key, is_default, created_at, updated_at")
+      .eq("user_id", scope.userId || "")
+      .eq("channel", identity.channel)
+      .eq("type", identity.type)
+      .eq("url", identity.url)
+      .eq("parser_key", identity.parser_key)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (existingError) {
+      throw existingError;
+    }
+    if (existingSource) {
+      return existingSource;
+    }
+
     const { data, error } = await this.client
       .from("content_sources")
       .insert({ ...source, user_id: scope.userId || "" })
@@ -538,11 +567,45 @@ class SupabaseStore {
   }
 
   async deleteContentSource(scope = {}, sourceId) {
+    const targetSource = await this.getContentSource(scope, sourceId);
+    if (!targetSource) {
+      return;
+    }
+
+    const identity = normalizeContentSourceIdentity(targetSource);
+    const { data: duplicateSources, error: duplicateError } = await this.client
+      .from("content_sources")
+      .select("id")
+      .eq("user_id", scope.userId || "")
+      .eq("channel", identity.channel)
+      .eq("type", identity.type)
+      .eq("url", identity.url)
+      .eq("parser_key", identity.parser_key);
+
+    if (duplicateError) {
+      throw duplicateError;
+    }
+
+    const sourceIds = [...new Set((duplicateSources || []).map((item) => item.id).filter(Boolean))];
+    if (!sourceIds.length) {
+      return;
+    }
+
+    const { error: itemError } = await this.client
+      .from("content_items")
+      .delete()
+      .eq("user_id", scope.userId || "")
+      .in("source_id", sourceIds);
+
+    if (itemError) {
+      throw itemError;
+    }
+
     const { error } = await this.client
       .from("content_sources")
       .delete()
       .eq("user_id", scope.userId || "")
-      .eq("id", sourceId);
+      .in("id", sourceIds);
 
     if (error) {
       throw error;
