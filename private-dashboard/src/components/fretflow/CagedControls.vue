@@ -14,7 +14,7 @@ const emit = defineEmits(["toggle-pattern", "update-show-caged"]);
 </script>
 
 <template>
-  <section class="fretflow-control-card">
+  <section class="fretflow-control-card fretflow-control-card-caged">
     <div class="fretflow-card-head">
       <div>
         <p class="panel-kicker">CAGED</p>

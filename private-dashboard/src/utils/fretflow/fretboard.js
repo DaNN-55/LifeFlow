@@ -62,6 +62,408 @@ export const chordPositionRanges = {
 
 export const fretMarkerFrets = [3, 5, 7, 9, 12, 15];
 
+const chordPositionTemplates = {
+  majorTriad: {
+    1: {
+      referenceStringIndex: 4,
+      fretsByString: {
+        5: null,
+        4: 0,
+        3: -1,
+        2: -3,
+        1: -2,
+        0: -3,
+      },
+    },
+    2: {
+      referenceStringIndex: 4,
+      fretsByString: {
+        5: null,
+        4: 0,
+        3: 2,
+        2: 2,
+        1: 2,
+        0: 0,
+      },
+    },
+    3: {
+      referenceStringIndex: 5,
+      fretsByString: {
+        5: 0,
+        4: -1,
+        3: -3,
+        2: -3,
+        1: -3,
+        0: 0,
+      },
+    },
+    4: {
+      referenceStringIndex: 5,
+      fretsByString: {
+        5: 0,
+        4: 2,
+        3: 2,
+        2: 1,
+        1: 0,
+        0: 0,
+      },
+    },
+    5: {
+      referenceStringIndex: 3,
+      fretsByString: {
+        5: null,
+        4: null,
+        3: 0,
+        2: 2,
+        1: 3,
+        0: 2,
+      },
+    },
+  },
+  minorTriad: {
+    1: {
+      referenceStringIndex: 4,
+      fretsByString: {
+        5: null,
+        4: 0,
+        3: -2,
+        2: -3,
+        1: -2,
+        0: 0,
+      },
+    },
+    2: {
+      referenceStringIndex: 4,
+      fretsByString: {
+        5: null,
+        4: 0,
+        3: 2,
+        2: 2,
+        1: 1,
+        0: 0,
+      },
+    },
+    3: {
+      referenceStringIndex: 5,
+      fretsByString: {
+        5: 0,
+        4: -2,
+        3: -3,
+        2: -3,
+        1: 0,
+        0: 0,
+      },
+    },
+    4: {
+      referenceStringIndex: 5,
+      fretsByString: {
+        5: 0,
+        4: 2,
+        3: 2,
+        2: 0,
+        1: 0,
+        0: 0,
+      },
+    },
+    5: {
+      referenceStringIndex: 3,
+      fretsByString: {
+        5: null,
+        4: null,
+        3: 0,
+        2: 2,
+        1: 3,
+        0: 1,
+      },
+    },
+  },
+  dominant7: {
+    1: {
+      referenceStringIndex: 4,
+      fretsByString: {
+        5: null,
+        4: 0,
+        3: -1,
+        2: 0,
+        1: -2,
+        0: -3,
+      },
+    },
+    2: {
+      referenceStringIndex: 4,
+      fretsByString: {
+        5: null,
+        4: 0,
+        3: 2,
+        2: 0,
+        1: 2,
+        0: 0,
+      },
+    },
+    3: {
+      referenceStringIndex: 5,
+      fretsByString: {
+        5: 0,
+        4: -1,
+        3: -3,
+        2: -3,
+        1: -3,
+        0: -2,
+      },
+    },
+    4: {
+      referenceStringIndex: 5,
+      fretsByString: {
+        5: 0,
+        4: 2,
+        3: 0,
+        2: 1,
+        1: 0,
+        0: 0,
+      },
+    },
+    5: {
+      referenceStringIndex: 3,
+      fretsByString: {
+        5: null,
+        4: null,
+        3: 0,
+        2: 2,
+        1: 1,
+        0: 2,
+      },
+    },
+  },
+  major7: {
+    1: {
+      referenceStringIndex: 4,
+      fretsByString: {
+        5: null,
+        4: 0,
+        3: -1,
+        2: -3,
+        1: -3,
+        0: -3,
+      },
+    },
+    2: {
+      referenceStringIndex: 4,
+      fretsByString: {
+        5: null,
+        4: 0,
+        3: 2,
+        2: 1,
+        1: 2,
+        0: 0,
+      },
+    },
+    3: {
+      referenceStringIndex: 5,
+      fretsByString: {
+        5: 0,
+        4: -1,
+        3: -3,
+        2: -3,
+        1: -3,
+        0: -1,
+      },
+    },
+    4: {
+      referenceStringIndex: 5,
+      fretsByString: {
+        5: 0,
+        4: 2,
+        3: 1,
+        2: 1,
+        1: 0,
+        0: 0,
+      },
+    },
+    5: {
+      referenceStringIndex: 3,
+      fretsByString: {
+        5: null,
+        4: null,
+        3: 0,
+        2: 2,
+        1: 2,
+        0: 2,
+      },
+    },
+  },
+  minor7: {
+    1: {
+      referenceStringIndex: 4,
+      fretsByString: {
+        5: null,
+        4: 0,
+        3: -2,
+        2: 0,
+        1: -2,
+        0: 0,
+      },
+    },
+    2: {
+      referenceStringIndex: 4,
+      fretsByString: {
+        5: null,
+        4: 0,
+        3: 2,
+        2: 0,
+        1: 1,
+        0: 0,
+      },
+    },
+    3: {
+      referenceStringIndex: 5,
+      fretsByString: {
+        5: 0,
+        4: -2,
+        3: -3,
+        2: -3,
+        1: -3,
+        0: -2,
+      },
+    },
+    4: {
+      referenceStringIndex: 5,
+      fretsByString: {
+        5: 0,
+        4: 2,
+        3: 0,
+        2: 0,
+        1: 0,
+        0: 0,
+      },
+    },
+    5: {
+      referenceStringIndex: 3,
+      fretsByString: {
+        5: null,
+        4: null,
+        3: 0,
+        2: 2,
+        1: 1,
+        0: 1,
+      },
+    },
+  },
+  sus2: {
+    1: {
+      referenceStringIndex: 4,
+      fretsByString: {
+        5: null,
+        4: 0,
+        3: -3,
+        2: -3,
+        1: -2,
+        0: 0,
+      },
+    },
+    2: {
+      referenceStringIndex: 4,
+      fretsByString: {
+        5: null,
+        4: 0,
+        3: 2,
+        2: 2,
+        1: 0,
+        0: 0,
+      },
+    },
+    3: {
+      referenceStringIndex: 5,
+      fretsByString: {
+        5: 0,
+        4: -3,
+        3: -3,
+        2: -1,
+        1: 0,
+        0: 0,
+      },
+    },
+    4: {
+      referenceStringIndex: 5,
+      fretsByString: {
+        5: 0,
+        4: 2,
+        3: 4,
+        2: 4,
+        1: 0,
+        0: 0,
+      },
+    },
+    5: {
+      referenceStringIndex: 3,
+      fretsByString: {
+        5: null,
+        4: null,
+        3: 0,
+        2: 2,
+        1: 3,
+        0: 0,
+      },
+    },
+  },
+  sus4: {
+    1: {
+      referenceStringIndex: 4,
+      fretsByString: {
+        5: null,
+        4: 0,
+        3: 0,
+        2: -3,
+        1: -2,
+        0: -2,
+      },
+    },
+    2: {
+      referenceStringIndex: 4,
+      fretsByString: {
+        5: null,
+        4: 0,
+        3: 2,
+        2: 2,
+        1: 3,
+        0: 0,
+      },
+    },
+    3: {
+      referenceStringIndex: 5,
+      fretsByString: {
+        5: 0,
+        4: 0,
+        3: -3,
+        2: -3,
+        1: -2,
+        0: 0,
+      },
+    },
+    4: {
+      referenceStringIndex: 5,
+      fretsByString: {
+        5: 0,
+        4: 2,
+        3: 2,
+        2: 2,
+        1: 0,
+        0: 0,
+      },
+    },
+    5: {
+      referenceStringIndex: 3,
+      fretsByString: {
+        5: null,
+        4: null,
+        3: 0,
+        2: 2,
+        1: 3,
+        0: 3,
+      },
+    },
+  },
+};
+
 function createBaseBoard(limit = maxFret) {
   return openStrings.map((root, stringIndex) => {
     const notes = Array.from({ length: limit + 1 }, (_, fret) => {
@@ -93,7 +495,7 @@ function isInChordPosition(fret, chordPosition) {
   return fret >= range[0] && fret <= range[1];
 }
 
-function getVoicedChordFrets(root, chordType, chordPosition) {
+function getLegacyVoicedChordFrets(root, chordType, chordPosition) {
   const formula = chordFormulas[chordType] || chordFormulas.majorTriad;
   const chordNotes = new Set(getNotesFromFormula(root, formula.intervals));
   const voiced = new Map();
@@ -105,6 +507,60 @@ function getVoicedChordFrets(root, chordType, chordPosition) {
     voiced.set(stringIndex, candidates[0].fret);
   }
   return voiced;
+}
+
+function buildTemplateChordLayout(root, chordType, chordPosition) {
+  const template = chordPositionTemplates[chordType]?.[chordPosition];
+  if (!template) {
+    return null;
+  }
+
+  const referenceNotes = baseBoard[template.referenceStringIndex]?.notes || [];
+  const candidateFrets = referenceNotes
+    .filter((spot) => spot.note === root)
+    .map((spot) => spot.fret)
+    .sort((left, right) => left - right);
+
+  for (const candidateFret of candidateFrets) {
+    const fretsByString = new Map();
+    const mutedStrings = new Set();
+    let valid = true;
+
+    for (const [stringIndexKey, offset] of Object.entries(template.fretsByString)) {
+      const stringIndex = Number(stringIndexKey);
+      if (offset == null) {
+        mutedStrings.add(stringIndex);
+        continue;
+      }
+      const fret = candidateFret + offset;
+      if (fret < 0 || fret > maxFret) {
+        valid = false;
+        break;
+      }
+      fretsByString.set(stringIndex, fret);
+    }
+
+    if (valid) {
+      return {
+        fretsByString,
+        mutedStrings,
+      };
+    }
+  }
+
+  return null;
+}
+
+function getVoicedChordLayout(root, chordType, chordPosition) {
+  const templateLayout = buildTemplateChordLayout(root, chordType, chordPosition);
+  if (templateLayout) {
+    return templateLayout;
+  }
+
+  return {
+    fretsByString: getLegacyVoicedChordFrets(root, chordType, chordPosition),
+    mutedStrings: new Set(),
+  };
 }
 
 function getActivePatterns(patterns = []) {
@@ -128,45 +584,53 @@ export function buildFretboardState(practice = {}) {
   chordNotes.forEach((note, index) => {
     degreeMap.set(note, chordFormula.degrees[index]);
   });
-  const voicedChordFrets = mode === "training" && trainingView === "chord"
-    ? getVoicedChordFrets(root, chordType, chordPosition)
-    : new Map();
+  const voicedChordLayout = mode === "training" && trainingView === "chord"
+    ? getVoicedChordLayout(root, chordType, chordPosition)
+    : { fretsByString: new Map(), mutedStrings: new Set() };
+  const voicedChordFrets = voicedChordLayout.fretsByString;
+  const mutedChordStrings = voicedChordLayout.mutedStrings;
 
-  const strings = baseBoard.map((string) => ({
-    ...string,
-    notes: string.notes.map((spot) => {
-      const inPattern = activePatterns.length ? activePatterns.some((pattern) => patternRules[pattern].inPattern(spot.stringIndex, spot.fret)) : true;
-      const cagedAllowed = activePatterns.some((pattern) => patternRules[pattern].inPattern(spot.stringIndex, spot.fret) && patternRules[pattern].chordAllowed(spot.stringIndex, spot.fret));
+  const strings = baseBoard.map((string) => {
+    const isMutedString = mode === "training" && trainingView === "chord" && mutedChordStrings.has(string.stringIndex);
 
-      let isActive = false;
-      let tone = "muted";
-      if (mode === "training") {
-        if (trainingView === "scale") {
-          isActive = scaleNotes.has(spot.note);
-          tone = "scale";
-        } else {
-          isActive = chordNoteSet.has(spot.note) && voicedChordFrets.get(spot.stringIndex) === spot.fret;
+    return {
+      ...string,
+      label: isMutedString ? "×" : (string.notes[0]?.note || "E"),
+      isMutedString,
+      notes: string.notes.map((spot) => {
+        const inPattern = activePatterns.length ? activePatterns.some((pattern) => patternRules[pattern].inPattern(spot.stringIndex, spot.fret)) : true;
+        const cagedAllowed = activePatterns.some((pattern) => patternRules[pattern].inPattern(spot.stringIndex, spot.fret) && patternRules[pattern].chordAllowed(spot.stringIndex, spot.fret));
+
+        let isActive = false;
+        let tone = "muted";
+        if (mode === "training") {
+          if (trainingView === "scale") {
+            isActive = scaleNotes.has(spot.note);
+            tone = "scale";
+          } else {
+            isActive = chordNoteSet.has(spot.note) && voicedChordFrets.get(spot.stringIndex) === spot.fret;
+            tone = "chord";
+          }
+        } else if (practice.showCaged) {
+          isActive = activePatterns.length ? chordNoteSet.has(spot.note) && cagedAllowed : chordNoteSet.has(spot.note);
           tone = "chord";
+        } else {
+          isActive = inPattern && scaleNotes.has(spot.note);
+          tone = "scale";
         }
-      } else if (practice.showCaged) {
-        isActive = activePatterns.length ? chordNoteSet.has(spot.note) && cagedAllowed : chordNoteSet.has(spot.note);
-        tone = "chord";
-      } else {
-        isActive = inPattern && scaleNotes.has(spot.note);
-        tone = "scale";
-      }
 
-      return {
-        ...spot,
-        isActive,
-        isRoot: isActive && spot.note === root,
-        tone,
-        isPatterned: inPattern,
-        isChordTone: chordNoteSet.has(spot.note),
-        degree: isActive && chordNoteSet.has(spot.note) ? degreeMap.get(spot.note) || "" : "",
-      };
-    }),
-  }));
+        return {
+          ...spot,
+          isActive,
+          isRoot: isActive && spot.note === root,
+          tone,
+          isPatterned: inPattern,
+          isChordTone: chordNoteSet.has(spot.note),
+          degree: isActive && chordNoteSet.has(spot.note) ? degreeMap.get(spot.note) || "" : "",
+        };
+      }),
+    };
+  });
 
   return {
     root,

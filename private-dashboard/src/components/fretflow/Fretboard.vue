@@ -45,8 +45,8 @@ const markerItems = computed(() => (
           :key="string.id"
           class="fretboard-string-row"
         >
-          <div class="fretboard-string-label">
-            {{ string.notes[0]?.note || "E" }}
+          <div class="fretboard-string-label" :class="{ 'is-muted': string.isMutedString }">
+            {{ string.label || string.notes[0]?.note || "E" }}
           </div>
           <button
             v-for="spot in string.notes"
@@ -67,7 +67,6 @@ const markerItems = computed(() => (
             <span class="fretboard-note-badge">
               <span class="fretboard-note-fill"></span>
               <span class="fretboard-note-label">{{ spot.note }}</span>
-              <span class="fretboard-note-degree">{{ spot.degree }}</span>
             </span>
           </button>
         </div>

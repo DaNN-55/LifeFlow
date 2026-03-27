@@ -62,10 +62,13 @@ export const chordOptions = [
   { value: "minor7", label: "小七和弦" },
 ];
 
-export const chordPositionOptions = [1, 2, 3, 4, 5].map((value) => ({
-  value: String(value),
-  label: `把位 ${value}`,
-}));
+export const chordPositionOptions = [
+  { value: "1", label: "C 指型" },
+  { value: "2", label: "A 指型" },
+  { value: "3", label: "G 指型" },
+  { value: "4", label: "E 指型" },
+  { value: "5", label: "D 指型" },
+];
 
 export const trainingViewOptions = [
   { value: "scale", label: "音阶" },

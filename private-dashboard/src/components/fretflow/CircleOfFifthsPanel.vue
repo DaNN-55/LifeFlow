@@ -121,7 +121,7 @@ function clearDegreeHover(row) {
 </script>
 
 <template>
-  <section class="rail-card fretflow-interactive-panel">
+  <section class="rail-card fretflow-interactive-panel fretflow-interactive-panel-theory">
     <div class="fretflow-card-head">
       <div>
         <p class="panel-kicker">Theory</p>
