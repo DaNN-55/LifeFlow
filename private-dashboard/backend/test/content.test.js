@@ -1,6 +1,28 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { extractFeedItemImage } = require("../src/lib/content");
+const { extractFeedItemImage, refreshChannelContent } = require("../src/lib/content");
+const { MemoryStore } = require("../src/store/memoryStore");
+
+function buildRssFeed(items = []) {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+    <rss version="2.0">
+      <channel>
+        <title>Example Feed</title>
+        ${items.join("\n")}
+      </channel>
+    </rss>`;
+}
+
+function buildRssItem({ title, link, pubDate, description = "" }) {
+  return `
+    <item>
+      <title><![CDATA[${title}]]></title>
+      <link>${link}</link>
+      <pubDate>${pubDate}</pubDate>
+      <description><![CDATA[${description}]]></description>
+    </item>
+  `;
+}
 
 test("extractFeedItemImage prefers direct enclosure urls", () => {
   const imageUrl = extractFeedItemImage(
@@ -28,4 +50,239 @@ test("extractFeedItemImage resolves relative image urls from html content", () =
   );
 
   assert.equal(imageUrl, "https://example.com/images/story-cover.webp");
+});
+
+test("refreshChannelContent normalizes nested feed categories to first-level tags", async () => {
+  const store = new MemoryStore();
+  const user = await store.createUser({
+    id: "user-news-tags-1",
+    username: "news-tags-user-1",
+    password_hash: "hash-tags-1",
+    recovery_code_hash: "recovery-tags-1",
+    preferences: {},
+  });
+  await store.createContentSource(
+    { userId: user.id },
+    {
+      id: "source-news-tags-1",
+      channel: "news",
+      type: "rss",
+      name: "Tagged Feed",
+      url: "https://example.com/feed.xml",
+      enabled: true,
+      sort_order: 1,
+      parser_key: "",
+      created_at: "2026-03-28T00:00:00.000Z",
+      updated_at: "2026-03-28T00:00:00.000Z",
+    },
+  );
+
+  const originalFetch = global.fetch;
+  global.fetch = async () =>
+    new Response(
+      buildRssFeed([
+        `
+          <item>
+            <title><![CDATA[Story Tags]]></title>
+            <link>https://example.com/story-tags</link>
+            <pubDate>Fri, 28 Mar 2026 09:00:00 GMT</pubDate>
+            <category>Business / Tech Culture</category>
+            <category>Security / Privacy</category>
+          </item>
+        `,
+      ]),
+      {
+        status: 200,
+        headers: { "content-type": "application/rss+xml" },
+      },
+    );
+
+  try {
+    await refreshChannelContent({
+      store,
+      userId: user.id,
+      channel: "news",
+      limit: 10,
+    });
+    const result = await store.listContent(
+      { userId: user.id },
+      { channel: "news", page: 1, pageSize: 10, sort: "latest" },
+    );
+    assert.deepEqual(result.items[0].tags, ["Business", "Security"]);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("refreshChannelContent stores source sync metadata and avoids article fetch fan-out", async () => {
+  const store = new MemoryStore();
+  const user = await store.createUser({
+    id: "user-news-1",
+    username: "news-user-1",
+    password_hash: "hash-1",
+    recovery_code_hash: "recovery-1",
+    preferences: {},
+  });
+  await store.createContentSource(
+    { userId: user.id },
+    {
+      id: "source-news-1",
+      channel: "news",
+      type: "rss",
+      name: "Example Feed",
+      url: "https://example.com/feed.xml",
+      enabled: true,
+      sort_order: 1,
+      parser_key: "",
+      created_at: "2026-03-28T00:00:00.000Z",
+      updated_at: "2026-03-28T00:00:00.000Z",
+    },
+  );
+
+  const requests = [];
+  const originalFetch = global.fetch;
+  global.fetch = async (url) => {
+    requests.push(String(url));
+    return new Response(
+      buildRssFeed([
+        buildRssItem({
+          title: "Story A",
+          link: "https://example.com/story-a",
+          pubDate: "Fri, 28 Mar 2026 09:00:00 GMT",
+          description: "<p>Alpha</p>",
+        }),
+        buildRssItem({
+          title: "Story B",
+          link: "https://example.com/story-b",
+          pubDate: "Thu, 27 Mar 2026 09:00:00 GMT",
+          description: "<p>Beta</p>",
+        }),
+      ]),
+      {
+        status: 200,
+        headers: {
+          "content-type": "application/rss+xml",
+        },
+      },
+    );
+  };
+
+  try {
+    const result = await refreshChannelContent({
+      store,
+      userId: user.id,
+      channel: "news",
+      limit: 10,
+    });
+
+    assert.equal(result.items.length, 2);
+    assert.deepEqual(requests, ["https://example.com/feed.xml"]);
+
+    const source = await store.getContentSource({ userId: user.id }, "source-news-1");
+    assert.equal(Boolean(source.last_success_at), true);
+    assert.equal(source.last_error, "");
+    assert.equal(source.latest_published_at, "2026-03-28T09:00:00.000Z");
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("refreshChannelContent only appends newer feed items on subsequent syncs", async () => {
+  const store = new MemoryStore();
+  const user = await store.createUser({
+    id: "user-news-2",
+    username: "news-user-2",
+    password_hash: "hash-2",
+    recovery_code_hash: "recovery-2",
+    preferences: {},
+  });
+  await store.createContentSource(
+    { userId: user.id },
+    {
+      id: "source-news-2",
+      channel: "news",
+      type: "rss",
+      name: "Example Feed",
+      url: "https://example.com/feed.xml",
+      enabled: true,
+      sort_order: 1,
+      parser_key: "",
+      created_at: "2026-03-28T00:00:00.000Z",
+      updated_at: "2026-03-28T00:00:00.000Z",
+    },
+  );
+
+  const payloads = [
+    buildRssFeed([
+      buildRssItem({
+        title: "Story A",
+        link: "https://example.com/story-a",
+        pubDate: "Fri, 28 Mar 2026 09:00:00 GMT",
+      }),
+      buildRssItem({
+        title: "Story B",
+        link: "https://example.com/story-b",
+        pubDate: "Thu, 27 Mar 2026 09:00:00 GMT",
+      }),
+    ]),
+    buildRssFeed([
+      buildRssItem({
+        title: "Story C",
+        link: "https://example.com/story-c",
+        pubDate: "Sat, 29 Mar 2026 09:00:00 GMT",
+      }),
+      buildRssItem({
+        title: "Story A",
+        link: "https://example.com/story-a",
+        pubDate: "Fri, 28 Mar 2026 09:00:00 GMT",
+      }),
+      buildRssItem({
+        title: "Story B",
+        link: "https://example.com/story-b",
+        pubDate: "Thu, 27 Mar 2026 09:00:00 GMT",
+      }),
+    ]),
+  ];
+  let fetchIndex = 0;
+  const originalFetch = global.fetch;
+  global.fetch = async () =>
+    new Response(payloads[Math.min(fetchIndex++, payloads.length - 1)], {
+      status: 200,
+      headers: {
+        "content-type": "application/rss+xml",
+      },
+    });
+
+  try {
+    await refreshChannelContent({
+      store,
+      userId: user.id,
+      channel: "news",
+      limit: 10,
+    });
+    await refreshChannelContent({
+      store,
+      userId: user.id,
+      channel: "news",
+      limit: 10,
+    });
+
+    const result = await store.listContent(
+      { userId: user.id },
+      {
+        channel: "news",
+        page: 1,
+        pageSize: 10,
+        sort: "latest",
+      },
+    );
+
+    assert.equal(result.total, 3);
+    assert.deepEqual(
+      result.items.map((item) => item.title),
+      ["Story C", "Story A", "Story B"],
+    );
+  } finally {
+    global.fetch = originalFetch;
+  }
 });

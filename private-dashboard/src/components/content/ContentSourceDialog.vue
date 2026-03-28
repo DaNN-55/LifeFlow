@@ -34,6 +34,10 @@ function getFailure(sourceId) {
   return props.failures.find((item) => item.sourceId === sourceId);
 }
 
+function getSourceError(source = {}) {
+  return getFailure(source.id)?.message || String(source.last_error || "").trim();
+}
+
 function formatSourceType(type = "") {
   if (type === "rsshub") {
     return "RSSHub";
@@ -137,8 +141,8 @@ function getDisplayUrl(source = {}) {
             <p>{{ getDisplayUrl(source) }}</p>
             <span class="feed-meta">{{ formatSourceType(source.type) }} · {{ source.enabled ? "已启用" : "已停用" }}</span>
             <p v-if="source.parser_key" class="feed-meta">实例：{{ source.parser_key }}</p>
-            <p v-if="getFailure(source.id)" class="content-source-status is-error">
-              最近刷新失败 · {{ getFailure(source.id).message || "未知错误" }}
+            <p v-if="getSourceError(source)" class="content-source-status is-error">
+              最近刷新失败 · {{ getSourceError(source) || "未知错误" }}
             </p>
           </div>
           <div class="content-source-item-actions">

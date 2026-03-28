@@ -20,6 +20,7 @@ import {
   getMockContentPayloadFromItems,
 } from "../utils/content-mocks";
 import { getContentMetaText } from "../utils/content";
+import { loadDashboardSnapshot, syncDashboardSnapshot } from "../services/sync-service";
 import { useHomeStore } from "./home";
 import { useSessionStore } from "./session";
 
@@ -74,6 +75,11 @@ function normalizeSource(source = {}) {
     type: String(source.type || "rss"),
     parser_key: String(source.parser_key || ""),
     enabled: typeof source.enabled === "boolean" ? source.enabled : true,
+    last_synced_at: String(source.last_synced_at || ""),
+    last_success_at: String(source.last_success_at || ""),
+    last_failure_at: String(source.last_failure_at || ""),
+    last_error: String(source.last_error || ""),
+    latest_published_at: String(source.latest_published_at || ""),
   };
 }
 
@@ -146,6 +152,20 @@ function getChannelItemKeys(items = []) {
   return new Set(items.map((item) => getItemKey(item)).filter(Boolean));
 }
 
+function collectSnapshotChannelItems(snapshot = {}, channel = "") {
+  return Object.values(snapshot?.content?.items?.[channel] || {})
+    .sort((left, right) => {
+      const leftTime = new Date(left?.published_at || left?.fetched_at || left?.created_at || 0).getTime();
+      const rightTime = new Date(right?.published_at || right?.fetched_at || right?.created_at || 0).getTime();
+      return rightTime - leftTime;
+    });
+}
+
+function collectSnapshotChannelSources(snapshot = {}, channel = "") {
+  return Object.values(snapshot?.content?.sources?.[channel] || {})
+    .sort((left, right) => Number(left?.sort_order || 0) - Number(right?.sort_order || 0));
+}
+
 function normalizeLocalContentCache(cache = {}) {
   const normalized = createInitialLocalContentCache();
   normalized.readItems = cache?.readItems && typeof cache.readItems === "object" ? { ...cache.readItems } : {};
@@ -211,6 +231,8 @@ export const useContentStore = defineStore("content", {
       channels: Object.fromEntries(
         contentTabs.map((tab) => [tab.id, createInitialChannelState(tab.id, localCache.views?.[tab.id] || {})]),
       ),
+      sourceCatalogs: Object.fromEntries(contentTabs.map((tab) => [tab.id, []])),
+      sourceCatalogLoaded: Object.fromEntries(contentTabs.map((tab) => [tab.id, false])),
       sourceModalChannel: "",
       sourceEditingId: "",
       sourceForm: {
@@ -250,11 +272,42 @@ export const useContentStore = defineStore("content", {
     isSourceHidden(channel, sourceId) {
       return Boolean(sourceId && this.hiddenSources[`${channel}:${sourceId}`]);
     },
+    isSourceSuppressed(channel, sourceId, sources = null) {
+      if (!sourceId) {
+        return false;
+      }
+      const sourceList = Array.isArray(sources) ? sources : this.getSourceCatalog(channel);
+      const source = sourceList.find((entry) => entry.id === sourceId);
+      return Boolean(this.isSourceHidden(channel, sourceId) || source?.enabled === false);
+    },
+    getSourceCatalog(channel) {
+      return this.sourceCatalogLoaded[channel] ? (this.sourceCatalogs[channel] || []) : (this.channels[channel]?.sources || []);
+    },
     getVisibleSources(channel) {
-      return (this.channels[channel]?.sources || []).filter((source) => !this.isSourceHidden(channel, source.id));
+      return this.getSourceCatalog(channel).filter((source) => !this.isSourceHidden(channel, source.id));
     },
     getHiddenSources(channel) {
-      return (this.channels[channel]?.sources || []).filter((source) => this.isSourceHidden(channel, source.id));
+      return this.getSourceCatalog(channel).filter((source) => this.isSourceHidden(channel, source.id));
+    },
+    setChannelSourceCatalog(channel, sources = []) {
+      const normalizedSources = normalizeSourceList(sources || []);
+      this.sourceCatalogs[channel] = normalizedSources;
+      this.sourceCatalogLoaded[channel] = true;
+      if (this.channels[channel]) {
+        this.channels[channel].sources = normalizedSources;
+      }
+      return normalizedSources;
+    },
+    async ensureRemoteSourceCatalog(channel, options = {}) {
+      const sessionStore = useSessionStore();
+      if (!sessionStore.user?.id) {
+        return [];
+      }
+      if (!options.force && this.sourceCatalogLoaded[channel]) {
+        return this.sourceCatalogs[channel] || [];
+      }
+      const payload = await fetchContentSources(channel);
+      return this.setChannelSourceCatalog(channel, payload?.sources || []);
     },
     setSourceForm(form) {
       this.sourceForm = {
@@ -280,25 +333,109 @@ export const useContentStore = defineStore("content", {
           }
         : null;
     },
-    async syncHomeFreshNews(channel) {
-      const sessionStore = useSessionStore();
-      if (!sessionStore.user?.id) {
-        return;
-      }
-      const homeStore = useHomeStore();
-      try {
-        await homeStore.refreshFeed(channel);
-        homeStore.rebuildFreshNewsFeed();
-      } catch {
-        // Keep Content interactions responsive even if the sidebar preview refresh fails.
-      }
-    },
     persistLocalCache() {
       try {
         localStorage.setItem(LOCAL_CONTENT_CACHE_STORAGE_KEY, JSON.stringify(this.localCache));
       } catch {
         // Best-effort local mode cache for unauthenticated testing.
       }
+    },
+    applySyncedChannelSnapshot(channel, snapshot = {}) {
+      const contentState = this.channels[channel];
+      if (!contentState) {
+        return false;
+      }
+      const favoriteUrlSet = new Set(
+        Object.values(snapshot?.content?.favorites?.[channel] || {})
+          .map((item) => String(item?.canonical_url || "").trim())
+          .filter(Boolean),
+      );
+      const snapshotItems = collectSnapshotChannelItems(snapshot, channel).map((item) => ({
+        ...item,
+        is_favorite: Boolean(item?.is_favorite || favoriteUrlSet.has(String(item?.canonical_url || "").trim())),
+      }));
+      const snapshotSources = normalizeSourceList([
+        ...collectSnapshotChannelSources(snapshot, channel),
+        ...this.getSourceCatalog(channel),
+      ]);
+      if (!snapshotItems.length && !snapshotSources.length) {
+        return false;
+      }
+
+      let filteredItems = snapshotItems.filter((item) => {
+        if (this.isSourceSuppressed(channel, item.source_id || "", snapshotSources)) {
+          return false;
+        }
+        if (contentState.search) {
+          const query = String(contentState.search || "").trim().toLowerCase();
+          const haystack = [item.title, item.summary_zh, item.summary_raw, item.source_name].join(" ").toLowerCase();
+          if (!haystack.includes(query)) {
+            return false;
+          }
+        }
+        if (contentState.tag !== "all" && !(Array.isArray(item.tags) && item.tags.includes(contentState.tag))) {
+          return false;
+        }
+        if (contentState.sourceId !== "all" && item.source_id !== contentState.sourceId) {
+          return false;
+        }
+        if (contentState.favoriteFilter === "favorites" && !item.is_favorite) {
+          return false;
+        }
+        if (contentState.favoriteFilter === "read" && !this.isItemRead(item)) {
+          return false;
+        }
+        if (contentState.favoriteFilter === "unread" && this.isItemRead(item)) {
+          return false;
+        }
+        return true;
+      });
+
+      filteredItems = filteredItems.sort((left, right) => {
+        const leftTime = new Date(left.published_at || left.fetched_at || 0).getTime();
+        const rightTime = new Date(right.published_at || right.fetched_at || 0).getTime();
+        return contentState.sort === "oldest" ? leftTime - rightTime : rightTime - leftTime;
+      });
+
+      const total = filteredItems.length;
+      const maxPage = Math.max(1, Math.ceil(total / contentState.pageSize));
+      contentState.page = Math.min(Math.max(1, Number(contentState.page || 1)), maxPage);
+      const startIndex = (contentState.page - 1) * contentState.pageSize;
+      contentState.items = filteredItems.slice(startIndex, startIndex + contentState.pageSize);
+      contentState.total = total;
+      contentState.tags = [...new Set(snapshotItems.flatMap((item) => item.tags || []))].sort();
+      this.setChannelSourceCatalog(channel, snapshotSources);
+      contentState.loaded = true;
+      contentState.mode = "remote";
+      return true;
+    },
+    async syncRemoteContentSnapshot(channel) {
+      const sessionStore = useSessionStore();
+      if (!sessionStore.user?.id) {
+        return null;
+      }
+      const snapshot = await syncDashboardSnapshot(sessionStore.user.id, { force: true });
+      this.applySyncedChannelSnapshot(channel, snapshot);
+      useHomeStore().applyContentSnapshot(snapshot);
+      return snapshot;
+    },
+    refreshHomeFromCachedContent() {
+      const sessionStore = useSessionStore();
+      if (!sessionStore.user?.id) {
+        return;
+      }
+      useHomeStore().applyContentSnapshot(loadDashboardSnapshot(sessionStore.user.id));
+    },
+    reapplyChannelFromCachedSnapshot(channel) {
+      const sessionStore = useSessionStore();
+      if (!sessionStore.user?.id) {
+        return false;
+      }
+      const applied = this.applySyncedChannelSnapshot(channel, loadDashboardSnapshot(sessionStore.user.id));
+      if (applied) {
+        this.refreshHomeFromCachedContent();
+      }
+      return applied;
     },
     ensureLocalChannelCache(channel) {
       const localChannel = createLocalChannelData(channel, this.localCache.favoriteItems, this.localCache.channels[channel] || {});
@@ -462,7 +599,7 @@ export const useContentStore = defineStore("content", {
           contentState.items = payload.items;
           contentState.total = Number(payload.total || 0);
           contentState.tags = Array.isArray(payload.tags) ? payload.tags : [];
-          contentState.sources = Array.isArray(localChannel.sources) ? localChannel.sources.map(normalizeSource) : [];
+          this.setChannelSourceCatalog(channel, Array.isArray(localChannel.sources) ? localChannel.sources : []);
           contentState.lastRefreshedAt = localChannel.lastRefreshedAt || new Date().toISOString();
           contentState.lastRefreshStats = createLocalRefreshStats(contentState.sources.length, contentState.lastRefreshedAt);
           contentState.loaded = true;
@@ -470,48 +607,94 @@ export const useContentStore = defineStore("content", {
           return;
         }
 
-        const usesRemoteFavoriteFilter = contentState.favoriteFilter === "favorites";
-        const requestedPageSize = usesRemoteFavoriteFilter
-          ? Math.max(1, Math.min(Number(contentState.pageSize) || 10, 40))
-          : 40;
+        const cachedSnapshot = loadDashboardSnapshot(sessionStore.user.id);
+        const appliedCachedSnapshot = this.applySyncedChannelSnapshot(channel, cachedSnapshot);
+        if (contentState.loaded && appliedCachedSnapshot) {
+          return;
+        }
 
-        const payload = await fetchContentList({
+        const usesRemoteFavoriteFilter = contentState.favoriteFilter === "favorites";
+        const hasSuppressedSources = this.getSourceCatalog(channel).some(
+          (source) => source?.enabled === false || this.isSourceHidden(channel, source.id),
+        );
+        const hasLocalVisibilityFilters =
+          contentState.favoriteFilter === "read" ||
+          contentState.favoriteFilter === "unread" ||
+          hasSuppressedSources;
+        const requestBase = {
           channel,
-          page: usesRemoteFavoriteFilter ? contentState.page : 1,
-          pageSize: requestedPageSize,
           sort: contentState.sort,
           q: contentState.search || "",
           tag: contentState.tag !== "all" ? contentState.tag : "",
           sourceId: contentState.sourceId !== "all" ? contentState.sourceId : "",
-          favorite: usesRemoteFavoriteFilter ? contentState.favoriteFilter : "",
-        });
+        };
+        let payload = null;
+        let filteredItems = [];
 
-        const remoteItems = Array.isArray(payload?.items) ? payload.items : [];
-        const filteredItems = usesRemoteFavoriteFilter
-          ? remoteItems
-          : remoteItems.filter((item) => {
-              if (this.isSourceHidden(channel, item.source_id || "")) {
-                return false;
-              }
-              if (contentState.favoriteFilter === "read" && !this.isItemRead(item)) {
-                return false;
-              }
-              if (contentState.favoriteFilter === "unread" && this.isItemRead(item)) {
-                return false;
-              }
-              return true;
+        if (usesRemoteFavoriteFilter || !hasLocalVisibilityFilters) {
+          payload = await fetchContentList({
+            ...requestBase,
+            page: contentState.page,
+            pageSize: Math.max(1, Number(contentState.pageSize) || 10),
+            favorite: usesRemoteFavoriteFilter ? contentState.favoriteFilter : "",
+          });
+          filteredItems = Array.isArray(payload?.items) ? payload.items : [];
+        } else {
+          const aggregatedItems = [];
+          const serverPageSize = Math.max(80, (Number(contentState.pageSize) || 10) * 4);
+          let remotePage = 1;
+          let remoteTotal = 0;
+
+          while (true) {
+            const nextPayload = await fetchContentList({
+              ...requestBase,
+              page: remotePage,
+              pageSize: serverPageSize,
             });
+            if (!payload) {
+              payload = nextPayload;
+            }
+            const remoteItems = Array.isArray(nextPayload?.items) ? nextPayload.items : [];
+            remoteTotal = Number(nextPayload?.total || 0);
+            aggregatedItems.push(
+              ...remoteItems.filter((item) => {
+                if (this.isSourceSuppressed(channel, item.source_id || "")) {
+                  return false;
+                }
+                if (contentState.favoriteFilter === "read" && !this.isItemRead(item)) {
+                  return false;
+                }
+                if (contentState.favoriteFilter === "unread" && this.isItemRead(item)) {
+                  return false;
+                }
+                return true;
+              }),
+            );
+            if (!remoteItems.length || remotePage * serverPageSize >= remoteTotal) {
+              break;
+            }
+            remotePage += 1;
+          }
 
-        const total = usesRemoteFavoriteFilter ? Number(payload?.total || 0) : filteredItems.length;
+          filteredItems = aggregatedItems;
+        }
+
+        const total = Number(
+          usesRemoteFavoriteFilter || !hasLocalVisibilityFilters
+            ? payload?.total || filteredItems.length
+            : filteredItems.length,
+        );
         const maxPage = Math.max(1, Math.ceil(total / contentState.pageSize));
         contentState.page = Math.min(Math.max(1, Number(contentState.page || 1)), maxPage);
         const startIndex = (contentState.page - 1) * contentState.pageSize;
         contentState.items = usesRemoteFavoriteFilter
           ? filteredItems
-          : filteredItems.slice(startIndex, startIndex + contentState.pageSize);
+          : (hasLocalVisibilityFilters ? filteredItems.slice(startIndex, startIndex + contentState.pageSize) : filteredItems);
         contentState.total = total;
         contentState.tags = Array.isArray(payload?.tags) ? payload.tags : [];
-        contentState.sources = normalizeSourceList(payload?.sources || []);
+        contentState.sources = this.sourceCatalogLoaded[channel]
+          ? [...(this.sourceCatalogs[channel] || [])]
+          : normalizeSourceList(payload?.sources || []);
         contentState.lastRefreshedAt = payload?.cache?.refreshedAt || contentState.lastRefreshedAt || "";
         contentState.lastRefreshStats = payload?.cache?.lastRefreshStats || contentState.lastRefreshStats || null;
         contentState.loaded = true;
@@ -549,11 +732,10 @@ export const useContentStore = defineStore("content", {
           await this.loadChannel(channel);
           return;
         }
-        const payload = await refreshContent(channel, 30);
+        const payload = await refreshContent(channel);
         contentState.lastRefreshedAt = payload?.cache?.refreshedAt || payload?.refresh?.refreshedAt || "";
         contentState.lastRefreshStats = payload?.refresh || payload?.cache?.lastRefreshStats || null;
-        await this.loadChannel(channel);
-        await this.syncHomeFreshNews(channel);
+        await this.syncRemoteContentSnapshot(channel);
       } catch (error) {
         contentState.error = getUserFacingErrorMessage(error, "资讯刷新失败");
       } finally {
@@ -619,9 +801,7 @@ export const useContentStore = defineStore("content", {
           });
           item.is_favorite = true;
         }
-        if (channelState?.favoriteFilter === "favorites") {
-          await this.loadChannel(item.channel);
-        }
+        await this.syncRemoteContentSnapshot(item.channel);
       } catch (error) {
         const channelState = this.channels[item.channel];
         if (channelState) {
@@ -661,7 +841,10 @@ export const useContentStore = defineStore("content", {
       }
 
       if (this.channels[item.channel]?.favoriteFilter === "read" || this.channels[item.channel]?.favoriteFilter === "unread") {
-        await this.loadChannel(item.channel);
+        const applied = this.reapplyChannelFromCachedSnapshot(item.channel);
+        if (!applied) {
+          await this.loadChannel(item.channel);
+        }
       }
     },
     async toggleReadStatus(item) {
@@ -694,23 +877,37 @@ export const useContentStore = defineStore("content", {
         }
       });
       if (channelState?.favoriteFilter === "read" || channelState?.favoriteFilter === "unread") {
-        await this.loadChannel(item.channel);
+        const applied = this.reapplyChannelFromCachedSnapshot(item.channel);
+        if (!applied) {
+          await this.loadChannel(item.channel);
+        }
       }
     },
     async openSourceModal(channel) {
       const sessionStore = useSessionStore();
-      this.sourceModalChannel = channel;
       this.sourceEditingId = "";
       this.setSourceFeedback("");
       this.resetSourceForm();
       if (!sessionStore.user?.id) {
         const localChannel = this.ensureLocalChannelCache(channel);
-        this.channels[channel].sources = Array.isArray(localChannel.sources) ? localChannel.sources.map(normalizeSource) : [];
+        this.setChannelSourceCatalog(channel, Array.isArray(localChannel.sources) ? localChannel.sources : []);
+        this.sourceModalChannel = channel;
+        return;
+      }
+      const cachedSnapshot = loadDashboardSnapshot(sessionStore.user.id);
+      const cachedSources = collectSnapshotChannelSources(cachedSnapshot, channel);
+      if (cachedSources.length) {
+        this.setChannelSourceCatalog(channel, cachedSources);
+        this.sourceModalChannel = channel;
+        this.ensureRemoteSourceCatalog(channel, { force: true }).catch((error) => {
+          this.channels[channel].error = getUserFacingErrorMessage(error, "信源加载失败");
+          this.setSourceFeedback(getUserFacingErrorMessage(error, "信源加载失败"), "error");
+        });
         return;
       }
       try {
-        const payload = await fetchContentSources(channel);
-        this.channels[channel].sources = normalizeSourceList(payload?.sources || []);
+        await this.ensureRemoteSourceCatalog(channel, { force: true });
+        this.sourceModalChannel = channel;
       } catch (error) {
         this.channels[channel].error = getUserFacingErrorMessage(error, "信源加载失败");
         this.setSourceFeedback(getUserFacingErrorMessage(error, "信源加载失败"), "error");
@@ -724,7 +921,7 @@ export const useContentStore = defineStore("content", {
     },
     startEditSource(sourceId) {
       const channel = this.sourceModalChannel;
-      const source = this.channels[channel]?.sources?.find((item) => item.id === sourceId);
+      const source = this.getSourceCatalog(channel).find((item) => item.id === sourceId);
       if (!source) {
         return;
       }
@@ -790,8 +987,7 @@ export const useContentStore = defineStore("content", {
         } else {
           await createContentSource(payload);
         }
-        const response = await fetchContentSources(channel);
-        this.channels[channel].sources = normalizeSourceList(response?.sources || []);
+        await this.ensureRemoteSourceCatalog(channel, { force: true });
         this.sourceEditingId = "";
         this.resetSourceForm();
         this.setSourceFeedback("信源已保存", "success");
@@ -825,13 +1021,13 @@ export const useContentStore = defineStore("content", {
           await this.loadChannel(channel, { page: 1, sourceId: "all" });
           return;
         }
-        const targetSource = (this.channels[channel]?.sources || []).find((source) => source.id === sourceId);
+        const targetSource = this.getSourceCatalog(channel).find((source) => source.id === sourceId);
         const sourceIdsToDelete = targetSource?.linkedSourceIds?.length
           ? targetSource.linkedSourceIds
           : [sourceId];
         await Promise.all(sourceIdsToDelete.map((id) => deleteContentSource(id)));
-        const nextSources = (this.channels[channel]?.sources || []).filter((source) => !sourceIdsToDelete.includes(source.id));
-        this.channels[channel].sources = nextSources.map(normalizeSource);
+        const nextSources = this.getSourceCatalog(channel).filter((source) => !sourceIdsToDelete.includes(source.id));
+        this.setChannelSourceCatalog(channel, nextSources);
         if (this.sourceEditingId === sourceId) {
           this.sourceEditingId = "";
           this.resetSourceForm();
@@ -841,18 +1037,9 @@ export const useContentStore = defineStore("content", {
           sourceId: this.channels[channel]?.sourceId === sourceId ? "all" : this.channels[channel]?.sourceId || "all",
         };
         this.setSourceFeedback("信源已删除，正在后台刷新资讯...", "success");
-        Promise.allSettled([
-          this.loadChannel(channel, nextOverrides),
-          this.syncHomeFreshNews(channel),
-        ]).then(([contentResult, homeResult]) => {
-          if (contentResult.status === "rejected") {
-            this.channels[channel].error = getUserFacingErrorMessage(contentResult.reason, "资讯刷新失败");
-          }
-          if (homeResult.status === "rejected" && !this.channels[channel].error) {
-            this.channels[channel].error = getUserFacingErrorMessage(homeResult.reason, "News 预览刷新失败");
-          }
-          this.setSourceFeedback("信源已删除", "success");
-        });
+        Object.assign(this.channels[channel], nextOverrides);
+        await this.syncRemoteContentSnapshot(channel);
+        this.setSourceFeedback("信源已删除", "success");
       } catch (error) {
         this.channels[channel].error = getUserFacingErrorMessage(error, "删除信源失败");
         this.setSourceFeedback(getUserFacingErrorMessage(error, "删除信源失败"), "error");
@@ -869,15 +1056,17 @@ export const useContentStore = defineStore("content", {
         this.setSourceFeedback("该来源已隐藏", "success");
         return;
       }
-      await this.persistContentPreferences((preferences) => {
-        preferences.content = normalizeContentPreferences(preferences.content || {});
-        preferences.content.hiddenSources[`${channel}:${sourceId}`] = true;
-      });
-      await this.loadChannel(channel);
-      const response = await fetchContentSources(channel);
-      this.channels[channel].sources = normalizeSourceList(response?.sources || []);
-      this.setSourceFeedback("该来源已隐藏", "success");
-    },
+        await this.persistContentPreferences((preferences) => {
+          preferences.content = normalizeContentPreferences(preferences.content || {});
+          preferences.content.hiddenSources[`${channel}:${sourceId}`] = true;
+        });
+        const applied = this.reapplyChannelFromCachedSnapshot(channel);
+        if (!applied) {
+          await this.loadChannel(channel);
+        }
+        this.refreshHomeFromCachedContent();
+        this.setSourceFeedback("该来源已隐藏", "success");
+      },
     async unhideSource(sourceId) {
       const channel = this.sourceModalChannel;
       const sessionStore = useSessionStore();
@@ -889,22 +1078,24 @@ export const useContentStore = defineStore("content", {
         this.setSourceFeedback("该来源已恢复显示", "success");
         return;
       }
-      await this.persistContentPreferences((preferences) => {
-        preferences.content = normalizeContentPreferences(preferences.content || {});
-        delete preferences.content.hiddenSources[`${channel}:${sourceId}`];
-      });
-      await this.loadChannel(channel);
-      const response = await fetchContentSources(channel);
-      this.channels[channel].sources = normalizeSourceList(response?.sources || []);
-      this.setSourceFeedback("该来源已恢复显示", "success");
-    },
+        await this.persistContentPreferences((preferences) => {
+          preferences.content = normalizeContentPreferences(preferences.content || {});
+          delete preferences.content.hiddenSources[`${channel}:${sourceId}`];
+        });
+        const applied = this.reapplyChannelFromCachedSnapshot(channel);
+        if (!applied) {
+          await this.loadChannel(channel);
+        }
+        this.refreshHomeFromCachedContent();
+        this.setSourceFeedback("该来源已恢复显示", "success");
+      },
     async toggleSourceEnabled(sourceId) {
       const channel = this.sourceModalChannel;
       const sessionStore = useSessionStore();
-      const source = this.channels[channel]?.sources?.find((item) => item.id === sourceId);
-      if (!channel || !source) {
-        return;
-      }
+        const source = this.getSourceCatalog(channel).find((item) => item.id === sourceId);
+        if (!channel || !source) {
+          return;
+        }
       try {
         if (!sessionStore.user?.id) {
           const localChannel = this.ensureLocalChannelCache(channel);
@@ -924,8 +1115,7 @@ export const useContentStore = defineStore("content", {
           return;
         }
         await updateContentSource(sourceId, { enabled: !source.enabled });
-        const response = await fetchContentSources(channel);
-        this.channels[channel].sources = normalizeSourceList(response?.sources || []);
+        await this.ensureRemoteSourceCatalog(channel, { force: true });
         this.setSourceFeedback(source.enabled ? "来源已停用" : "来源已启用", "success");
         await this.refreshChannel(channel);
       } catch (error) {

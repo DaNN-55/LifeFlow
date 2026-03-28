@@ -10,15 +10,13 @@ import {
 import {
   createEmptyHomeState,
   createEmptyWeatherState,
-  fetchFavoritesPreview,
-  fetchNewsPreviewFeed,
   fetchGitHubPreview,
   fetchStockWidget,
   fetchWeatherWidget,
   formatDisplayStockCode,
   normalizeSymbols,
 } from "../services/home-api";
-import { fetchContentSources, refreshContent } from "../services/content-api";
+import { refreshContent } from "../services/content-api";
 import {
   addDays,
   formatDateKey,
@@ -166,6 +164,79 @@ function buildFreshNewsFeed(channelFeeds = {}, limit = 5) {
   return picked;
 }
 
+function buildFavoritesFromContentSnapshot(snapshot = {}, options = {}) {
+  const contentSnapshot = snapshot?.content || {};
+  const favoriteChannel = String(options?.favoriteChannel || "all");
+  const selectedChannels = favoriteChannel === "all" ? contentTabs.map((tab) => tab.id) : [favoriteChannel];
+  const favoriteItems = selectedChannels
+    .flatMap((channel) => Object.values(contentSnapshot?.favorites?.[channel] || {}))
+    .sort((left, right) => {
+      const leftTime = new Date(left?.favorited_at || left?.published_at || left?.created_at || 0).getTime();
+      const rightTime = new Date(right?.favorited_at || right?.published_at || right?.created_at || 0).getTime();
+      return rightTime - leftTime;
+    })
+    .slice(0, 3);
+
+  return {
+    status: favoriteItems.length ? "ready" : "empty",
+    items: favoriteItems,
+    message: favoriteItems.length ? "最近收藏资讯" : "当前还没有收藏资讯。",
+  };
+}
+
+function buildHomeFromContentSnapshot(snapshot = {}, options = {}) {
+  const contentSnapshot = snapshot?.content || {};
+  const channelFeeds = createChannelFeedMap();
+  const hiddenSourceKeys = new Set(
+    Object.keys(options?.hiddenSources || {})
+      .filter(Boolean)
+      .map((key) => String(key)),
+  );
+
+  contentTabs.forEach((tab) => {
+    const enabledSourceIds = new Set(
+      Object.values(contentSnapshot?.sources?.[tab.id] || {})
+        .filter((source) => source?.enabled !== false)
+        .map((source) => String(source?.id || "").trim())
+        .filter(Boolean),
+    );
+    const items = Object.values(contentSnapshot?.items?.[tab.id] || {})
+      .filter((item) => {
+        const sourceId = String(item?.source_id || "").trim();
+        if (sourceId && hiddenSourceKeys.has(`${tab.id}:${sourceId}`)) {
+          return false;
+        }
+        return !sourceId || enabledSourceIds.size === 0 || enabledSourceIds.has(sourceId);
+      })
+      .sort((left, right) => getNewsSortTime(right) - getNewsSortTime(left))
+      .slice(0, 12);
+    channelFeeds[tab.id] = items;
+  });
+
+  return {
+    channelFeeds,
+    freshNewsFeed: buildFreshNewsFeed(channelFeeds),
+    favorites: buildFavoritesFromContentSnapshot(snapshot, options),
+  };
+}
+
+function pickSupplementalHomeState(home = {}) {
+  const picked = {};
+  if (home?.github && typeof home.github === "object") {
+    picked.github = home.github;
+  }
+  if (home?.weather && typeof home.weather === "object") {
+    picked.weather = home.weather;
+  }
+  if (home?.stock && typeof home.stock === "object") {
+    picked.stock = home.stock;
+  }
+  if (typeof home?.sidebarRefreshSessionId === "string") {
+    picked.sidebarRefreshSessionId = home.sidebarRefreshSessionId;
+  }
+  return picked;
+}
+
 export const useHomeStore = defineStore("home", {
   state: () => ({
     calendarMonth: formatMonthValue(new Date()),
@@ -203,6 +274,21 @@ export const useHomeStore = defineStore("home", {
     },
   },
   actions: {
+    applyContentSnapshot(snapshot = {}, persist = true) {
+      const sessionStore = useSessionStore();
+      const nextHome = buildHomeFromContentSnapshot(snapshot, {
+        hiddenSources: sessionStore.user?.preferences?.content?.hiddenSources || {},
+        favoriteChannel: this.favoritesChannel,
+      });
+      this.channelFeeds = normalizeChannelFeedMap(nextHome.channelFeeds);
+      this.freshNewsFeed = Array.isArray(nextHome.freshNewsFeed) ? nextHome.freshNewsFeed : [];
+      this.favorites = nextHome.favorites;
+      if (!persist) {
+        return nextHome;
+      }
+      applyDashboardMutation(sessionStore.user?.id, nextHome);
+      return nextHome;
+    },
     applyCachedHome(home = {}) {
       const channelFeeds = normalizeChannelFeedMap(
         home.channelFeeds && typeof home.channelFeeds === "object"
@@ -244,19 +330,30 @@ export const useHomeStore = defineStore("home", {
       }
 
       const cachedSnapshot = loadDashboardSnapshot(sessionStore.user.id);
-      const cachedHome = cachedSnapshot?.home || {};
+      const cachedHome = {
+        ...buildHomeFromContentSnapshot(cachedSnapshot, {
+          hiddenSources: sessionStore.user?.preferences?.content?.hiddenSources || {},
+          favoriteChannel: this.favoritesChannel,
+        }),
+        ...pickSupplementalHomeState(cachedSnapshot?.home || {}),
+      };
       this.applyCachedHome(cachedHome);
       const currentSessionId = loadSessionId();
       const lastSidebarRefreshSessionId = String(cachedHome.sidebarRefreshSessionId || "");
       const shouldAutoRefreshSidebar = Boolean(currentSessionId && currentSessionId !== lastSidebarRefreshSessionId);
-      const shouldPrimeFreshNews = !shouldAutoRefreshSidebar && this.freshNewsFeed.length === 0;
-
       if (hasDashboardSnapshotData(cachedSnapshot)) {
         await this.loadCalendar(this.calendarSelectedDate, cachedSnapshot);
       }
 
       const remoteSnapshot = await syncDashboardSnapshot(sessionStore.user.id);
-      this.applyCachedHome(remoteSnapshot?.home || {});
+      this.applyCachedHome({
+        ...buildHomeFromContentSnapshot(remoteSnapshot, {
+          hiddenSources: sessionStore.user?.preferences?.content?.hiddenSources || {},
+          favoriteChannel: this.favoritesChannel,
+        }),
+        ...pickSupplementalHomeState(remoteSnapshot?.home || {}),
+      });
+      const shouldPrimeFreshNews = !shouldAutoRefreshSidebar && this.freshNewsFeed.length === 0;
 
       const jobs = [this.loadCalendar(this.calendarSelectedDate, remoteSnapshot)];
       if (shouldAutoRefreshSidebar) {
@@ -271,7 +368,6 @@ export const useHomeStore = defineStore("home", {
     async refreshSidebarAfterLogin(sessionId = loadSessionId()) {
       await Promise.allSettled([
         this.refreshFeeds(),
-        this.refreshFavorites(),
         this.refreshGitHub(),
         this.refreshWeather(),
         this.refreshStocks(),
@@ -337,30 +433,18 @@ export const useHomeStore = defineStore("home", {
     },
     async refreshFeed(channel) {
       const targetChannel = contentTabs.some((tab) => tab.id === channel) ? channel : (contentTabs[0]?.id || "news");
-      const sourcePayload = await fetchContentSources(targetChannel).catch(() => ({ sources: [] }));
-      const enabledSources = Array.isArray(sourcePayload?.sources)
-        ? sourcePayload.sources.filter((source) => source?.enabled !== false)
-        : [];
-      if (!enabledSources.length) {
+      const sessionStore = useSessionStore();
+      if (!sessionStore.user?.id) {
         this.channelFeeds = {
           ...normalizeChannelFeedMap(this.channelFeeds),
           [targetChannel]: [],
         };
         return [];
       }
-
-      await refreshContent(targetChannel, 18).catch(() => null);
-      const previewItems = await fetchNewsPreviewFeed(targetChannel, 12).catch(() => []);
-      const items = Array.isArray(previewItems)
-        ? previewItems.map((item) => ({
-            ...item,
-            channel: item?.channel || targetChannel,
-          }))
-        : [];
-      this.channelFeeds = {
-        ...normalizeChannelFeedMap(this.channelFeeds),
-        [targetChannel]: items,
-      };
+      await refreshContent(targetChannel);
+      const snapshot = await syncDashboardSnapshot(sessionStore.user.id, { force: true });
+      const nextHome = this.applyContentSnapshot(snapshot);
+      const items = Array.isArray(nextHome?.channelFeeds?.[targetChannel]) ? nextHome.channelFeeds[targetChannel] : [];
       return items;
     },
     rebuildFreshNewsFeed(persist = true) {
@@ -372,18 +456,6 @@ export const useHomeStore = defineStore("home", {
       applyDashboardMutation(sessionStore.user?.id, {
         channelFeeds: this.channelFeeds,
         freshNewsFeed: this.freshNewsFeed,
-      });
-    },
-    async refreshFavorites() {
-      const items = await fetchFavoritesPreview(this.favoritesChannel).catch(() => []);
-      this.favorites = {
-        status: items.length ? "ready" : "empty",
-        items,
-        message: items.length ? "最近收藏资讯" : "当前还没有收藏资讯。",
-      };
-      const sessionStore = useSessionStore();
-      applyDashboardMutation(sessionStore.user?.id, {
-        favorites: this.favorites,
       });
     },
     async refreshGitHub() {

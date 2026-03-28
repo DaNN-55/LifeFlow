@@ -1,6 +1,5 @@
 import { MAX_STOCK_WIDGET_ITEMS, contentTabs, defaultWidgets } from "../app/constants";
 import { fetchJson } from "./api-client";
-import { fetchContentList, fetchFeaturedContent as fetchNewsFeaturedContent } from "./content-api";
 
 export function createEmptyWeatherState() {
   return {
@@ -40,46 +39,6 @@ export function createEmptyHomeState() {
       message: "",
     },
   };
-}
-
-export async function fetchNewsPreviewFeed(channel, limit = 5) {
-  const featuredPayload = await fetchNewsFeaturedContent(channel, limit).catch(() => ({ items: [] }));
-  const featuredItems = Array.isArray(featuredPayload?.items) ? featuredPayload.items : [];
-  if (featuredItems.length) {
-    return featuredItems;
-  }
-
-  const listPayload = await fetchContentList({
-    channel,
-    page: 1,
-    pageSize: limit,
-    sort: "latest",
-  }).catch(() => ({ items: [] }));
-  return Array.isArray(listPayload?.items) ? listPayload.items : [];
-}
-
-export async function fetchFavoritesPreview(channel = "all") {
-  const selectedChannels = channel === "all" ? contentTabs.map((tab) => tab.id) : [channel];
-  const responses = await Promise.all(
-    selectedChannels.map((channelId) =>
-      fetchContentList({
-        channel: channelId,
-        favorite: "favorites",
-        page: 1,
-        pageSize: 3,
-        sort: "latest",
-      }).catch(() => ({ items: [] })),
-    ),
-  );
-
-  return responses
-    .flatMap((payload) => (Array.isArray(payload?.items) ? payload.items : []))
-    .sort((left, right) => {
-      const leftTime = new Date(left.favorited_at || left.published_at || left.created_at || 0).getTime();
-      const rightTime = new Date(right.favorited_at || right.published_at || right.created_at || 0).getTime();
-      return rightTime - leftTime;
-    })
-    .slice(0, 3);
 }
 
 export async function fetchGitHubPreview(profileUrl) {

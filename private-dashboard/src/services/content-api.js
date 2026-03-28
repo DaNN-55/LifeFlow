@@ -15,11 +15,15 @@ export function fetchContentList(params) {
   return fetchJson(`/api/content?${search.toString()}`);
 }
 
-export function refreshContent(channel, limit = 30) {
+export function refreshContent(channel, limit) {
+  const payload = { channel };
+  if (typeof limit === "number" && Number.isFinite(limit) && limit > 0) {
+    payload.limit = limit;
+  }
   return fetchJson("/api/content/refresh", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ channel, limit }),
+    body: JSON.stringify(payload),
   });
 }
 

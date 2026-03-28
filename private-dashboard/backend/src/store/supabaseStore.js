@@ -1,6 +1,67 @@
 const { createClient } = require("@supabase/supabase-js");
 
 const USER_SELECT_FIELDS = "id, username, password_hash, recovery_code_hash, preferences, created_at, data_updated_at, data_reset_at";
+const CONTENT_SOURCE_SELECT_FIELDS = [
+  "id",
+  "channel",
+  "type",
+  "name",
+  "url",
+  "enabled",
+  "sort_order",
+  "parser_key",
+  "last_synced_at",
+  "last_success_at",
+  "last_failure_at",
+  "last_error",
+  "latest_published_at",
+  "created_at",
+  "updated_at",
+].join(", ");
+const CONTENT_ITEM_LIST_SELECT_FIELDS = [
+  "id",
+  "channel",
+  "source_id",
+  "title",
+  "summary_zh",
+  "summary_raw",
+  "author",
+  "published_at",
+  "content_type",
+  "source_name",
+  "source_url",
+  "canonical_url",
+  "tags",
+  "lang",
+  "image_url",
+  "is_featured",
+  "fetched_at",
+  "created_at",
+  "updated_at",
+].join(", ");
+const CONTENT_ITEM_FULL_SELECT_FIELDS = [
+  "id",
+  "channel",
+  "source_id",
+  "title",
+  "summary_zh",
+  "summary_raw",
+  "body_zh",
+  "body_raw",
+  "author",
+  "published_at",
+  "content_type",
+  "source_name",
+  "source_url",
+  "canonical_url",
+  "tags",
+  "lang",
+  "image_url",
+  "is_featured",
+  "fetched_at",
+  "created_at",
+  "updated_at",
+].join(", ");
 
 function normalizeContentSourceIdentity(source = {}) {
   return {
@@ -15,6 +76,53 @@ function isUniqueViolation(error) {
   return String(error?.code || "").trim() === "23505";
 }
 
+function normalizePrimaryTag(tag) {
+  const cleaned = String(tag || "").replace(/\s+/g, " ").trim();
+  if (!cleaned) {
+    return "";
+  }
+  const [primary] = cleaned.split(/\s*\/\s*|\s*>\s*|\s*::\s*/);
+  return String(primary || "").replace(/\s+/g, " ").trim();
+}
+
+function normalizeTagList(tags = []) {
+  const values = Array.isArray(tags) ? tags : [tags];
+  return [...new Set(values.map((tag) => normalizePrimaryTag(tag)).filter(Boolean))].slice(0, 8);
+}
+
+function itemHasPrimaryTag(item, tag) {
+  const normalizedTag = normalizePrimaryTag(tag);
+  if (!normalizedTag) {
+    return true;
+  }
+  return normalizeTagList(item?.tags || []).includes(normalizedTag);
+}
+
+function normalizeContentItem(item = {}) {
+  return {
+    ...item,
+    tags: normalizeTagList(item.tags || []),
+  };
+}
+
+async function fetchAllRows(query, batchSize = 1000) {
+  const rows = [];
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await query.range(from, from + batchSize - 1);
+    if (error) {
+      throw error;
+    }
+    const chunk = Array.isArray(data) ? data : [];
+    rows.push(...chunk);
+    if (chunk.length < batchSize) {
+      return rows;
+    }
+    from += batchSize;
+  }
+}
+
 class SupabaseStore {
   constructor({ supabaseUrl, supabaseServiceRoleKey }) {
     this.client = createClient(supabaseUrl, supabaseServiceRoleKey, {
@@ -24,7 +132,23 @@ class SupabaseStore {
   }
 
   async init() {
+    await Promise.all([
+      this.assertTableAvailable("users"),
+      this.assertTableAvailable("content_sources"),
+      this.assertTableAvailable("content_items"),
+      this.assertTableAvailable("content_favorites"),
+    ]);
     return this;
+  }
+
+  async assertTableAvailable(tableName) {
+    const { error } = await this.client.from(tableName).select("*", { head: true, count: "exact" }).limit(1);
+    if (!error) {
+      return;
+    }
+    const nextError = new Error(`Supabase 表 ${tableName} 不可用，请先执行最新 migration`);
+    nextError.cause = error;
+    throw nextError;
   }
 
   async touchUserSyncState(userId, options = {}) {
@@ -493,7 +617,7 @@ class SupabaseStore {
   async listContentSources(scope = {}, channel = "") {
     let query = this.client
       .from("content_sources")
-      .select("id, channel, type, name, url, enabled, sort_order, parser_key, created_at, updated_at")
+      .select(CONTENT_SOURCE_SELECT_FIELDS)
       .eq("user_id", scope.userId || "")
       .order("sort_order", { ascending: true });
 
@@ -511,7 +635,7 @@ class SupabaseStore {
   async getContentSource(scope = {}, sourceId) {
     const { data, error } = await this.client
       .from("content_sources")
-      .select("id, channel, type, name, url, enabled, sort_order, parser_key, created_at, updated_at")
+      .select(CONTENT_SOURCE_SELECT_FIELDS)
       .eq("user_id", scope.userId || "")
       .eq("id", sourceId)
       .maybeSingle();
@@ -525,7 +649,7 @@ class SupabaseStore {
   async findContentSourceByIdentity(scope = {}, identity = {}) {
     const { data, error } = await this.client
       .from("content_sources")
-      .select("id, channel, type, name, url, enabled, sort_order, parser_key, created_at, updated_at")
+      .select(CONTENT_SOURCE_SELECT_FIELDS)
       .eq("user_id", scope.userId || "")
       .eq("channel", String(identity.channel || "").trim())
       .eq("type", String(identity.type || "").trim())
@@ -551,7 +675,7 @@ class SupabaseStore {
     const { data, error } = await this.client
       .from("content_sources")
       .insert({ ...source, user_id: scope.userId || "" })
-      .select("id, channel, type, name, url, enabled, sort_order, parser_key, created_at, updated_at")
+      .select(CONTENT_SOURCE_SELECT_FIELDS)
       .single();
 
     if (error) {
@@ -560,6 +684,7 @@ class SupabaseStore {
       }
       throw error;
     }
+    await this.touchUserSyncState(scope.userId);
     return data;
   }
 
@@ -569,13 +694,58 @@ class SupabaseStore {
       .update({ ...patch, updated_at: new Date().toISOString() })
       .eq("user_id", scope.userId || "")
       .eq("id", sourceId)
-      .select("id, channel, type, name, url, enabled, sort_order, parser_key, created_at, updated_at")
+      .select(CONTENT_SOURCE_SELECT_FIELDS)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+    await this.touchUserSyncState(scope.userId);
+    return data;
+  }
+
+  async updateContentSourceSync(scope = {}, sourceId, patch = {}) {
+    const syncPatch = {};
+    [
+      "last_synced_at",
+      "last_success_at",
+      "last_failure_at",
+      "last_error",
+      "latest_published_at",
+    ].forEach((key) => {
+      if (typeof patch[key] !== "undefined") {
+        syncPatch[key] = patch[key];
+      }
+    });
+
+    const { data, error } = await this.client
+      .from("content_sources")
+      .update({ ...syncPatch, updated_at: new Date().toISOString() })
+      .eq("user_id", scope.userId || "")
+      .eq("id", sourceId)
+      .select(CONTENT_SOURCE_SELECT_FIELDS)
       .maybeSingle();
 
     if (error) {
       throw error;
     }
     return data;
+  }
+
+  async listContentSourcesUpdatedSince(scope = {}, since) {
+    let query = this.client
+      .from("content_sources")
+      .select(CONTENT_SOURCE_SELECT_FIELDS)
+      .eq("user_id", scope.userId || "")
+      .order("updated_at", { ascending: false });
+    if (!Number.isNaN(new Date(since).getTime())) {
+      query = query.gt("updated_at", since);
+    }
+    const { data, error } = await query;
+    if (error) {
+      throw error;
+    }
+    return data || [];
   }
 
   async deleteContentSource(scope = {}, sourceId) {
@@ -622,6 +792,7 @@ class SupabaseStore {
     if (error) {
       throw error;
     }
+    await this.touchUserSyncState(scope.userId, { reset: true });
   }
 
   async upsertContentItems(scope = {}, items = []) {
@@ -629,18 +800,18 @@ class SupabaseStore {
       return [];
     }
     const payload = items.map((item) => ({
-      ...item,
+      ...normalizeContentItem(item),
       user_id: scope.userId || "",
     }));
     const { data, error } = await this.client
       .from("content_items")
       .upsert(payload, { onConflict: "user_id,channel,canonical_url" })
-      .select("id, channel, source_id, title, summary_zh, summary_raw, body_zh, body_raw, author, published_at, content_type, source_name, source_url, canonical_url, tags, lang, image_url, is_featured, fetched_at, created_at, updated_at");
+      .select(CONTENT_ITEM_FULL_SELECT_FIELDS);
 
     if (error) {
       throw error;
     }
-    return data;
+    return (data || []).map((item) => normalizeContentItem(item));
   }
 
   async replaceContentItems(scope = {}, channel = "", items = []) {
@@ -658,22 +829,36 @@ class SupabaseStore {
     return this.upsertContentItems(scope, items);
   }
 
-  async listContent(scope = {}, filters = {}) {
-    const page = Math.max(1, Number(filters.page || 1));
-    const pageSize = Math.max(1, Math.min(50, Number(filters.pageSize || 20)));
+  async listContentUpdatedSince(scope = {}, since, channel = "") {
     let query = this.client
       .from("content_items")
-      .select(
-        "id, channel, source_id, title, summary_zh, summary_raw, author, published_at, content_type, source_name, source_url, canonical_url, tags, lang, image_url, is_featured, fetched_at, created_at, updated_at",
-        { count: "exact" },
-      )
+      .select(CONTENT_ITEM_LIST_SELECT_FIELDS)
+      .eq("user_id", scope.userId || "")
+      .order("updated_at", { ascending: false });
+    if (channel) {
+      query = query.eq("channel", channel);
+    }
+    if (!Number.isNaN(new Date(since).getTime())) {
+      query = query.gt("updated_at", since);
+    }
+    const { data, error } = await query;
+    if (error) {
+      throw error;
+    }
+    return (data || []).map((item) => normalizeContentItem(item));
+  }
+
+  async listContent(scope = {}, filters = {}) {
+    const page = Math.max(1, Number(filters.page || 1));
+    const pageSize = Math.max(1, Number(filters.pageSize || 20));
+    const requiresClientTagFilter = Boolean(filters.tag);
+    let query = this.client
+      .from("content_items")
+      .select(CONTENT_ITEM_LIST_SELECT_FIELDS, { count: "exact" })
       .eq("user_id", scope.userId || "");
 
     if (filters.channel) {
       query = query.eq("channel", filters.channel);
-    }
-    if (filters.tag) {
-      query = query.contains("tags", [filters.tag]);
     }
     if (filters.sourceId) {
       query = query.eq("source_id", filters.sourceId);
@@ -686,16 +871,30 @@ class SupabaseStore {
     }
 
     query = query.order("published_at", { ascending: filters.sort === "oldest" });
-    const from = (page - 1) * pageSize;
-    const to = from + pageSize - 1;
-    const { data, count, error } = await query.range(from, to);
+    if (!requiresClientTagFilter) {
+      const from = (page - 1) * pageSize;
+      const to = from + pageSize - 1;
+      const { data, count, error } = await query.range(from, to);
 
-    if (error) {
-      throw error;
+      if (error) {
+        throw error;
+      }
+      return {
+        items: (data || []).map((item) => normalizeContentItem(item)),
+        total: count || 0,
+        page,
+        pageSize,
+      };
     }
+
+    const normalizedItems = (await fetchAllRows(query)).map((item) => normalizeContentItem(item));
+    const filteredItems = normalizedItems.filter((item) => itemHasPrimaryTag(item, filters.tag));
+    const total = filteredItems.length;
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize;
     return {
-      items: data || [],
-      total: count || 0,
+      items: filteredItems.slice(from, to),
+      total,
       page,
       pageSize,
     };
@@ -720,14 +919,14 @@ class SupabaseStore {
     if (itemsError || sourcesError) {
       throw itemsError || sourcesError;
     }
-    const tags = [...new Set((items || []).flatMap((item) => (Array.isArray(item.tags) ? item.tags : [])))].sort();
+    const tags = [...new Set((items || []).flatMap((item) => normalizeTagList(item.tags || [])))].sort();
     return { tags, sources: sources || [] };
   }
 
   async getFeaturedContent(scope = {}, channel = "", limit = 3) {
     const { data, error } = await this.client
       .from("content_items")
-      .select("id, channel, source_id, title, summary_zh, summary_raw, author, published_at, content_type, source_name, source_url, canonical_url, tags, lang, image_url, is_featured, fetched_at, created_at, updated_at")
+      .select(CONTENT_ITEM_LIST_SELECT_FIELDS)
       .eq("user_id", scope.userId || "")
       .eq("channel", channel)
       .order("is_featured", { ascending: false })
@@ -737,13 +936,13 @@ class SupabaseStore {
     if (error) {
       throw error;
     }
-    return data || [];
+    return (data || []).map((item) => normalizeContentItem(item));
   }
 
   async getContentItem(scope = {}, itemId) {
     const { data, error } = await this.client
       .from("content_items")
-      .select("id, channel, source_id, title, summary_zh, summary_raw, body_zh, body_raw, author, published_at, content_type, source_name, source_url, canonical_url, tags, lang, image_url, is_featured, fetched_at, created_at, updated_at")
+      .select(CONTENT_ITEM_FULL_SELECT_FIELDS)
       .eq("user_id", scope.userId || "")
       .eq("id", itemId)
       .maybeSingle();
@@ -751,12 +950,13 @@ class SupabaseStore {
     if (error) {
       throw error;
     }
-    return data;
+    return data ? normalizeContentItem(data) : data;
   }
 
   async listFavoriteContent(scope = {}, filters = {}) {
     const page = Math.max(1, Number(filters.page || 1));
-    const pageSize = Math.max(1, Math.min(50, Number(filters.pageSize || 20)));
+    const pageSize = Math.max(1, Number(filters.pageSize || 20));
+    const requiresClientTagFilter = Boolean(filters.tag);
     let query = this.client
       .from("content_favorites")
       .select(
@@ -767,9 +967,6 @@ class SupabaseStore {
 
     if (filters.channel) {
       query = query.eq("channel", filters.channel);
-    }
-    if (filters.tag) {
-      query = query.contains("tags", [filters.tag]);
     }
     if (filters.sourceId) {
       query = query.eq("source_id", filters.sourceId);
@@ -782,18 +979,50 @@ class SupabaseStore {
     }
 
     query = query.order("published_at", { ascending: filters.sort === "oldest" });
-    const from = (page - 1) * pageSize;
-    const to = from + pageSize - 1;
-    const { data, count, error } = await query.range(from, to);
-    if (error) {
-      throw error;
+    if (!requiresClientTagFilter) {
+      const from = (page - 1) * pageSize;
+      const to = from + pageSize - 1;
+      const { data, count, error } = await query.range(from, to);
+      if (error) {
+        throw error;
+      }
+      return {
+        items: (data || []).map((item) => ({ ...normalizeContentItem(item), is_favorite: true })),
+        total: count || 0,
+        page,
+        pageSize,
+      };
     }
+    const normalizedItems = (await fetchAllRows(query)).map((item) => normalizeContentItem(item));
+    const filteredItems = normalizedItems.filter((item) => itemHasPrimaryTag(item, filters.tag));
+    const total = filteredItems.length;
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize;
     return {
-      items: (data || []).map((item) => ({ ...item, is_favorite: true })),
-      total: count || 0,
+      items: filteredItems.slice(from, to).map((item) => ({ ...item, is_favorite: true })),
+      total,
       page,
       pageSize,
     };
+  }
+
+  async listFavoriteContentUpdatedSince(scope = {}, since, channel = "") {
+    let query = this.client
+      .from("content_favorites")
+      .select("id, channel, source_id, title, summary_zh, summary_raw, author, published_at, content_type, source_name, source_url, canonical_url, tags, lang, image_url, favorited_at, created_at, updated_at")
+      .eq("user_id", scope.userId || "")
+      .order("updated_at", { ascending: false });
+    if (channel) {
+      query = query.eq("channel", channel);
+    }
+    if (!Number.isNaN(new Date(since).getTime())) {
+      query = query.gt("updated_at", since);
+    }
+    const { data, error } = await query;
+    if (error) {
+      throw error;
+    }
+    return (data || []).map((item) => ({ ...normalizeContentItem(item), is_favorite: true }));
   }
 
   async listFavoriteContentFacets(scope = {}, channel = "") {
@@ -815,7 +1044,7 @@ class SupabaseStore {
     if (itemsError || sourcesError) {
       throw itemsError || sourcesError;
     }
-    const tags = [...new Set((items || []).flatMap((item) => (Array.isArray(item.tags) ? item.tags : [])))].sort();
+    const tags = [...new Set((items || []).flatMap((item) => normalizeTagList(item.tags || [])))].sort();
     const sourceIds = new Set((items || []).map((item) => item.source_id).filter(Boolean));
     return {
       tags,
@@ -849,12 +1078,13 @@ class SupabaseStore {
     if (error) {
       throw error;
     }
-    return data ? { ...data, is_favorite: true } : null;
+    await this.touchUserSyncState(scope.userId);
+    return data ? { ...normalizeContentItem(data), is_favorite: true } : null;
   }
 
   async upsertFavoriteContent(scope = {}, item) {
     const payload = {
-      ...item,
+      ...normalizeContentItem(item),
       user_id: scope.userId || "",
       favorited_at: item.favorited_at || new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -868,7 +1098,7 @@ class SupabaseStore {
     if (error) {
       throw error;
     }
-    return data ? { ...data, is_favorite: true } : null;
+    return data ? { ...normalizeContentItem(data), is_favorite: true } : null;
   }
 
   async deleteFavoriteContent(scope = {}, channel, canonicalUrl) {
@@ -882,6 +1112,7 @@ class SupabaseStore {
     if (error) {
       throw error;
     }
+    await this.touchUserSyncState(scope.userId, { reset: true });
   }
 
   async createSession(session) {

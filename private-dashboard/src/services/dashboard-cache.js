@@ -1,11 +1,16 @@
 const DASHBOARD_CACHE_STORAGE_KEY = "lifeflow-private-dashboard-vue-dashboard-cache";
-const DASHBOARD_CACHE_VERSION = 2;
+const DASHBOARD_CACHE_VERSION = 3;
 
 function createEmptyUserCache() {
   return {
     tasks: [],
     dailyRecords: {},
     weeklySummaries: {},
+    content: {
+      items: {},
+      sources: {},
+      favorites: {},
+    },
     home: {},
     sync: {
       cursor: "",
@@ -33,6 +38,11 @@ function normalizeUserCache(cache = {}) {
     tasks: Array.isArray(cache?.tasks) ? cache.tasks : [],
     dailyRecords: normalizeRecordMap(cache?.dailyRecords, "date"),
     weeklySummaries: normalizeRecordMap(cache?.weeklySummaries, "week"),
+    content: {
+      items: normalizeChannelRecordMap(cache?.content?.items, "id"),
+      sources: normalizeChannelRecordMap(cache?.content?.sources, "id"),
+      favorites: normalizeChannelRecordMap(cache?.content?.favorites, "id"),
+    },
     home: cache?.home && typeof cache.home === "object" ? { ...cache.home } : {},
     sync: {
       cursor: String(cache?.sync?.cursor || ""),
@@ -52,7 +62,7 @@ function normalizeRootCache(parsed = null) {
   }
 
   const version = Number(parsed.version || 0);
-  if (version !== 1 && version !== DASHBOARD_CACHE_VERSION) {
+  if (version !== 1 && version !== 2 && version !== DASHBOARD_CACHE_VERSION) {
     return {
       version: DASHBOARD_CACHE_VERSION,
       users: {},
@@ -123,6 +133,33 @@ function toRecordMap(items = [], keyField) {
   return map;
 }
 
+function normalizeChannelRecordMap(collection = {}, keyField) {
+  if (!collection || typeof collection !== "object") {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(collection)
+      .filter(([channel]) => channel)
+      .map(([channel, entries]) => [String(channel), normalizeRecordMap(entries, keyField)]),
+  );
+}
+
+function toChannelRecordMap(items = [], keyField) {
+  return (Array.isArray(items) ? items : []).reduce((accumulator, item) => {
+    const channel = String(item?.channel || "").trim();
+    const key = String(item?.[keyField] || "").trim();
+    if (!channel || !key) {
+      return accumulator;
+    }
+    if (!accumulator[channel]) {
+      accumulator[channel] = {};
+    }
+    accumulator[channel][key] = item;
+    return accumulator;
+  }, {});
+}
+
 export function loadDashboardUserCache(userId) {
   const resolvedUserId = String(userId || "").trim();
   if (!resolvedUserId) {
@@ -148,6 +185,11 @@ export function replaceDashboardUserCache(userId, snapshot = {}, sync = {}) {
     tasks: Array.isArray(snapshot?.tasks) ? snapshot.tasks : [],
     dailyRecords: toRecordMap(snapshot?.dailyRecords || [], "date"),
     weeklySummaries: toRecordMap(snapshot?.weeklySummaries || [], "week"),
+    content: {
+      items: toChannelRecordMap(snapshot?.content?.items || [], "id"),
+      sources: toChannelRecordMap(snapshot?.content?.sources || [], "id"),
+      favorites: toChannelRecordMap(snapshot?.content?.favorites || [], "id"),
+    },
     home: snapshot?.home && typeof snapshot.home === "object" ? { ...snapshot.home } : cache.home,
     sync: {
       ...cache.sync,
@@ -180,6 +222,11 @@ export function mergeDashboardUserCache(userId, changes = {}, sync = {}) {
         ...cache.weeklySummaries,
         ...toRecordMap(changes?.weeklySummaries || [], "week"),
       },
+      content: {
+        items: mergeChannelRecordMaps(cache.content.items, toChannelRecordMap(changes?.content?.items || [], "id")),
+        sources: mergeChannelRecordMaps(cache.content.sources, toChannelRecordMap(changes?.content?.sources || [], "id")),
+        favorites: mergeChannelRecordMaps(cache.content.favorites, toChannelRecordMap(changes?.content?.favorites || [], "id")),
+      },
       sync: {
         ...cache.sync,
         cursor: String(sync?.cursor || cache.sync.cursor || ""),
@@ -188,6 +235,17 @@ export function mergeDashboardUserCache(userId, changes = {}, sync = {}) {
       },
     };
   });
+}
+
+function mergeChannelRecordMaps(current = {}, changes = {}) {
+  const next = { ...(current || {}) };
+  Object.entries(changes || {}).forEach(([channel, entries]) => {
+    next[channel] = {
+      ...(next[channel] || {}),
+      ...(entries || {}),
+    };
+  });
+  return next;
 }
 
 export function loadCachedTasks(userId) {

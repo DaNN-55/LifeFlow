@@ -5,6 +5,7 @@ import {
   getContentTagTone,
   getContentThumbnailUrl,
   getSafeContentLink,
+  normalizeContentTagList,
 } from "../../utils/content";
 
 defineProps({
@@ -88,7 +89,7 @@ function handleImageError(event) {
       <div class="content-card-footer">
         <div class="content-card-tags">
           <span
-            v-for="tag in (Array.isArray(item.tags) && item.tags.length ? item.tags.slice(0, 4) : ['资讯'])"
+            v-for="tag in (normalizeContentTagList(item.tags).length ? normalizeContentTagList(item.tags).slice(0, 4) : ['资讯'])"
             :key="tag"
             class="content-tag"
             :class="`is-${getContentTagTone(tag, item.channel)}`"

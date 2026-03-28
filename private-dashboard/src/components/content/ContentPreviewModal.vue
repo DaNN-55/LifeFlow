@@ -2,7 +2,7 @@
 import { computed } from "vue";
 
 import SettingsModal from "../account/SettingsModal.vue";
-import { getContentCardExcerpt, getContentTagTone, getSafeContentLink } from "../../utils/content";
+import { getContentCardExcerpt, getContentTagTone, getSafeContentLink, normalizeContentTagList } from "../../utils/content";
 import { renderContentPreviewMarkdown } from "../../utils/markdown";
 
 const props = defineProps({
@@ -63,7 +63,7 @@ const safeLink = computed(() => getSafeContentLink(props.item));
 
       <div class="content-card-tags content-preview-tags">
         <span
-          v-for="tag in (Array.isArray(item.tags) && item.tags.length ? item.tags : ['资讯'])"
+          v-for="tag in (normalizeContentTagList(item.tags).length ? normalizeContentTagList(item.tags) : ['资讯'])"
           :key="tag"
           class="content-tag"
           :class="`is-${getContentTagTone(tag, item.channel)}`"

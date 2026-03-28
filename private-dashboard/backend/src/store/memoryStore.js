@@ -1,5 +1,34 @@
 const { formatDateKey } = require("../lib/date");
 
+function normalizePrimaryTag(tag) {
+  const cleaned = String(tag || "").replace(/\s+/g, " ").trim();
+  if (!cleaned) {
+    return "";
+  }
+  const [primary] = cleaned.split(/\s*\/\s*|\s*>\s*|\s*::\s*/);
+  return String(primary || "").replace(/\s+/g, " ").trim();
+}
+
+function normalizeTagList(tags = []) {
+  const values = Array.isArray(tags) ? tags : [tags];
+  return [...new Set(values.map((tag) => normalizePrimaryTag(tag)).filter(Boolean))].slice(0, 8);
+}
+
+function itemHasPrimaryTag(item, tag) {
+  const normalizedTag = normalizePrimaryTag(tag);
+  if (!normalizedTag) {
+    return true;
+  }
+  return normalizeTagList(item?.tags || []).includes(normalizedTag);
+}
+
+function normalizeContentItem(item = {}) {
+  return {
+    ...item,
+    tags: normalizeTagList(item.tags || []),
+  };
+}
+
 class MemoryStore {
   constructor() {
     this.tasksByUser = new Map();
@@ -316,8 +345,17 @@ class MemoryStore {
     if (duplicateSource) {
       return duplicateSource;
     }
-    contentSources.set(source.id, source);
-    return source;
+    const next = {
+      last_synced_at: "",
+      last_success_at: "",
+      last_failure_at: "",
+      last_error: "",
+      latest_published_at: "",
+      ...source,
+    };
+    contentSources.set(next.id, next);
+    await this.touchUserSyncState(scope.userId);
+    return next;
   }
 
   async updateContentSource(scope = {}, sourceId, patch) {
@@ -333,6 +371,22 @@ class MemoryStore {
       }
     });
     next.updated_at = new Date().toISOString();
+    contentSources.set(sourceId, next);
+    await this.touchUserSyncState(scope.userId);
+    return next;
+  }
+
+  async updateContentSourceSync(scope = {}, sourceId, patch = {}) {
+    const { contentSources } = this.ensureUserScope(scope.userId);
+    const existing = contentSources.get(sourceId);
+    if (!existing) {
+      return null;
+    }
+    const next = {
+      ...existing,
+      ...patch,
+      updated_at: new Date().toISOString(),
+    };
     contentSources.set(sourceId, next);
     return next;
   }
@@ -359,11 +413,21 @@ class MemoryStore {
         contentItems.delete(itemId);
       }
     }
+    await this.touchUserSyncState(scope.userId, { reset: true });
   }
 
   async getContentSource(scope = {}, sourceId) {
     const { contentSources } = this.ensureUserScope(scope.userId);
     return contentSources.get(sourceId) || null;
+  }
+
+  async listContentSourcesUpdatedSince(scope = {}, since) {
+    const threshold = new Date(since).getTime();
+    const sources = await this.listContentSources(scope);
+    if (Number.isNaN(threshold)) {
+      return sources;
+    }
+    return sources.filter((source) => new Date(source.updated_at || source.created_at || 0).getTime() > threshold);
   }
 
   async upsertContentItems(scope = {}, items = []) {
@@ -375,8 +439,8 @@ class MemoryStore {
         (entry) => `${entry.channel}::${entry.canonical_url}` === dedupeKey,
       );
       const next = existing
-        ? { ...existing, ...item, id: existing.id, updated_at: new Date().toISOString() }
-        : item;
+        ? normalizeContentItem({ ...existing, ...item, id: existing.id, updated_at: new Date().toISOString() })
+        : normalizeContentItem(item);
       contentItems.set(next.id, next);
       persisted.push(next);
     }
@@ -396,7 +460,7 @@ class MemoryStore {
   async listContent(scope = {}, filters = {}) {
     const { contentItems } = this.ensureUserScope(scope.userId);
     const page = Math.max(1, Number(filters.page || 1));
-    const pageSize = Math.max(1, Math.min(50, Number(filters.pageSize || 20)));
+    const pageSize = Math.max(1, Number(filters.pageSize || 20));
     const q = String(filters.q || "").trim().toLowerCase();
     const tag = String(filters.tag || "").trim();
     const sourceId = String(filters.sourceId || "").trim();
@@ -416,7 +480,7 @@ class MemoryStore {
       );
     }
     if (tag) {
-      items = items.filter((item) => Array.isArray(item.tags) && item.tags.includes(tag));
+      items = items.filter((item) => itemHasPrimaryTag(item, tag));
     }
     if (sourceId) {
       items = items.filter((item) => item.source_id === sourceId);
@@ -431,17 +495,34 @@ class MemoryStore {
     const total = items.length;
     const start = (page - 1) * pageSize;
     return {
-      items: items.slice(start, start + pageSize),
+      items: items.slice(start, start + pageSize).map((item) => normalizeContentItem(item)),
       total,
       page,
       pageSize,
     };
   }
 
+  async listContentUpdatedSince(scope = {}, since, channel = "") {
+    const { contentItems } = this.ensureUserScope(scope.userId);
+    const threshold = new Date(since).getTime();
+    const items = [...contentItems.values()]
+      .filter((item) => (!channel ? true : item.channel === channel))
+      .map((item) => normalizeContentItem(item))
+      .sort((left, right) => {
+        const leftTime = new Date(left.updated_at || left.fetched_at || left.created_at || 0).getTime();
+        const rightTime = new Date(right.updated_at || right.fetched_at || right.created_at || 0).getTime();
+        return rightTime - leftTime;
+      });
+    if (Number.isNaN(threshold)) {
+      return items;
+    }
+    return items.filter((item) => new Date(item.updated_at || item.fetched_at || item.created_at || 0).getTime() > threshold);
+  }
+
   async listContentFacets(scope = {}, channel = "") {
     const { contentItems, contentSources } = this.ensureUserScope(scope.userId);
     const items = [...contentItems.values()].filter((item) => (channel ? item.channel === channel : true));
-    const tags = [...new Set(items.flatMap((item) => (Array.isArray(item.tags) ? item.tags : [])))].sort();
+    const tags = [...new Set(items.flatMap((item) => normalizeTagList(item.tags || [])))].sort();
     const sources = [...contentSources.values()]
       .filter((source) => (!channel ? true : source.channel === channel))
       .map((source) => ({
@@ -469,7 +550,7 @@ class MemoryStore {
   async listFavoriteContent(scope = {}, filters = {}) {
     const { contentFavorites } = this.ensureUserScope(scope.userId);
     const page = Math.max(1, Number(filters.page || 1));
-    const pageSize = Math.max(1, Math.min(50, Number(filters.pageSize || 20)));
+    const pageSize = Math.max(1, Number(filters.pageSize || 20));
     const q = String(filters.q || "").trim().toLowerCase();
     const tag = String(filters.tag || "").trim();
     const sourceId = String(filters.sourceId || "").trim();
@@ -487,7 +568,7 @@ class MemoryStore {
       );
     }
     if (tag) {
-      items = items.filter((item) => Array.isArray(item.tags) && item.tags.includes(tag));
+      items = items.filter((item) => itemHasPrimaryTag(item, tag));
     }
     if (sourceId) {
       items = items.filter((item) => item.source_id === sourceId);
@@ -502,17 +583,34 @@ class MemoryStore {
     const total = items.length;
     const start = (page - 1) * pageSize;
     return {
-      items: items.slice(start, start + pageSize).map((item) => ({ ...item, is_favorite: true })),
+      items: items.slice(start, start + pageSize).map((item) => ({ ...normalizeContentItem(item), is_favorite: true })),
       total,
       page,
       pageSize,
     };
   }
 
+  async listFavoriteContentUpdatedSince(scope = {}, since, channel = "") {
+    const { contentFavorites } = this.ensureUserScope(scope.userId);
+    const threshold = new Date(since).getTime();
+    const items = [...contentFavorites.values()]
+      .filter((item) => (!channel ? true : item.channel === channel))
+      .map((item) => ({ ...normalizeContentItem(item), is_favorite: true }))
+      .sort((left, right) => {
+        const leftTime = new Date(left.updated_at || left.favorited_at || left.created_at || 0).getTime();
+        const rightTime = new Date(right.updated_at || right.favorited_at || right.created_at || 0).getTime();
+        return rightTime - leftTime;
+      });
+    if (Number.isNaN(threshold)) {
+      return items;
+    }
+    return items.filter((item) => new Date(item.updated_at || item.favorited_at || item.created_at || 0).getTime() > threshold);
+  }
+
   async listFavoriteContentFacets(scope = {}, channel = "") {
     const { contentFavorites, contentSources } = this.ensureUserScope(scope.userId);
     const items = [...contentFavorites.values()].filter((item) => (channel ? item.channel === channel : true));
-    const tags = [...new Set(items.flatMap((item) => (Array.isArray(item.tags) ? item.tags : [])))].sort();
+    const tags = [...new Set(items.flatMap((item) => normalizeTagList(item.tags || [])))].sort();
     const sourceIds = new Set(items.map((item) => item.source_id).filter(Boolean));
     const sources = [...contentSources.values()]
       .filter((source) => (!channel ? true : source.channel === channel))
@@ -532,7 +630,7 @@ class MemoryStore {
   async getFavoriteContentItem(scope = {}, itemId) {
     const { contentFavorites } = this.ensureUserScope(scope.userId);
     const item = contentFavorites.get(itemId) || null;
-    return item ? { ...item, is_favorite: true } : null;
+    return item ? { ...normalizeContentItem(item), is_favorite: true } : null;
   }
 
   async upsertFavoriteContent(scope = {}, item) {
@@ -542,13 +640,14 @@ class MemoryStore {
     );
     const next = {
       ...(existing || {}),
-      ...item,
+      ...normalizeContentItem(item),
       id: existing?.id || item.id,
       favorited_at: existing?.favorited_at || item.favorited_at || new Date().toISOString(),
       updated_at: new Date().toISOString(),
       is_favorite: true,
     };
     contentFavorites.set(next.id, next);
+    await this.touchUserSyncState(scope.userId);
     return next;
   }
 
@@ -559,6 +658,7 @@ class MemoryStore {
         contentFavorites.delete(itemId);
       }
     }
+    await this.touchUserSyncState(scope.userId, { reset: true });
   }
 
   async createSession(session) {

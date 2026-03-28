@@ -164,7 +164,7 @@ const contentChannelSchema = z
 const contentListQuerySchema = z.object({
   channel: contentChannelSchema,
   page: z.coerce.number().int().positive().optional(),
-  pageSize: z.coerce.number().int().min(1).max(40).optional(),
+  pageSize: z.coerce.number().int().positive().optional(),
   q: z.string().max(120).optional(),
   tag: z.string().max(64).optional(),
   sourceId: z.string().max(128).optional(),
@@ -174,7 +174,7 @@ const contentListQuerySchema = z.object({
 
 const contentRefreshSchema = z.object({
   channel: contentChannelSchema,
-  limit: z.coerce.number().int().min(1).max(40).optional(),
+  limit: z.coerce.number().int().positive().optional(),
 });
 
 const syncChangesQuerySchema = z.object({
@@ -197,10 +197,13 @@ function buildDateKeysBetween(startDate, endDate) {
 }
 
 async function buildSyncSnapshot(store, userContext) {
-  const [tasks, dailyRecords, weeklySummaries, syncState] = await Promise.all([
+  const [tasks, dailyRecords, weeklySummaries, contentSources, contentItems, favoriteContent, syncState] = await Promise.all([
     store.listTasks(userContext),
     store.listDailyRecords(userContext),
     store.listWeeklySummaries(userContext),
+    store.listContentSources(userContext),
+    store.listContentUpdatedSince(userContext, ""),
+    store.listFavoriteContentUpdatedSince(userContext, ""),
     store.getUserSyncState(userContext.userId),
   ]);
 
@@ -211,6 +214,11 @@ async function buildSyncSnapshot(store, userContext) {
       tasks,
       dailyRecords,
       weeklySummaries,
+      content: {
+        sources: contentSources,
+        items: contentItems,
+        favorites: favoriteContent,
+      },
     },
   };
 }
@@ -751,10 +759,13 @@ function createApp({ config, store }) {
         return;
       }
 
-      const [tasks, dailyRecords, weeklySummaries] = await Promise.all([
+      const [tasks, dailyRecords, weeklySummaries, contentSources, contentItems, favoriteContent] = await Promise.all([
         store.listTasksUpdatedSince(request.userContext, query.since),
         store.listDailyRecordsUpdatedSince(request.userContext, query.since),
         store.listWeeklySummariesUpdatedSince(request.userContext, query.since),
+        store.listContentSourcesUpdatedSince(request.userContext, query.since),
+        store.listContentUpdatedSince(request.userContext, query.since),
+        store.listFavoriteContentUpdatedSince(request.userContext, query.since),
       ]);
 
       response.json({
@@ -765,6 +776,11 @@ function createApp({ config, store }) {
           tasks,
           dailyRecords,
           weeklySummaries,
+          content: {
+            sources: contentSources,
+            items: contentItems,
+            favorites: favoriteContent,
+          },
         },
       });
     } catch (error) {
@@ -969,36 +985,33 @@ function createApp({ config, store }) {
   app.get("/api/content", requireAuthenticated, async (request, response, next) => {
     try {
       const query = contentListQuerySchema.parse(request.query || {});
-      const favoriteUrls = await store.listFavoriteContentUrls(request.userContext, query.channel);
       const favoritesOnly = query.favorite === "favorites";
-      const result = favoritesOnly
-        ? await store.listFavoriteContent(request.userContext, {
-            channel: query.channel,
-            page: query.page || 1,
-            pageSize: query.pageSize || DEFAULT_PAGE_SIZE,
-            q: query.q || "",
-            tag: query.tag || "",
-            sourceId: query.sourceId || "",
-            sort: query.sort || "latest",
-          })
-        : await store.listContent(request.userContext, {
-            channel: query.channel,
-            page: query.page || 1,
-            pageSize: query.pageSize || DEFAULT_PAGE_SIZE,
-            q: query.q || "",
-            tag: query.tag || "",
-            sourceId: query.sourceId || "",
-            sort: query.sort || "latest",
-          });
-      const facets = favoritesOnly
-        ? await store.listFavoriteContentFacets(request.userContext, query.channel)
-        : await store.listContentFacets(request.userContext, query.channel);
+      const requestFilters = {
+        channel: query.channel,
+        page: query.page || 1,
+        pageSize: query.pageSize || DEFAULT_PAGE_SIZE,
+        q: query.q || "",
+        tag: query.tag || "",
+        sourceId: query.sourceId || "",
+        sort: query.sort || "latest",
+      };
+      const [favoriteUrls, result, facets] = await Promise.all([
+        favoritesOnly
+          ? Promise.resolve([])
+          : store.listFavoriteContentUrls(request.userContext, query.channel),
+        favoritesOnly
+          ? store.listFavoriteContent(request.userContext, requestFilters)
+          : store.listContent(request.userContext, requestFilters),
+        favoritesOnly
+          ? store.listFavoriteContentFacets(request.userContext, query.channel)
+          : store.listContentFacets(request.userContext, query.channel),
+      ]);
       const cacheStatus = getChannelCacheStatus(request.userContext.userId, query.channel);
       response.json({
         ...result,
         items: (result.items || []).map((item) => ({
           ...item,
-          is_favorite: favoriteUrls.includes(item.canonical_url),
+          is_favorite: favoritesOnly || favoriteUrls.includes(item.canonical_url),
         })),
         tags: facets.tags || [],
         sources: facets.sources || [],
@@ -1014,12 +1027,14 @@ function createApp({ config, store }) {
       const query = contentListQuerySchema.pick({ channel: true }).extend({
         limit: z.coerce.number().int().min(1).max(12).optional(),
       }).parse(request.query || {});
-      const favoriteUrls = await store.listFavoriteContentUrls(request.userContext, query.channel);
-      const items = await store.getFeaturedContent(
-        request.userContext,
-        query.channel,
-        query.limit || 3,
-      );
+      const [favoriteUrls, items] = await Promise.all([
+        store.listFavoriteContentUrls(request.userContext, query.channel),
+        store.getFeaturedContent(
+          request.userContext,
+          query.channel,
+          query.limit || 3,
+        ),
+      ]);
       response.json({
         items: (items || []).map((item) => ({
           ...item,
@@ -1038,11 +1053,11 @@ function createApp({ config, store }) {
         store,
         userId: request.userContext.userId,
         channel: parsed.channel,
-        limit: parsed.limit || DEFAULT_REFRESH_LIMIT,
+        limit: parsed.limit,
       });
       response.json({
         ok: true,
-        count: result.items.length,
+        count: Number(result?.stats?.syncedItemCount || 0),
         refresh: result.stats,
         cache: getChannelCacheStatus(request.userContext.userId, parsed.channel),
       });

@@ -50,7 +50,10 @@ export function hasDashboardSnapshotData(snapshot = {}) {
   return (
     Array.isArray(snapshot?.tasks) && snapshot.tasks.length > 0
   ) || Object.keys(snapshot?.dailyRecords || {}).length > 0
-    || Object.keys(snapshot?.weeklySummaries || {}).length > 0;
+    || Object.keys(snapshot?.weeklySummaries || {}).length > 0
+    || Object.keys(snapshot?.content?.items || {}).length > 0
+    || Object.keys(snapshot?.content?.sources || {}).length > 0
+    || Object.keys(snapshot?.content?.favorites || {}).length > 0;
 }
 
 export function loadDashboardSnapshot(userId) {

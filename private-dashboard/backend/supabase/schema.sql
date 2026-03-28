@@ -55,6 +55,11 @@ create table if not exists public.content_sources (
   enabled boolean not null default true,
   sort_order integer not null default 0,
   parser_key text not null default '',
+  last_synced_at timestamptz,
+  last_success_at timestamptz,
+  last_failure_at timestamptz,
+  last_error text not null default '',
+  latest_published_at timestamptz,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now()),
   primary key (user_id, id)

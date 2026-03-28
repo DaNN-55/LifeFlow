@@ -1,5 +1,19 @@
 import { formatTime, parseIsoDate } from "./date";
 
+export function normalizePrimaryContentTag(tag = "") {
+  const cleaned = String(tag || "").replace(/\s+/g, " ").trim();
+  if (!cleaned) {
+    return "";
+  }
+  const [primary] = cleaned.split(/\s*\/\s*|\s*>\s*|\s*::\s*/);
+  return String(primary || "").replace(/\s+/g, " ").trim();
+}
+
+export function normalizeContentTagList(tags = []) {
+  const values = Array.isArray(tags) ? tags : [tags];
+  return [...new Set(values.map((tag) => normalizePrimaryContentTag(tag)).filter(Boolean))].slice(0, 8);
+}
+
 export function getSafeContentLink(item) {
   const candidates = [item?.canonical_url, item?.source_url];
   return candidates.find((value) => /^https?:\/\//i.test(String(value || "").trim())) || "";

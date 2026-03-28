@@ -13,15 +13,13 @@ const parser = new Parser({
 });
 
 const FETCH_TIMEOUT_MS = 10000;
-const ARTICLE_IMAGE_TIMEOUT_MS = 4000;
 const DEFAULT_PAGE_SIZE = 10;
-const DEFAULT_REFRESH_LIMIT = 30;
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_RSSHUB_INSTANCE = "https://rsshub.zhsh.me";
+const MAX_SOURCE_FETCH_CONCURRENCY = 4;
 const CHANNELS = ["news"];
 const cacheByChannel = new Map();
 const refreshInFlight = new Map();
-const articleImageCache = new Map();
 
 function getCacheKey(userId, channel) {
   return `${userId}:${channel}`;
@@ -71,7 +69,7 @@ function getChannelCacheStatus(userId, channel) {
   };
 }
 
-async function refreshChannelContent({ store, userId, channel, limit = DEFAULT_REFRESH_LIMIT }) {
+async function refreshChannelContent({ store, userId, channel, limit }) {
   const cacheKey = getCacheKey(userId, channel);
   if (refreshInFlight.has(cacheKey)) {
     return refreshInFlight.get(cacheKey);
@@ -92,41 +90,82 @@ async function refreshChannelContent({ store, userId, channel, limit = DEFAULT_R
       setChannelRefreshStats(userId, channel, stats);
       return { items: [], stats };
     }
-    const perSourceLimit = Math.max(8, Math.ceil(limit / sources.length) + 4);
-    const collected = [];
     const failures = [];
     let successCount = 0;
+    let syncedItemCount = 0;
+    const sourceResults = await mapWithConcurrency(
+      sources,
+      Math.min(MAX_SOURCE_FETCH_CONCURRENCY, sources.length),
+      async (source) => {
+        const syncedAt = new Date().toISOString();
+        try {
+          const items = await fetchSourceIncrement(source, channel);
+          const deduped = dedupeContentItems(items);
+          if (deduped.length) {
+            await store.upsertContentItems({ userId }, deduped);
+          }
+          await store.updateContentSourceSync?.({ userId }, source.id, {
+            last_synced_at: syncedAt,
+            last_success_at: syncedAt,
+            last_error: "",
+            latest_published_at: pickLatestPublishedAt(source.latest_published_at, deduped),
+          });
+          return { source, ok: true, count: deduped.length };
+        } catch (error) {
+          console.warn("[content] failed to refresh source", source.name, error.message);
+          await store.updateContentSourceSync?.({ userId }, source.id, {
+            last_synced_at: syncedAt,
+            last_failure_at: syncedAt,
+            last_error: String(error.message || "Unknown error"),
+          });
+          return {
+            source,
+            ok: false,
+            error,
+          };
+        }
+      },
+    );
 
-    for (const source of sources) {
-      try {
-        const items =
-          source.type === "site"
-            ? await fetchSiteSource(source, channel, perSourceLimit)
-            : await fetchRssSource(source, channel, perSourceLimit);
-        collected.push(...items);
-        successCount += 1;
-      } catch (error) {
-        console.warn("[content] failed to refresh source", source.name, error.message);
-        failures.push({
-          sourceId: source.id,
-          sourceName: source.name,
-          message: error.message,
-        });
-      }
-    }
+    sourceResults.forEach((result) => {
+        if (result.ok) {
+          successCount += 1;
+          syncedItemCount += Number(result.count || 0);
+          return;
+        }
+      failures.push({
+        sourceId: result.source.id,
+        sourceName: result.source.name,
+        message: result.error.message,
+      });
+    });
 
-    const deduped = dedupeContentItems(collected).slice(0, limit);
-    setCachedChannelItems(userId, channel, deduped);
-    await store.replaceContentItems({ userId }, channel, deduped);
+    const previewPageSize = Number.isFinite(Number(limit)) && Number(limit) > 0
+      ? Math.max(1, Number(limit))
+      : DEFAULT_PAGE_SIZE;
+    const preview = await store.listContent(
+      { userId },
+      {
+        channel,
+        page: 1,
+        pageSize: previewPageSize,
+        sort: "latest",
+      },
+    );
+    const latestItems = Array.isArray(preview?.items) ? preview.items : [];
+    setCachedChannelItems(userId, channel, latestItems);
     const stats = {
       totalSources: sources.length,
       successCount,
       failureCount: failures.length,
       failures,
+      syncedItemCount,
+      latestItemCount: Number(preview?.total || latestItems.length || 0),
       refreshedAt: new Date().toISOString(),
     };
     setChannelRefreshStats(userId, channel, stats);
-    return { items: deduped, stats };
+    await store.touchUserSyncState?.(userId);
+    return { items: latestItems, stats };
   })();
 
   refreshInFlight.set(cacheKey, job);
@@ -137,29 +176,45 @@ async function refreshChannelContent({ store, userId, channel, limit = DEFAULT_R
   }
 }
 
-async function fetchRssSource(source, channel, limit) {
+async function fetchSourceIncrement(source, channel) {
+  const stopAtPublishedAt = normalizeDateString(source.latest_published_at || "");
+  return source.type === "site"
+    ? fetchSiteSource(source, channel, { stopAtPublishedAt })
+    : fetchRssSource(source, channel, { stopAtPublishedAt });
+}
+
+async function fetchRssSource(source, channel, options = {}) {
+  const stopAtPublishedAt = normalizeDateString(options.stopAtPublishedAt || "");
   const feedUrl = resolveSourceFeedUrl(source);
   const xml = await fetchText(feedUrl);
   const feed = await parser.parseString(xml);
-  const entries = Array.isArray(feed.items) ? feed.items.slice(0, limit) : [];
-  const normalized = await Promise.all(entries.map((item) => normalizeFeedItem(item, source, channel)));
+  const entries = Array.isArray(feed.items) ? feed.items : [];
+  const normalized = [];
+  for (const entry of entries) {
+    const publishedAt = normalizeDateString(entry?.isoDate || entry?.pubDate || "");
+    if (stopAtPublishedAt && publishedAt && publishedAt < stopAtPublishedAt) {
+      break;
+    }
+    const item = await normalizeFeedItem(entry, source, channel);
+    if (item?.canonical_url) {
+      normalized.push(item);
+    }
+  }
   return normalized.filter((item) => item && item.canonical_url);
 }
 
-async function fetchSiteSource(source, channel, limit) {
+async function fetchSiteSource(source, channel, options = {}) {
+  const stopAtPublishedAt = normalizeDateString(options.stopAtPublishedAt || "");
   const html = await fetchText(source.url);
   const $ = cheerio.load(html);
   const alternateFeed = $('link[type="application/rss+xml"], link[type="application/atom+xml"]').first().attr("href");
   if (alternateFeed) {
     const feedUrl = new URL(alternateFeed, source.url).toString();
-    return fetchRssSource({ ...source, url: feedUrl }, channel, limit);
+    return fetchRssSource({ ...source, url: feedUrl }, channel, { stopAtPublishedAt });
   }
 
   const items = [];
   $("article, .article, .post, .story").each((index, element) => {
-    if (index >= limit) {
-      return false;
-    }
     const root = $(element);
     const link = root.find("a[href]").first();
     const href = link.attr("href");
@@ -168,6 +223,13 @@ async function fetchSiteSource(source, channel, limit) {
       return;
     }
     const canonicalUrl = new URL(href, source.url).toString();
+    const publishedAt = normalizeDateString(
+      root.find("time[datetime]").first().attr("datetime") ||
+      cleanText(root.find("time").first().text()),
+    );
+    if (stopAtPublishedAt && publishedAt && publishedAt < stopAtPublishedAt) {
+      return false;
+    }
     const summaryRaw = cleanText(root.find("p").first().text()) || cleanText(root.text()).slice(0, 240);
     const imageUrl = normalizeUrl(
       root.find("img").first().attr("src") ||
@@ -182,7 +244,7 @@ async function fetchSiteSource(source, channel, limit) {
       summaryRaw,
       imageUrl,
       author: "",
-      publishedAt: "",
+      publishedAt,
       tags: [],
       type: "site",
       lang: inferLanguage(title, summaryRaw),
@@ -229,7 +291,7 @@ async function normalizeContentItem(item, source, channel) {
   const bodyRaw = truncate(summaryRaw || item.title || "", 320);
   const bodyZh = truncate(summaryZh || item.title || "", 320);
   const sourceUrl = resolveSourceDisplayUrl(source);
-  const imageUrl = await resolveContentImageUrl(item.imageUrl || "", item.canonicalUrl, sourceUrl);
+  const imageUrl = normalizeUrl(item.imageUrl || "", item.canonicalUrl || sourceUrl);
   return {
     id: createContentId(channel, item.canonicalUrl),
     channel,
@@ -310,7 +372,16 @@ function dedupeContentItems(items) {
 
 function normalizeTags(tags) {
   const values = Array.isArray(tags) ? tags : [tags];
-  return [...new Set(values.map((tag) => cleanText(tag)).filter(Boolean))].slice(0, 8);
+  return [...new Set(values.map((tag) => normalizePrimaryTag(tag)).filter(Boolean))].slice(0, 8);
+}
+
+function normalizePrimaryTag(tag) {
+  const cleaned = cleanText(tag);
+  if (!cleaned) {
+    return "";
+  }
+  const [primary] = cleaned.split(/\s*\/\s*|\s*>\s*|\s*::\s*/);
+  return cleanText(primary);
 }
 
 function normalizeAuthor(author) {
@@ -426,45 +497,7 @@ async function resolveContentImageUrl(imageUrl, canonicalUrl, sourceUrl) {
   if (directImage) {
     return directImage;
   }
-  const articleUrl = normalizeUrl(canonicalUrl, sourceUrl);
-  if (!articleUrl) {
-    return "";
-  }
-  return fetchArticleImage(articleUrl);
-}
-
-async function fetchArticleImage(articleUrl) {
-  if (articleImageCache.has(articleUrl)) {
-    return articleImageCache.get(articleUrl);
-  }
-  const job = (async () => {
-    const html = await fetchText(articleUrl, ARTICLE_IMAGE_TIMEOUT_MS);
-    const $ = cheerio.load(html);
-    const imageCandidates = [
-      $("article img").first().attr("src"),
-      $("article img").first().attr("data-src"),
-      $("article img").first().attr("data-original"),
-      $("main article img").first().attr("src"),
-      $("main article img").first().attr("data-src"),
-      $("main article img").first().attr("data-original"),
-      $(".article-content img, .article-body img, .post-content img, .entry-content img, .news-content img, .detail-content img, .content img")
-        .first()
-        .attr("src"),
-      $(".article-content img, .article-body img, .post-content img, .entry-content img, .news-content img, .detail-content img, .content img")
-        .first()
-        .attr("data-src"),
-      $(".article-content img, .article-body img, .post-content img, .entry-content img, .news-content img, .detail-content img, .content img")
-        .first()
-        .attr("data-original"),
-      $("article img").first().attr("src"),
-      $("main img").first().attr("src"),
-    ];
-    return firstValidImageUrl(imageCandidates, articleUrl);
-  })().catch(() => "");
-  articleImageCache.set(articleUrl, job);
-  const resolved = await job;
-  articleImageCache.set(articleUrl, Promise.resolve(resolved));
-  return resolved;
+  return "";
 }
 
 function localizeSummary(summaryRaw, title) {
@@ -524,6 +557,32 @@ function normalizeDateString(value) {
   return Number.isNaN(date.getTime()) ? "" : date.toISOString();
 }
 
+function pickLatestPublishedAt(currentValue, items = []) {
+  const candidates = [normalizeDateString(currentValue || "")]
+    .concat((items || []).map((item) => normalizeDateString(item?.published_at || item?.fetched_at || "")))
+    .filter(Boolean)
+    .sort();
+  return candidates.at(-1) || "";
+}
+
+async function mapWithConcurrency(items, concurrency, iteratee) {
+  const queue = Array.isArray(items) ? items : [];
+  const workerCount = Math.max(1, Math.min(Number(concurrency || 1), queue.length || 1));
+  const results = new Array(queue.length);
+  let cursor = 0;
+
+  async function worker() {
+    while (cursor < queue.length) {
+      const currentIndex = cursor;
+      cursor += 1;
+      results[currentIndex] = await iteratee(queue[currentIndex], currentIndex);
+    }
+  }
+
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
+}
+
 async function fetchText(url, timeoutMs = FETCH_TIMEOUT_MS) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -551,7 +610,6 @@ async function fetchText(url, timeoutMs = FETCH_TIMEOUT_MS) {
 module.exports = {
   CHANNELS,
   DEFAULT_PAGE_SIZE,
-  DEFAULT_REFRESH_LIMIT,
   CACHE_TTL_MS,
   refreshChannelContent,
   getChannelCacheStatus,
