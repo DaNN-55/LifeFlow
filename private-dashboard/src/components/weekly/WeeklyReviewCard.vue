@@ -46,6 +46,7 @@ const displayName = computed(() => getTaskDisplayName(props.task?.name));
           <span class="material-symbols-outlined task-title-icon review-task-icon" aria-hidden="true">{{ taskIcon }}</span>
           <h3 class="review-title">{{ displayName }}</h3>
         </div>
+        <span class="review-chip review-chip-summary">{{ completionCount }} / {{ totalDays }} DAYS</span>
         <div v-if="tags.length" class="task-tag-row review-tag-row">
           <span v-for="tag in tags" :key="tag" class="task-tag">#{{ tag }}</span>
         </div>
@@ -60,8 +61,6 @@ const displayName = computed(() => getTaskDisplayName(props.task?.name));
         >
           恢复
         </button>
-        <span class="review-chip">{{ completionCount }} / {{ totalDays }} DAYS</span>
-        <span class="review-chip">{{ notes.length }} NOTES</span>
         <button
           type="button"
           class="timeline-toggle-button review-toggle-button"

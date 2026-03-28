@@ -28,6 +28,22 @@ async function ensureSessionBootstrapped() {
   return sessionStore;
 }
 
+function registerServiceWorker() {
+  if (!import.meta.env.PROD || !("serviceWorker" in navigator)) {
+    return;
+  }
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js");
+  }, { once: true });
+}
+
+function syncNetworkStatus() {
+  if (typeof navigator === "undefined") {
+    return;
+  }
+  appStore.setNetworkStatus(navigator.onLine ? "online" : "offline");
+}
+
 router.beforeEach(async (to) => {
   const sessionStore = await ensureSessionBootstrapped();
   const isAuthenticated = Boolean(sessionStore.user?.id) || sessionStore.previewMode;
@@ -64,3 +80,9 @@ app.use(pinia);
 app.use(router);
 
 app.mount("#app");
+syncNetworkStatus();
+if (typeof window !== "undefined") {
+  window.addEventListener("online", syncNetworkStatus);
+  window.addEventListener("offline", syncNetworkStatus);
+}
+registerServiceWorker();

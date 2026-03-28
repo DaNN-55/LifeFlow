@@ -17,11 +17,19 @@ function loadStoredTheme() {
   }
 }
 
+function getInitialNetworkStatus() {
+  if (typeof navigator === "undefined") {
+    return "online";
+  }
+  return navigator.onLine ? "online" : "offline";
+}
+
 export const useAppStore = defineStore("app", {
   state: () => ({
     theme: loadStoredTheme(),
     themeBusy: false,
     themeFeedback: "",
+    networkStatus: getInitialNetworkStatus(),
     pwaFeedback: "",
     pwaInstallReady: false,
     pwaInstallBusy: false,
@@ -68,6 +76,9 @@ export const useAppStore = defineStore("app", {
     },
     setPwaFeedback(message = "") {
       this.pwaFeedback = String(message || "");
+    },
+    setNetworkStatus(status = "online") {
+      this.networkStatus = status === "offline" ? "offline" : "online";
     },
     setInstallPrompt(promptEvent) {
       this.deferredInstallPrompt = promptEvent || null;

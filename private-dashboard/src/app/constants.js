@@ -2,6 +2,7 @@ export const API_BASE_STORAGE_KEY = "lifeflow-private-dashboard-api-base";
 export const DEFAULT_REMOTE_API_BASE = "https://lifeflow-backend-mrs1.onrender.com";
 export const DEFAULT_RSSHUB_INSTANCE = "https://rsshub.zhsh.me";
 export const SESSION_STORAGE_KEY = "lifeflow-private-dashboard-session";
+export const OFFLINE_SESSION_STORAGE_KEY = "lifeflow-private-dashboard-offline-session";
 export const AUTH_CONFIG_STORAGE_KEY = "lifeflow-private-dashboard-auth-config";
 export const APP_THEME_STORAGE_KEY = "lifeflow-private-dashboard-vue-theme";
 export const PREVIEW_MODE_STORAGE_KEY = "lifeflow-private-dashboard-vue-preview-mode";

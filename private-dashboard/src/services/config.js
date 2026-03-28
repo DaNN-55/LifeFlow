@@ -3,6 +3,7 @@ import {
   API_BASE_STORAGE_KEY,
   API_PROBE_TIMEOUT_MS,
   DEFAULT_REMOTE_API_BASE,
+  OFFLINE_SESSION_STORAGE_KEY,
   PREVIEW_MODE_STORAGE_KEY,
   SESSION_STORAGE_KEY,
 } from "../app/constants";
@@ -172,6 +173,60 @@ export function savePreviewMode(enabled) {
     return;
   }
   localStorage.setItem(PREVIEW_MODE_STORAGE_KEY, "true");
+}
+
+function normalizeOfflineUser(user = null) {
+  if (!user || typeof user !== "object") {
+    return null;
+  }
+
+  const id = String(user.id || "").trim();
+  const username = String(user.username || "").trim();
+  if (!id || !username) {
+    return null;
+  }
+
+  return {
+    id,
+    username,
+    preferences: user.preferences && typeof user.preferences === "object"
+      ? { ...user.preferences }
+      : {},
+  };
+}
+
+export function loadOfflineSession() {
+  try {
+    const raw = localStorage.getItem(OFFLINE_SESSION_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw);
+    const user = normalizeOfflineUser(parsed?.user);
+    return user ? { user } : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveOfflineSession(user) {
+  const normalizedUser = normalizeOfflineUser(user);
+  if (!normalizedUser) {
+    localStorage.removeItem(OFFLINE_SESSION_STORAGE_KEY);
+    return;
+  }
+
+  localStorage.setItem(
+    OFFLINE_SESSION_STORAGE_KEY,
+    JSON.stringify({
+      user: normalizedUser,
+      cachedAt: new Date().toISOString(),
+    }),
+  );
+}
+
+export function clearOfflineSession() {
+  localStorage.removeItem(OFFLINE_SESSION_STORAGE_KEY);
 }
 
 export { API_PROBE_TIMEOUT_MS, DEFAULT_REMOTE_API_BASE };

@@ -38,12 +38,30 @@ const topTabIndicatorStyle = ref({
   transform: "translateX(0px)",
   opacity: "0",
 });
+const isPwaPhoneShell = ref(false);
+
+const PWA_PHONE_MIN_WIDTH = 380;
+const PWA_PHONE_MAX_WIDTH = 430;
+const PWA_PHONE_MIN_HEIGHT = 780;
+const PWA_PHONE_MAX_HEIGHT = 980;
 
 const statusLabel = computed(() => {
   if (sessionStore.previewMode) {
     return "预览";
   }
   return sessionStore.user?.username ? sessionStore.user.username : "登录";
+});
+
+const compactStatusLabel = computed(() => {
+  const raw = String(statusLabel.value || "").trim();
+  if (!isPwaPhoneShell.value || !raw || raw === "登录" || raw === "预览") {
+    return raw;
+  }
+  if (raw.includes("@")) {
+    const [localPart = ""] = raw.split("@");
+    return localPart.length > 6 ? `${localPart.slice(0, 6)}...` : localPart;
+  }
+  return raw.length > 12 ? `${raw.slice(0, 12)}...` : raw;
 });
 
 const yearProgress = computed(() => {
@@ -80,6 +98,33 @@ const sidebarPreferences = computed(() => ({
   stock: sessionStore.user?.preferences?.sidebar?.stock !== false,
 }));
 
+const visibleTopTabs = computed(() => (
+  isPwaPhoneShell.value
+    ? topTabs.filter((tab) => ["pulse", "today", "content"].includes(tab.id))
+    : topTabs
+));
+
+const showShellSidebars = computed(() => !isPwaPhoneShell.value);
+const shellFeedback = computed(() => {
+  if ((appStore.networkStatus === "offline" || sessionStore.apiStatus === "offline") && sessionStore.user?.id) {
+    return "当前离线，已显示最近一次同步内容。";
+  }
+  return appStore.pwaFeedback;
+});
+
+function getPwaTabIcon(tabId) {
+  if (tabId === "pulse") {
+    return "space_dashboard";
+  }
+  if (tabId === "today") {
+    return "today";
+  }
+  if (tabId === "content") {
+    return "newspaper";
+  }
+  return "radio_button_checked";
+}
+
 function isActive(tab) {
   return route.path === tab.to || route.path.startsWith(`${tab.to}/`);
 }
@@ -104,7 +149,7 @@ function setTopTabRef(tabId, element) {
 }
 
 function syncTopTabIndicator() {
-  const targetId = hoveredTopTabId.value || topTabs.find((tab) => isActive(tab))?.id || topTabs[0]?.id;
+  const targetId = hoveredTopTabId.value || visibleTopTabs.value.find((tab) => isActive(tab))?.id || visibleTopTabs.value[0]?.id;
   const navElement = topTabsRef.value;
   const tabElement = targetId ? topTabNodes.get(targetId) : null;
 
@@ -167,6 +212,39 @@ async function bootstrapHome() {
     return;
   }
   await homeStore.bootstrap();
+}
+
+function detectPwaPhoneShell() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  const standaloneMatcher = window.matchMedia?.("(display-mode: standalone)");
+  const isStandalone = Boolean(standaloneMatcher?.matches || window.navigator.standalone);
+  if (!isStandalone) {
+    return false;
+  }
+  const width = Math.min(window.innerWidth, window.innerHeight);
+  const height = Math.max(window.innerWidth, window.innerHeight);
+  return (
+    width >= PWA_PHONE_MIN_WIDTH &&
+    width <= PWA_PHONE_MAX_WIDTH &&
+    height >= PWA_PHONE_MIN_HEIGHT &&
+    height <= PWA_PHONE_MAX_HEIGHT
+  );
+}
+
+async function refreshShellMode() {
+  isPwaPhoneShell.value = detectPwaPhoneShell();
+  await refreshTopTabIndicator();
+}
+
+async function ensureAllowedPwaRoute() {
+  if (!isPwaPhoneShell.value) {
+    return;
+  }
+  if (route.path === "/fretflow" || route.path.startsWith("/fretflow/")) {
+    await router.replace("/today");
+  }
 }
 
 async function openCalendarDate(date) {
@@ -286,15 +364,16 @@ watch(
 
 onMounted(() => {
   document.addEventListener("pointerdown", handleDocumentPointerDown);
-  window.addEventListener("resize", syncTopTabIndicator);
+  window.addEventListener("resize", refreshShellMode);
   centerStageRef.value?.addEventListener("scroll", saveCurrentRouteScroll, { passive: true });
+  refreshShellMode();
   refreshTopTabIndicator();
   restoreRouteScroll();
 });
 
 onBeforeUnmount(() => {
   document.removeEventListener("pointerdown", handleDocumentPointerDown);
-  window.removeEventListener("resize", syncTopTabIndicator);
+  window.removeEventListener("resize", refreshShellMode);
   centerStageRef.value?.removeEventListener("scroll", saveCurrentRouteScroll);
 });
 
@@ -308,10 +387,24 @@ watch(
     await restoreRouteScroll();
   },
 );
+
+watch(
+  () => isPwaPhoneShell.value,
+  async () => {
+    await ensureAllowedPwaRoute();
+  },
+);
+
+watch(
+  () => route.path,
+  async () => {
+    await ensureAllowedPwaRoute();
+  },
+);
 </script>
 
 <template>
-  <div class="app-frame">
+  <div class="app-frame" :class="{ 'is-pwa-phone-shell': isPwaPhoneShell }">
     <header class="main-nav">
       <div class="nav-brand">
         <div class="brand-mark" aria-label="LifeFlow 标志">
@@ -324,13 +417,14 @@ watch(
       </div>
 
       <nav
+        v-if="!isPwaPhoneShell"
         ref="topTabsRef"
         class="top-tabs"
         aria-label="主导航"
         @mouseleave="hoveredTopTabId = ''; refreshTopTabIndicator()"
       >
         <div
-          v-for="tab in topTabs"
+          v-for="tab in visibleTopTabs"
           :key="tab.id"
           class="top-tab-shell"
           :class="{ 'has-inline-actions': Array.isArray(tab.actions) && tab.actions.length }"
@@ -364,12 +458,13 @@ watch(
         <span class="top-tab-indicator" :style="topTabIndicatorStyle" aria-hidden="true"></span>
       </nav>
 
+      <div class="nav-progress-inline" aria-label="年度与人生进度">
+        <span class="nav-progress-item">Year <strong class="nav-progress-value">{{ formatPercent(yearProgress) }}</strong></span>
+        <span class="nav-progress-divider" aria-hidden="true">|</span>
+        <span class="nav-progress-item">Life <strong class="nav-progress-value">{{ formatPercent(lifeProgress) }}</strong></span>
+      </div>
+
       <div class="nav-actions">
-        <div class="nav-progress-inline" aria-label="年度与人生进度">
-          <span class="nav-progress-item">Year <strong class="nav-progress-value">{{ formatPercent(yearProgress) }}</strong></span>
-          <span class="nav-progress-divider" aria-hidden="true">|</span>
-          <span class="nav-progress-item">Life <strong class="nav-progress-value">{{ formatPercent(lifeProgress) }}</strong></span>
-        </div>
         <div v-if="appStore.pwaInstallReady || appStore.pwaUpdateReady" class="nav-pwa-actions">
           <button
             v-if="appStore.pwaInstallReady"
@@ -390,8 +485,9 @@ watch(
           </button>
         </div>
         <div v-if="ACCOUNT_CONTROLS_ENABLED" ref="accountMenuRef" class="account-menu-wrap">
-          <button class="account-chip" type="button" @click="handleAccountChipClick">
-            {{ statusLabel }}
+          <button class="account-chip" type="button" :title="statusLabel" @click="handleAccountChipClick">
+            <span v-if="isPwaPhoneShell" class="material-symbols-outlined account-chip-icon" aria-hidden="true">person</span>
+            <span v-else>{{ compactStatusLabel }}</span>
           </button>
           <div class="account-menu" :hidden="!sessionStore.user?.id || !accountStore.menuOpen">
             <button type="button" class="account-menu-item" @click="handleAccountAction('profile')">当前账号资料</button>
@@ -405,19 +501,23 @@ watch(
             type="button"
             class="theme-option"
             :class="{ 'is-active': appStore.theme === 'light' }"
+            :aria-label="isPwaPhoneShell ? '浅色模式' : undefined"
             :disabled="appStore.themeBusy"
             @click="appStore.persistTheme('light')"
           >
-            Light
+            <span v-if="isPwaPhoneShell" class="material-symbols-outlined" aria-hidden="true">light_mode</span>
+            <span v-else>Light</span>
           </button>
           <button
             type="button"
             class="theme-option"
             :class="{ 'is-active': appStore.theme === 'dark' }"
+            :aria-label="isPwaPhoneShell ? '深色模式' : undefined"
             :disabled="appStore.themeBusy"
             @click="appStore.persistTheme('dark')"
           >
-            Dark
+            <span v-if="isPwaPhoneShell" class="material-symbols-outlined" aria-hidden="true">dark_mode</span>
+            <span v-else>Dark</span>
           </button>
         </div>
       </div>
@@ -426,7 +526,7 @@ watch(
     </header>
 
     <main class="dashboard-grid">
-      <aside class="left-rail">
+      <aside v-if="showShellSidebars" class="left-rail">
         <CalendarHeatmap v-if="sidebarPreferences.calendar" :label="homeStore.calendarLabel" :days="homeStore.calendarDays" @select-date="openCalendarDate" />
         <GitHubWidget
           v-if="sidebarPreferences.github"
@@ -447,13 +547,13 @@ watch(
       </aside>
 
       <section ref="centerStageRef" class="center-stage">
-        <div v-if="appStore.pwaFeedback" class="theme-feedback-banner">
-          {{ appStore.pwaFeedback }}
+        <div v-if="shellFeedback" class="theme-feedback-banner">
+          {{ shellFeedback }}
         </div>
         <RouterView />
       </section>
 
-      <aside class="right-rail">
+      <aside v-if="showShellSidebars" class="right-rail">
         <WeatherWidget
           v-if="sidebarPreferences.weather"
           :weather="homeStore.weather"
@@ -482,6 +582,19 @@ watch(
         />
       </aside>
     </main>
+
+    <nav v-if="isPwaPhoneShell" class="bottom-tabs" aria-label="PWA 主导航">
+      <RouterLink
+        v-for="tab in visibleTopTabs"
+        :key="tab.id"
+        :to="tab.to"
+        class="bottom-tab"
+        :class="{ 'is-active': isActive(tab) }"
+      >
+        <span class="material-symbols-outlined bottom-tab-icon" aria-hidden="true">{{ getPwaTabIcon(tab.id) }}</span>
+        <span class="bottom-tab-label">{{ tab.label }}</span>
+      </RouterLink>
+    </nav>
 
     <AccountProfileModal
       v-if="ACCOUNT_CONTROLS_ENABLED"

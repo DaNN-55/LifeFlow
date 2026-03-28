@@ -6,6 +6,9 @@ function createEmptyUserCache() {
     tasks: [],
     dailyRecords: {},
     weeklySummaries: {},
+    drafts: {
+      todayNotesByDate: {},
+    },
     content: {
       items: {},
       sources: {},
@@ -19,6 +22,25 @@ function createEmptyUserCache() {
     },
     updatedAt: "",
   };
+}
+
+function normalizeTodayDraftMap(entries = {}) {
+  if (!entries || typeof entries !== "object") {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(entries)
+      .filter(([date]) => /^\d{4}-\d{2}-\d{2}$/.test(String(date || "")))
+      .map(([date, drafts]) => [
+        date,
+        Object.fromEntries(
+          Object.entries(drafts || {})
+            .filter(([taskId, value]) => String(taskId || "").trim())
+            .map(([taskId, value]) => [String(taskId).trim(), String(value || "")]),
+        ),
+      ]),
+  );
 }
 
 function normalizeRecordMap(records = {}, keyField) {
@@ -38,6 +60,9 @@ function normalizeUserCache(cache = {}) {
     tasks: Array.isArray(cache?.tasks) ? cache.tasks : [],
     dailyRecords: normalizeRecordMap(cache?.dailyRecords, "date"),
     weeklySummaries: normalizeRecordMap(cache?.weeklySummaries, "week"),
+    drafts: {
+      todayNotesByDate: normalizeTodayDraftMap(cache?.drafts?.todayNotesByDate),
+    },
     content: {
       items: normalizeChannelRecordMap(cache?.content?.items, "id"),
       sources: normalizeChannelRecordMap(cache?.content?.sources, "id"),
@@ -185,6 +210,7 @@ export function replaceDashboardUserCache(userId, snapshot = {}, sync = {}) {
     tasks: Array.isArray(snapshot?.tasks) ? snapshot.tasks : [],
     dailyRecords: toRecordMap(snapshot?.dailyRecords || [], "date"),
     weeklySummaries: toRecordMap(snapshot?.weeklySummaries || [], "week"),
+    drafts: cache.drafts,
     content: {
       items: toChannelRecordMap(snapshot?.content?.items || [], "id"),
       sources: toChannelRecordMap(snapshot?.content?.sources || [], "id"),
@@ -222,6 +248,7 @@ export function mergeDashboardUserCache(userId, changes = {}, sync = {}) {
         ...cache.weeklySummaries,
         ...toRecordMap(changes?.weeklySummaries || [], "week"),
       },
+      drafts: cache.drafts,
       content: {
         items: mergeChannelRecordMaps(cache.content.items, toChannelRecordMap(changes?.content?.items || [], "id")),
         sources: mergeChannelRecordMaps(cache.content.sources, toChannelRecordMap(changes?.content?.sources || [], "id")),
@@ -257,6 +284,50 @@ export function saveCachedTasks(userId, tasks = []) {
     ...cache,
     tasks: Array.isArray(tasks) ? tasks : [],
   }));
+}
+
+export function loadCachedTodayNoteDrafts(userId, date) {
+  const resolvedDate = /^\d{4}-\d{2}-\d{2}$/.test(String(date || "")) ? String(date) : "";
+  if (!resolvedDate) {
+    return {};
+  }
+  return {
+    ...(loadDashboardUserCache(userId).drafts?.todayNotesByDate?.[resolvedDate] || {}),
+  };
+}
+
+export function saveCachedTodayNoteDrafts(userId, date, drafts = {}) {
+  const resolvedDate = /^\d{4}-\d{2}-\d{2}$/.test(String(date || "")) ? String(date) : "";
+  if (!resolvedDate) {
+    return createEmptyUserCache();
+  }
+
+  return withUserCache(userId, (cache) => {
+    const nextDrafts = Object.fromEntries(
+      Object.entries(drafts || {})
+        .filter(([taskId]) => String(taskId || "").trim())
+        .map(([taskId, value]) => [String(taskId).trim(), String(value || "")])
+        .filter(([, value]) => value.length > 0),
+    );
+
+    const todayNotesByDate = {
+      ...(cache.drafts?.todayNotesByDate || {}),
+    };
+
+    if (Object.keys(nextDrafts).length) {
+      todayNotesByDate[resolvedDate] = nextDrafts;
+    } else {
+      delete todayNotesByDate[resolvedDate];
+    }
+
+    return {
+      ...cache,
+      drafts: {
+        ...(cache.drafts || {}),
+        todayNotesByDate,
+      },
+    };
+  });
 }
 
 export function loadCachedDailyRecord(userId, date) {

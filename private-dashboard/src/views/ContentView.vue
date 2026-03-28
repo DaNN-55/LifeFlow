@@ -156,14 +156,6 @@ watch(
           <p class="panel-kicker">Unified reader</p>
           <h1>News</h1>
         </div>
-        <div class="content-stream-actions">
-          <button v-if="showSourceControls" type="button" class="task-cancel-action" @click="contentStore.openSourceModal(channel)">
-            管理信源
-          </button>
-          <button type="button" class="settings-save" @click="contentStore.refreshChannel(channel)">
-            {{ isAuthenticated ? "刷新资讯" : "刷新本地缓存" }}
-          </button>
-        </div>
       </div>
 
       <div class="content-stream-shell">
@@ -171,6 +163,15 @@ watch(
           <div class="content-stream-meta content-stage-meta" :data-tone="getContentMetaTone(contentState)">
             {{ contentStore.getMetaText(channel) }}
           </div>
+          <button
+            type="button"
+            class="content-stage-refresh"
+            :class="{ 'is-spinning': contentState.loading }"
+            :aria-label="isAuthenticated ? '刷新资讯' : '刷新本地缓存'"
+            @click="contentStore.refreshChannel(channel)"
+          >
+            <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
+          </button>
         </div>
 
         <div v-if="isLocalMode" class="local-mode-strip">

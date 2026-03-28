@@ -9,6 +9,10 @@ import {
   updateTask,
 } from "../services/today-api";
 import {
+  loadCachedTodayNoteDrafts,
+  saveCachedTodayNoteDrafts,
+} from "../services/dashboard-cache";
+import {
   applyDashboardMutation,
   hasDashboardSnapshotData,
   loadDashboardSnapshot,
@@ -170,6 +174,7 @@ export const useTodayStore = defineStore("today", {
         : [];
       this.tasks = normalizedTasks;
       this.record = normalizeRecord(snapshot?.dailyRecords?.[this.selectedDate], normalizedTasks, this.selectedDate);
+      this.restoreNoteDrafts();
       this.ready = true;
     },
     persistLocalCache(mutation = {}) {
@@ -182,6 +187,27 @@ export const useTodayStore = defineStore("today", {
         dailyRecord: this.record,
         ...mutation,
       });
+    },
+    restoreNoteDrafts() {
+      const sessionStore = useSessionStore();
+      if (!sessionStore.user?.id) {
+        this.noteDrafts = {};
+        return;
+      }
+
+      const savedDrafts = loadCachedTodayNoteDrafts(sessionStore.user.id, this.selectedDate);
+      const activeTaskIds = new Set(this.tasks.map((task) => String(task.id || "")));
+
+      this.noteDrafts = Object.fromEntries(
+        Object.entries(savedDrafts).filter(([taskId]) => activeTaskIds.has(String(taskId || ""))),
+      );
+    },
+    persistNoteDrafts() {
+      const sessionStore = useSessionStore();
+      if (!sessionStore.user?.id) {
+        return;
+      }
+      saveCachedTodayNoteDrafts(sessionStore.user.id, this.selectedDate, this.noteDrafts);
     },
     handleActionError(error, fallbackMessage) {
       this.error = getUserFacingErrorMessage(error, fallbackMessage);
@@ -214,8 +240,13 @@ export const useTodayStore = defineStore("today", {
         this.applySnapshot(remoteSnapshot);
         this.setSaveState(hasCachedData ? "增量同步已完成" : "数据已从云端载入", "success");
       } catch (error) {
-        this.handleActionError(error, "Today 模块加载失败");
-        this.ready = false;
+        if (this.ready) {
+          this.error = "";
+          this.setSaveState("当前离线，已显示最近一次同步内容", "default");
+        } else {
+          this.handleActionError(error, "Today 模块加载失败");
+          this.ready = false;
+        }
       } finally {
         this.loading = false;
       }
@@ -235,10 +266,21 @@ export const useTodayStore = defineStore("today", {
       return this.record.payload.tasks[taskId];
     },
     setNoteDraft(taskId, value) {
-      this.noteDrafts = {
+      const nextValue = String(value || "");
+      const nextDrafts = {
         ...this.noteDrafts,
-        [taskId]: String(value || ""),
       };
+
+      if (nextValue) {
+        nextDrafts[taskId] = nextValue;
+      } else {
+        delete nextDrafts[taskId];
+      }
+
+      this.noteDrafts = {
+        ...nextDrafts,
+      };
+      this.persistNoteDrafts();
     },
     toggleTaskMenu(taskId) {
       this.activeTaskMenuId = this.activeTaskMenuId === taskId ? "" : taskId;
@@ -391,15 +433,13 @@ export const useTodayStore = defineStore("today", {
     },
     async submitTaskNote(taskId) {
       const task = this.tasks.find((item) => item.id === taskId);
-      const draft = String(this.noteDrafts[taskId] || "").trim();
+      const draftText = String(this.noteDrafts[taskId] || "");
+      const draft = draftText.trim();
       if (!task || !draft) {
         return;
       }
-      this.noteDrafts = {
-        ...this.noteDrafts,
-        [taskId]: "",
-      };
-      await this.persistRecord(
+
+      const persisted = await this.persistRecord(
         `已追加 ${task.name} 的备注`,
         this.selectedDate,
         (record) => {
@@ -415,6 +455,15 @@ export const useTodayStore = defineStore("today", {
           record.payload.tasks[taskId] = taskState;
         },
       );
+
+      if (persisted) {
+        const nextDrafts = {
+          ...this.noteDrafts,
+        };
+        delete nextDrafts[taskId];
+        this.noteDrafts = nextDrafts;
+        this.persistNoteDrafts();
+      }
     },
     async deleteTaskNote(taskId, noteId) {
       const task = this.tasks.find((item) => item.id === taskId);

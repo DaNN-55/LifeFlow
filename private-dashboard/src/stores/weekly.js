@@ -479,10 +479,11 @@ export const useWeeklyStore = defineStore("weekly", {
     async loadCurrentView() {
       this.loading = true;
       this.error = "";
+      let hasCachedData = false;
       try {
         const sessionStore = useSessionStore();
         const cachedSnapshot = loadDashboardSnapshot(sessionStore.user?.id);
-        const hasCachedData = hasDashboardSnapshotData(cachedSnapshot);
+        hasCachedData = hasDashboardSnapshotData(cachedSnapshot);
 
         if (hasCachedData) {
           if (this.mode === "month") {
@@ -503,8 +504,13 @@ export const useWeeklyStore = defineStore("weekly", {
           this.setSaveStatus(hasCachedData ? `已完成 ${formatWeekRangeText(this.selectedWeek)} 的增量同步` : `已从云端载入 ${formatWeekRangeText(this.selectedWeek)} 的周复盘`);
         }
       } catch (error) {
-        this.error = getUserFacingErrorMessage(error, "Weekly 模块加载失败");
-        this.setSaveStatus(this.error);
+        if (hasCachedData) {
+          this.error = "";
+          this.setSaveStatus("当前离线，已显示最近一次同步内容");
+        } else {
+          this.error = getUserFacingErrorMessage(error, "Weekly 模块加载失败");
+          this.setSaveStatus(this.error);
+        }
       } finally {
         this.loading = false;
       }
@@ -523,9 +529,10 @@ export const useWeeklyStore = defineStore("weekly", {
 
       this.loading = true;
       this.error = "";
+      let hasCachedData = false;
       try {
         const cachedSnapshot = loadDashboardSnapshot(sessionStore.user?.id);
-        const hasCachedData = hasDashboardSnapshotData(cachedSnapshot);
+        hasCachedData = hasDashboardSnapshotData(cachedSnapshot);
         if (hasCachedData) {
           this.applyTimelineFromSnapshot(cachedSnapshot);
           this.setSaveStatus("Timeline 已从本地缓存载入完整历史记录");
@@ -535,8 +542,13 @@ export const useWeeklyStore = defineStore("weekly", {
         this.applyTimelineFromSnapshot(remoteSnapshot);
         this.setSaveStatus(hasCachedData ? "Timeline 增量同步已完成" : "Timeline 已从云端载入完整历史记录");
       } catch (error) {
-        this.error = getUserFacingErrorMessage(error, "Timeline 加载失败");
-        this.setSaveStatus(this.error);
+        if (hasCachedData) {
+          this.error = "";
+          this.setSaveStatus("当前离线，已显示最近一次同步内容");
+        } else {
+          this.error = getUserFacingErrorMessage(error, "Timeline 加载失败");
+          this.setSaveStatus(this.error);
+        }
       } finally {
         this.loading = false;
       }

@@ -2,8 +2,15 @@ import { defineStore } from "pinia";
 
 import { signOutAccount } from "../services/account-api";
 import { fetchSession, probeHealth } from "../services/api-client";
-import { loadPreviewMode, savePreviewMode, saveSessionId } from "../services/config";
-import { resetDashboardSyncState } from "../services/sync-service";
+import {
+  clearOfflineSession,
+  loadOfflineSession,
+  loadPreviewMode,
+  saveOfflineSession,
+  savePreviewMode,
+  saveSessionId,
+} from "../services/config";
+import { hasDashboardSnapshotData, loadDashboardSnapshot, resetDashboardSyncState } from "../services/sync-service";
 import { getUserFacingErrorMessage } from "../utils/error-message";
 
 export const useSessionStore = defineStore("session", {
@@ -22,6 +29,7 @@ export const useSessionStore = defineStore("session", {
       this.previewMode = false;
       savePreviewMode(false);
       saveSessionId(payload?.session?.id || "");
+      saveOfflineSession(this.user);
       this.status = this.user ? "ready" : "guest";
       if (this.user) {
         this.apiStatus = "ready";
@@ -34,6 +42,24 @@ export const useSessionStore = defineStore("session", {
       }
       this.feedback = feedback || (this.user ? `已识别 ${this.user.username}` : "当前未登录");
     },
+    restoreOfflineSession(payload, feedback = "当前离线，已显示最近一次同步内容") {
+      const restoredUser = payload?.user || null;
+      const hasOfflineSnapshot = restoredUser?.id && hasDashboardSnapshotData(loadDashboardSnapshot(restoredUser.id));
+      if (!restoredUser?.id || !hasOfflineSnapshot) {
+        this.user = null;
+        this.status = "offline";
+        this.apiStatus = "offline";
+        this.feedback = feedback;
+        return false;
+      }
+
+      this.user = restoredUser;
+      this.previewMode = false;
+      this.status = "ready";
+      this.apiStatus = "offline";
+      this.feedback = feedback;
+      return true;
+    },
     startPreviewSession() {
       this.user = null;
       this.previewMode = true;
@@ -42,6 +68,7 @@ export const useSessionStore = defineStore("session", {
       this.feedback = "已进入本地预览模式";
       saveSessionId("");
       savePreviewMode(true);
+      clearOfflineSession();
     },
     async bootstrap() {
       if (this.previewMode) {
@@ -55,8 +82,11 @@ export const useSessionStore = defineStore("session", {
         await this.refreshHealth();
         await this.refreshSession();
       } catch (error) {
-        this.status = "offline";
-        this.feedback = getUserFacingErrorMessage(error, "当前未连接到后端");
+        const restored = this.restoreOfflineSession(loadOfflineSession());
+        if (!restored) {
+          this.status = "offline";
+          this.feedback = getUserFacingErrorMessage(error, "当前未连接到后端");
+        }
       }
     },
     async refreshHealth() {
@@ -86,6 +116,7 @@ export const useSessionStore = defineStore("session", {
         ...this.user,
         preferences: preferences && typeof preferences === "object" ? preferences : {},
       };
+      saveOfflineSession(this.user);
     },
     async signOut() {
       const previousUserId = this.user?.id || "";
@@ -96,6 +127,7 @@ export const useSessionStore = defineStore("session", {
       }
       saveSessionId("");
       savePreviewMode(false);
+      clearOfflineSession();
       this.user = null;
       this.previewMode = false;
       this.status = "guest";
