@@ -5166,7 +5166,7 @@ body[data-theme="light"] .weather-tooltip {
 .fretflow-page {
   --fretflow-open-line: color-mix(in srgb, var(--line) 90%, transparent);
   --fretflow-short-line: 64px;
-  --fretflow-stage-tabs-width: 282px;
+  --fretflow-stage-tabs-width: 392px;
   --fretflow-metronome-width: 392px;
   display: grid;
   gap: 18px;
@@ -5190,6 +5190,12 @@ body[data-theme="light"] .weather-tooltip {
   min-width: 0;
   margin-left: auto;
   flex: 0 0 auto;
+}
+
+.fretflow-stage-tabs .today-view-tab {
+  padding: 0 14px;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
 }
 
 .fretflow-main-column {

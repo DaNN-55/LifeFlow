@@ -113,7 +113,7 @@ export async function fetchWeatherWidget(locationQuery) {
   const params = query ? `?query=${encodeURIComponent(query)}` : "";
   const payload = await fetchJson(`/api/widgets/weather${params}`, {
     requireAuth: false,
-    timeoutMs: 6000,
+    timeoutMs: 12000,
   });
   return payload?.weather || createEmptyWeatherState();
 }

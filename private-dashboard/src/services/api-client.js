@@ -72,7 +72,7 @@ export async function probeHealth() {
 
 export async function fetchSession() {
   return fetchJson("/api/auth/me", {
-    timeoutMs: 10000,
+    timeoutMs: 20000,
   });
 }
 

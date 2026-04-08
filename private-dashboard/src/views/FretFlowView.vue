@@ -15,6 +15,7 @@ const topPanelItems = [
   { value: "practice", label: "Practice" },
   { value: "caged", label: "CAGED" },
   { value: "theory", label: "Theory" },
+  { value: "songster", label: "Songster" },
 ];
 
 const activeStage = computed(() => {
@@ -25,6 +26,10 @@ const activeStage = computed(() => {
 });
 
 function handleStageChange(value) {
+  if (value === "songster") {
+    window.open("https://www.songsterr.com/", "_blank", "noopener,noreferrer");
+    return;
+  }
   if (value === "theory") {
     void fretflowStore.applyPracticePreset({ activeTab: "theory" });
     return;

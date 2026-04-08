@@ -612,6 +612,7 @@ watch(
       :delete-account-busy="accountStore.deleteAccountBusy"
       :profile-form="accountStore.forms.profile"
       :account-form="accountStore.forms.account"
+      :format-date-time="accountStore.formatDateTime"
       @close="accountStore.closeProfile"
       @save="accountStore.saveProfile"
       @regenerate-recovery="accountStore.regenerateRecoveryCode"

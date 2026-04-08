@@ -4,6 +4,7 @@ import { useRouter } from "vue-router";
 
 import ToolbarSelect from "../components/common/ToolbarSelect.vue";
 import { fetchPulseQuote } from "../services/pulse-api";
+import { loadDashboardSnapshot } from "../services/sync-service";
 import { useSessionStore } from "../stores/session";
 import { useTodayStore } from "../stores/today";
 import { useWeeklyStore } from "../stores/weekly";
@@ -172,15 +173,19 @@ async function submitPulseNote() {
     if (!todayStore.tasks.length) {
       await todayStore.bootstrap();
     }
-    const saved = await todayStore.appendTaskNoteForDate(task.id, text, today);
+    const savePromise = todayStore.appendTaskNoteForDate(task.id, text, today);
+    noteDraft.value = "";
+    if (sessionStore.user?.id) {
+      weeklyStore.applyMonthReviewFromSnapshot(loadDashboardSnapshot(sessionStore.user.id));
+    }
+    const saved = await savePromise;
     if (!saved) {
       throw new Error(todayStore.error || "备注保存失败");
     }
-    noteDraft.value = "";
-    await loadPulse();
     weeklyStore.setSaveStatus(`已保存 ${getTaskDisplayName(task.name)} 的备注`);
   } catch (error) {
     weeklyStore.setSaveStatus(getUserFacingErrorMessage(error, "备注保存失败，请稍后重试"));
+    noteDraft.value = text;
   } finally {
     noteSubmitting.value = false;
   }

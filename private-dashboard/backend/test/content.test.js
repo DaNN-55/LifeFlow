@@ -77,6 +77,9 @@ test("refreshChannelContent normalizes nested feed categories to first-level tag
     },
   );
 
+  const originalDateNow = Date.now;
+  Date.now = () => new Date("2026-03-30T12:00:00.000Z").getTime();
+
   const originalFetch = global.fetch;
   global.fetch = async () =>
     new Response(
@@ -110,6 +113,7 @@ test("refreshChannelContent normalizes nested feed categories to first-level tag
     );
     assert.deepEqual(result.items[0].tags, ["Business", "Security"]);
   } finally {
+    Date.now = originalDateNow;
     global.fetch = originalFetch;
   }
 });
@@ -138,6 +142,9 @@ test("refreshChannelContent stores source sync metadata and avoids article fetch
       updated_at: "2026-03-28T00:00:00.000Z",
     },
   );
+
+  const originalDateNow = Date.now;
+  Date.now = () => new Date("2026-03-30T12:00:00.000Z").getTime();
 
   const requests = [];
   const originalFetch = global.fetch;
@@ -183,6 +190,7 @@ test("refreshChannelContent stores source sync metadata and avoids article fetch
     assert.equal(source.last_error, "");
     assert.equal(source.latest_published_at, "2026-03-28T09:00:00.000Z");
   } finally {
+    Date.now = originalDateNow;
     global.fetch = originalFetch;
   }
 });
@@ -243,6 +251,9 @@ test("refreshChannelContent only appends newer feed items on subsequent syncs", 
       }),
     ]),
   ];
+  const originalDateNow = Date.now;
+  Date.now = () => new Date("2026-03-30T12:00:00.000Z").getTime();
+
   let fetchIndex = 0;
   const originalFetch = global.fetch;
   global.fetch = async () =>
@@ -283,6 +294,89 @@ test("refreshChannelContent only appends newer feed items on subsequent syncs", 
       ["Story C", "Story A", "Story B"],
     );
   } finally {
+    Date.now = originalDateNow;
+    global.fetch = originalFetch;
+  }
+});
+
+test("refreshChannelContent prunes stale news items older than one week", async () => {
+  const store = new MemoryStore();
+  const user = await store.createUser({
+    id: "user-news-retention-1",
+    username: "news-retention-user-1",
+    password_hash: "hash-retention-1",
+    recovery_code_hash: "recovery-retention-1",
+    preferences: {},
+  });
+  await store.createContentSource(
+    { userId: user.id },
+    {
+      id: "source-news-retention-1",
+      channel: "news",
+      type: "rss",
+      name: "Retention Feed",
+      url: "https://example.com/retention.xml",
+      enabled: true,
+      sort_order: 1,
+      parser_key: "",
+      created_at: "2026-03-28T00:00:00.000Z",
+      updated_at: "2026-03-28T00:00:00.000Z",
+    },
+  );
+  await store.upsertContentItems(
+    { userId: user.id },
+    [
+      {
+        id: "stale-news-1",
+        channel: "news",
+        source_id: "source-news-retention-1",
+        title: "Old News",
+        canonical_url: "https://example.com/old-news",
+        source_url: "https://example.com/old-news",
+        published_at: "2026-03-01T09:00:00.000Z",
+        fetched_at: "2026-03-01T09:00:00.000Z",
+        created_at: "2026-03-01T09:00:00.000Z",
+        updated_at: "2026-03-01T09:00:00.000Z",
+      },
+    ],
+  );
+
+  const originalDateNow = Date.now;
+  Date.now = () => new Date("2026-03-30T12:00:00.000Z").getTime();
+
+  const originalFetch = global.fetch;
+  global.fetch = async () =>
+    new Response(
+      buildRssFeed([
+        buildRssItem({
+          title: "Fresh News",
+          link: "https://example.com/fresh-news",
+          pubDate: "Sun, 30 Mar 2026 09:00:00 GMT",
+        }),
+      ]),
+      {
+        status: 200,
+        headers: { "content-type": "application/rss+xml" },
+      },
+    );
+
+  try {
+    await refreshChannelContent({
+      store,
+      userId: user.id,
+      channel: "news",
+      limit: 10,
+    });
+
+    const result = await store.listContent(
+      { userId: user.id },
+      { channel: "news", page: 1, pageSize: 10, sort: "latest" },
+    );
+
+    assert.equal(result.total, 1);
+    assert.equal(result.items[0].canonical_url, "https://example.com/fresh-news");
+  } finally {
+    Date.now = originalDateNow;
     global.fetch = originalFetch;
   }
 });

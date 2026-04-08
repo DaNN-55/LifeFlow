@@ -829,6 +829,47 @@ class SupabaseStore {
     return this.upsertContentItems(scope, items);
   }
 
+  async pruneExpiredContentItems(scope = {}, options = {}) {
+    const cutoffIso = String(options.cutoffIso || "").trim();
+    const channel = String(options.channel || "").trim();
+    if (!cutoffIso || Number.isNaN(new Date(cutoffIso).getTime())) {
+      return 0;
+    }
+
+    let query = this.client
+      .from("content_items")
+      .select("id")
+      .eq("user_id", scope.userId || "")
+      .lt("published_at", cutoffIso);
+
+    if (channel) {
+      query = query.eq("channel", channel);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      throw error;
+    }
+
+    const staleIds = (data || []).map((item) => item.id).filter(Boolean);
+    if (!staleIds.length) {
+      return 0;
+    }
+
+    const { error: deleteError } = await this.client
+      .from("content_items")
+      .delete()
+      .eq("user_id", scope.userId || "")
+      .in("id", staleIds);
+
+    if (deleteError) {
+      throw deleteError;
+    }
+
+    await this.touchUserSyncState(scope.userId, { reset: true });
+    return staleIds.length;
+  }
+
   async listContentUpdatedSince(scope = {}, since, channel = "") {
     let query = this.client
       .from("content_items")

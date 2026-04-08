@@ -457,6 +457,36 @@ class MemoryStore {
     return this.upsertContentItems(scope, items);
   }
 
+  async pruneExpiredContentItems(scope = {}, options = {}) {
+    const { contentItems } = this.ensureUserScope(scope.userId);
+    const cutoffIso = String(options.cutoffIso || "").trim();
+    const cutoffTime = new Date(cutoffIso).getTime();
+    const channel = String(options.channel || "").trim();
+
+    if (Number.isNaN(cutoffTime)) {
+      return 0;
+    }
+
+    let removedCount = 0;
+    for (const [itemId, item] of contentItems.entries()) {
+      if (channel && item.channel !== channel) {
+        continue;
+      }
+      const itemTime = new Date(item.published_at || item.fetched_at || item.created_at || 0).getTime();
+      if (Number.isNaN(itemTime) || itemTime >= cutoffTime) {
+        continue;
+      }
+      contentItems.delete(itemId);
+      removedCount += 1;
+    }
+
+    if (removedCount > 0) {
+      await this.touchUserSyncState(scope.userId, { reset: true });
+    }
+
+    return removedCount;
+  }
+
   async listContent(scope = {}, filters = {}) {
     const { contentItems } = this.ensureUserScope(scope.userId);
     const page = Math.max(1, Number(filters.page || 1));

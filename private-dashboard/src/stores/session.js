@@ -45,7 +45,7 @@ export const useSessionStore = defineStore("session", {
     restoreOfflineSession(payload, feedback = "当前离线，已显示最近一次同步内容") {
       const restoredUser = payload?.user || null;
       const hasOfflineSnapshot = restoredUser?.id && hasDashboardSnapshotData(loadDashboardSnapshot(restoredUser.id));
-      if (!restoredUser?.id || !hasOfflineSnapshot) {
+      if (!restoredUser?.id) {
         this.user = null;
         this.status = "offline";
         this.apiStatus = "offline";
@@ -57,7 +57,7 @@ export const useSessionStore = defineStore("session", {
       this.previewMode = false;
       this.status = "ready";
       this.apiStatus = "offline";
-      this.feedback = feedback;
+      this.feedback = hasOfflineSnapshot ? feedback : "当前离线，会话已保留，待服务恢复后继续同步";
       return true;
     },
     startPreviewSession() {
@@ -79,8 +79,18 @@ export const useSessionStore = defineStore("session", {
       }
       this.status = "bootstrapping";
       try {
-        await this.refreshHealth();
-        await this.refreshSession();
+        const [healthResult, sessionResult] = await Promise.allSettled([
+          this.refreshHealth(),
+          this.refreshSession(),
+        ]);
+
+        if (sessionResult.status === "rejected") {
+          throw sessionResult.reason;
+        }
+
+        if (healthResult.status === "rejected" && !this.user?.id) {
+          throw healthResult.reason;
+        }
       } catch (error) {
         const restored = this.restoreOfflineSession(loadOfflineSession());
         if (!restored) {
@@ -104,8 +114,14 @@ export const useSessionStore = defineStore("session", {
       try {
         const payload = await fetchSession();
         this.applySession(payload);
+        return payload;
       } catch (error) {
-        this.applySession(null, "当前未登录或会话不可用");
+        const status = Number(error?.status || 0);
+        if (status === 401 || status === 403) {
+          this.applySession(null, "当前未登录或会话不可用");
+          return null;
+        }
+        throw error;
       }
     },
     setPreferences(preferences) {

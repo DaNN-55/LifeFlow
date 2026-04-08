@@ -385,6 +385,7 @@ export const useWeeklyStore = defineStore("weekly", {
     monthOverview(state) {
       const rankedTasks = state.aggregation.tasks
         .filter((task) => hasTaskHistory(state.aggregation, task.id))
+        .filter((task) => !task.archived)
         .sort((left, right) => {
           const leftCompletionDays = state.aggregation.completionCounts[left.id] || 0;
           const rightCompletionDays = state.aggregation.completionCounts[right.id] || 0;

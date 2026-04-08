@@ -439,6 +439,13 @@ export const useTodayStore = defineStore("today", {
         return;
       }
 
+      const nextDrafts = {
+        ...this.noteDrafts,
+      };
+      delete nextDrafts[taskId];
+      this.noteDrafts = nextDrafts;
+      this.persistNoteDrafts();
+
       const persisted = await this.persistRecord(
         `已追加 ${task.name} 的备注`,
         this.selectedDate,
@@ -456,12 +463,11 @@ export const useTodayStore = defineStore("today", {
         },
       );
 
-      if (persisted) {
-        const nextDrafts = {
+      if (!persisted) {
+        this.noteDrafts = {
           ...this.noteDrafts,
+          [taskId]: draftText,
         };
-        delete nextDrafts[taskId];
-        this.noteDrafts = nextDrafts;
         this.persistNoteDrafts();
       }
     },

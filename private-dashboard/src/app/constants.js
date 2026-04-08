@@ -18,18 +18,7 @@ export const topTabs = [
   { id: "pulse", label: "Pulse", to: "/pulse" },
   { id: "today", label: "Today", to: "/today" },
   { id: "content", label: "News", to: "/content" },
-  {
-    id: "fretflow",
-    label: "FretFlow",
-    to: "/fretflow",
-    actions: [
-      {
-        id: "songster",
-        label: "songster",
-        href: "https://www.songsterr.com/",
-      },
-    ],
-  },
+  { id: "fretflow", label: "FretFlow", to: "/fretflow" },
 ];
 
 export const contentTabs = [

@@ -15,6 +15,7 @@ const { formatDateKey, getWeekRangeFromWeekValue } = require("./lib/date");
 const {
   CHANNELS,
   DEFAULT_PAGE_SIZE,
+  getContentRetentionCutoffIso,
   refreshChannelContent,
   getChannelCacheStatus,
 } = require("./lib/content");
@@ -197,6 +198,10 @@ function buildDateKeysBetween(startDate, endDate) {
 }
 
 async function buildSyncSnapshot(store, userContext) {
+  await store.pruneExpiredContentItems?.(userContext, {
+    cutoffIso: getContentRetentionCutoffIso(),
+  });
+
   const [tasks, dailyRecords, weeklySummaries, contentSources, contentItems, favoriteContent, syncState] = await Promise.all([
     store.listTasks(userContext),
     store.listDailyRecords(userContext),
@@ -390,35 +395,22 @@ function createApp({ config, store }) {
     try {
       const query = weatherQuerySchema.parse(request.query || {});
       const location = await resolveWeatherLocation(request, query);
-      const weatherData = await fetchJsonWithTimeout(
-        `https://api.open-meteo.com/v1/forecast?latitude=${location.latitude}&longitude=${location.longitude}&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min&forecast_days=7&timezone=auto`,
-        WEATHER_REQUEST_TIMEOUT_MS
-      );
-
-      const current = weatherData.current || {};
-      const dailyTimes = weatherData.daily?.time || [];
-      const dailyMax = weatherData.daily?.temperature_2m_max || [];
-      const dailyMin = weatherData.daily?.temperature_2m_min || [];
+      const forecast = await fetchWeatherForecast(location);
 
       response.json({
         weather: {
           location: formatLocationLabel(location.city, location.district),
-          temperature: Number.isFinite(current.temperature_2m)
-            ? `${Math.round(current.temperature_2m)}°C`
-            : "--",
-          detail: weatherCodeToText(current.weather_code),
+          temperature: forecast.temperature,
+          detail: forecast.detail,
           message:
             location.source === "browser"
               ? "浏览器定位"
               : location.source === "header-ip"
                 ? "网络定位"
                 : "默认位置",
-          forecast: dailyTimes.map((date, index) => ({
-            date,
-            max: dailyMax[index],
-            min: dailyMin[index],
-          })),
+          forecast: forecast.forecast,
           source: location.source,
+          provider: forecast.provider,
           latitude: location.latitude,
           longitude: location.longitude,
           updatedAt: new Date().toISOString(),
@@ -549,6 +541,10 @@ function createApp({ config, store }) {
     if (!request.userContext?.isAuthenticated) {
       response.status(401).json({ error: "Authentication required" });
       return;
+    }
+
+    if (request.userContext.sessionId) {
+      writeSessionCookie(request, response, request.userContext.sessionId);
     }
 
     response.json({
@@ -734,6 +730,9 @@ function createApp({ config, store }) {
 
   app.get("/api/sync/changes", requireAuthenticated, async (request, response, next) => {
     try {
+      await store.pruneExpiredContentItems?.(request.userContext, {
+        cutoffIso: getContentRetentionCutoffIso(),
+      });
       const query = syncChangesQuerySchema.parse(request.query || {});
       if (!query.since) {
         const payload = await buildSyncSnapshot(store, request.userContext);
@@ -1470,7 +1469,23 @@ async function searchWeatherLocation(query) {
     }
   ).catch(() => []);
 
-  const first = Array.isArray(result) ? result[0] : null;
+  let first = Array.isArray(result) ? result[0] : null;
+  if (!first) {
+    const fallback = await fetchJsonWithTimeout(
+      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=1&language=zh&format=json`,
+      WEATHER_REQUEST_TIMEOUT_MS,
+    ).catch(() => null);
+    first = Array.isArray(fallback?.results) ? fallback.results[0] : null;
+    if (!first) {
+      return null;
+    }
+    return {
+      latitude: Number(first.latitude),
+      longitude: Number(first.longitude),
+      city: first.name || first.admin1 || "",
+      district: first.admin2 || first.admin3 || first.country || "",
+    };
+  }
   if (!first) {
     return null;
   }
@@ -1568,6 +1583,72 @@ function weatherCodeToText(code) {
     95: "雷暴",
   };
   return map[code] || (typeof code === "number" ? `天气代码 ${code}` : "天气状态未知");
+}
+
+async function fetchWeatherForecast(location) {
+  try {
+    return await fetchPrimaryWeatherForecast(location);
+  } catch (primaryError) {
+    try {
+      return await fetchBackupWeatherForecast(location);
+    } catch (backupError) {
+      backupError.cause = primaryError;
+      throw backupError;
+    }
+  }
+}
+
+async function fetchPrimaryWeatherForecast(location) {
+  const weatherData = await fetchJsonWithTimeout(
+    `https://api.open-meteo.com/v1/forecast?latitude=${location.latitude}&longitude=${location.longitude}&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min&forecast_days=7&timezone=auto`,
+    WEATHER_REQUEST_TIMEOUT_MS
+  );
+
+  const current = weatherData.current || {};
+  const dailyTimes = weatherData.daily?.time || [];
+  const dailyMax = weatherData.daily?.temperature_2m_max || [];
+  const dailyMin = weatherData.daily?.temperature_2m_min || [];
+
+  return {
+    provider: "open-meteo",
+    temperature: Number.isFinite(current.temperature_2m)
+      ? `${Math.round(current.temperature_2m)}°C`
+      : "--",
+    detail: weatherCodeToText(current.weather_code),
+    forecast: dailyTimes.map((date, index) => ({
+      date,
+      max: dailyMax[index],
+      min: dailyMin[index],
+    })),
+  };
+}
+
+async function fetchBackupWeatherForecast(location) {
+  const weatherData = await fetchJsonWithTimeout(
+    `https://wttr.in/${location.latitude},${location.longitude}?format=j1`,
+    WEATHER_REQUEST_TIMEOUT_MS,
+    {
+      headers: {
+        "User-Agent": "LifeFlow/1.0",
+      },
+    }
+  );
+
+  const current = Array.isArray(weatherData?.current_condition) ? weatherData.current_condition[0] : {};
+  const dailyForecast = Array.isArray(weatherData?.weather) ? weatherData.weather : [];
+
+  return {
+    provider: "wttr",
+    temperature: Number.isFinite(Number(current?.temp_C))
+      ? `${Math.round(Number(current.temp_C))}°C`
+      : "--",
+    detail: String(current?.weatherDesc?.[0]?.value || current?.lang_zh?.[0]?.value || "天气状态未知"),
+    forecast: dailyForecast.slice(0, 7).map((item) => ({
+      date: String(item?.date || ""),
+      max: Number.isFinite(Number(item?.maxtempC)) ? Number(item.maxtempC) : null,
+      min: Number.isFinite(Number(item?.mintempC)) ? Number(item.mintempC) : null,
+    })),
+  };
 }
 
 async function fetchJsonWithTimeout(url, timeoutMs, options = {}) {

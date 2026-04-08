@@ -15,6 +15,7 @@ const parser = new Parser({
 const FETCH_TIMEOUT_MS = 10000;
 const DEFAULT_PAGE_SIZE = 10;
 const CACHE_TTL_MS = 15 * 60 * 1000;
+const CONTENT_RETENTION_DAYS = 7;
 const DEFAULT_RSSHUB_INSTANCE = "https://rsshub.zhsh.me";
 const MAX_SOURCE_FETCH_CONCURRENCY = 4;
 const CHANNELS = ["news"];
@@ -57,6 +58,11 @@ function setCachedChannelItems(userId, channel, items) {
 function setChannelRefreshStats(userId, channel, stats) {
   const cache = getChannelCache(userId, channel);
   cache.lastRefreshStats = stats || null;
+}
+
+function getContentRetentionCutoffIso(days = CONTENT_RETENTION_DAYS) {
+  const retentionDays = Math.max(1, Number(days || CONTENT_RETENTION_DAYS));
+  return new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
 }
 
 function getChannelCacheStatus(userId, channel) {
@@ -139,6 +145,14 @@ async function refreshChannelContent({ store, userId, channel, limit }) {
         message: result.error.message,
       });
     });
+
+    await store.pruneExpiredContentItems?.(
+      { userId },
+      {
+        channel,
+        cutoffIso: getContentRetentionCutoffIso(),
+      },
+    );
 
     const previewPageSize = Number.isFinite(Number(limit)) && Number(limit) > 0
       ? Math.max(1, Number(limit))
@@ -611,8 +625,10 @@ module.exports = {
   CHANNELS,
   DEFAULT_PAGE_SIZE,
   CACHE_TTL_MS,
+  CONTENT_RETENTION_DAYS,
   refreshChannelContent,
   getChannelCacheStatus,
+  getContentRetentionCutoffIso,
   createContentId,
   extractFeedItemImage,
 };
