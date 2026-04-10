@@ -16,6 +16,7 @@
     "backend:test": "npm --prefix backend run test"
   },
   "dependencies": {
+    "@milkdown/crepe": "^7.20.0",
     "dompurify": "^3.3.3",
     "entities": "7.0.1",
     "markdown-it": "^14.1.1",

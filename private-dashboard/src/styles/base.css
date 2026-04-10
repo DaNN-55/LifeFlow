@@ -1865,12 +1865,12 @@ a {
   border-radius: 4px;
   background: var(--input);
   color: var(--text);
-  padding: 8px 10px;
 }
 
 .new-task-form input {
   min-height: 36px;
   font-size: 0.88rem;
+  padding: 8px 10px;
 }
 
 .task-icon-picker {
@@ -1937,6 +1937,7 @@ a {
 
 .task-note-input:focus,
 .task-note-input:focus-visible,
+.task-note-input:focus-within,
 .new-task-form input:focus,
 .new-task-form input:focus-visible {
   outline: none;
@@ -1949,6 +1950,7 @@ a {
   height: 58px;
   resize: vertical;
   padding: 10px 14px;
+  overflow: auto;
   font-size: 0.84rem;
   line-height: 1.38;
 }
@@ -1956,6 +1958,7 @@ a {
 .note-submit {
   min-width: 110px;
   min-height: 58px;
+  height: 58px;
   border-color: var(--line);
   background: var(--card-2);
   font-size: 0.7rem;
@@ -1991,6 +1994,12 @@ a {
 .task-note-item p {
   margin: 0;
   font-size: 0.86rem;
+}
+
+.task-note-text {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .task-note-row {
@@ -2062,12 +2071,16 @@ a {
 .task-note-markdown ol,
 .task-note-markdown blockquote,
 .task-note-markdown pre {
-  margin: 0 0 10px;
+  margin: 0 0 8px;
 }
 
 .task-note-markdown ul,
 .task-note-markdown ol {
   padding-left: 18px;
+}
+
+.task-note-markdown li > p {
+  margin: 0;
 }
 
 .task-note-markdown li + li {
@@ -2509,14 +2522,92 @@ a {
 .weekly-summary-input {
   width: 100%;
   min-height: 108px;
-  padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--input);
   color: var(--text);
-  font: inherit;
-  resize: vertical;
-  line-height: 1.55;
+  overflow: hidden;
+}
+
+.weekly-summary-input:focus-within {
+  border-color: color-mix(in srgb, var(--line-2) 74%, var(--line));
+}
+
+.weekly-summary-input .milkdown {
+  --crepe-color-background: var(--input);
+  --crepe-color-on-background: var(--text);
+  --crepe-color-surface: var(--card-2);
+  --crepe-color-surface-low: color-mix(in srgb, var(--line) 18%, transparent);
+  --crepe-color-on-surface: var(--text);
+  --crepe-color-on-surface-variant: var(--muted);
+  --crepe-color-outline: color-mix(in srgb, var(--text) 56%, var(--line));
+  --crepe-color-primary: color-mix(in srgb, var(--text) 82%, var(--accent));
+  --crepe-color-secondary: color-mix(in srgb, var(--line) 16%, var(--input));
+  --crepe-color-on-secondary: var(--text);
+  --crepe-color-inline-area: color-mix(in srgb, var(--line) 16%, transparent);
+  --crepe-color-inline-code: #ba1a1a;
+  --crepe-color-hover: color-mix(in srgb, var(--line) 14%, var(--card));
+  --crepe-color-selected: color-mix(in srgb, var(--line) 30%, transparent);
+  --crepe-font-default: inherit;
+  --crepe-font-title: inherit;
+  --crepe-font-code: "JetBrains Mono", "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  background: transparent;
+}
+
+.weekly-summary-input .milkdown .ProseMirror {
+  min-height: 108px;
+  max-height: 220px;
+  overflow: auto;
+  padding: 8px 10px;
+}
+
+.weekly-summary-input .milkdown .ProseMirror p,
+.weekly-summary-input .milkdown .ProseMirror li {
+  font-size: 0.86rem;
+  line-height: 1.48;
+}
+
+.weekly-summary-input .milkdown .ProseMirror p {
+  padding: 0;
+}
+
+.weekly-summary-input .milkdown .milkdown-list-item-block li {
+  gap: 6px;
+}
+
+.weekly-summary-input .milkdown .milkdown-list-item-block > .list-item {
+  align-items: baseline;
+}
+
+.weekly-summary-input .milkdown .milkdown-list-item-block li .label-wrapper {
+  width: 13px;
+  min-width: 13px;
+  height: auto;
+  line-height: 1.48;
+  align-items: center;
+  justify-content: center;
+  padding-top: 0.03em;
+}
+
+.weekly-summary-input .milkdown .milkdown-list-item-block li .label-wrapper .label {
+  width: 13px;
+  height: auto;
+  padding: 0;
+  line-height: 1;
+  text-align: center;
+}
+
+.weekly-summary-input .milkdown .milkdown-list-item-block li .label-wrapper .label::marker,
+.weekly-summary-input .milkdown .milkdown-list-item-block li .label-wrapper .label {
+  color: color-mix(in srgb, var(--text) 72%, var(--line));
+}
+
+.weekly-summary-input .milkdown .ProseMirror > :first-child {
+  margin-top: 0;
+}
+
+.weekly-summary-input .milkdown .ProseMirror > :last-child {
+  margin-bottom: 0;
 }
 
 .weekly-summary-display {
@@ -2526,7 +2617,8 @@ a {
   border-radius: 6px;
   background: var(--input);
   color: var(--text);
-  line-height: 1.65;
+  font-size: 0.82rem;
+  line-height: 1.42;
 }
 
 .weekly-summary-display > :first-child {
@@ -2544,7 +2636,13 @@ a {
 .weekly-summary-display pre,
 .weekly-summary-display table,
 .weekly-summary-display hr {
-  margin: 0 0 12px;
+  margin: 0 0 8px;
+}
+
+.weekly-summary-display p,
+.weekly-summary-display li {
+  font-size: 0.82rem;
+  line-height: 1.42;
 }
 
 .weekly-summary-display ul,
@@ -2554,6 +2652,14 @@ a {
 
 .weekly-summary-display li + li {
   margin-top: 4px;
+}
+
+.weekly-summary-display li > p {
+  margin: 0;
+}
+
+.weekly-summary-display li::marker {
+  color: color-mix(in srgb, var(--text) 84%, var(--muted));
 }
 
 .weekly-summary-display blockquote {
@@ -9429,6 +9535,7 @@ body:not([data-theme="light"]) .weekly-mode-toggle .task-cancel-action:hover {
   .app-frame.is-pwa-phone-shell .note-submit {
     width: 100%;
     min-height: 40px;
+    height: 40px;
     font-size: 0.68rem;
   }
 

@@ -1,7 +1,6 @@
 <script setup>
 import { computed } from "vue";
 
-import { renderTaskNoteMarkdown } from "../../utils/markdown";
 import { getTaskDisplayName } from "../../utils/task-icons";
 
 const props = defineProps({
@@ -61,7 +60,7 @@ const cardStyle = computed(() => ({
 }));
 
 function renderMarkdown(note) {
-  return renderTaskNoteMarkdown(note?.text);
+  return String(note?.text || "");
 }
 
 const displayName = computed(() => getTaskDisplayName(props.task?.name));
@@ -158,10 +157,10 @@ const displayName = computed(() => getTaskDisplayName(props.task?.name));
       <textarea
         class="task-note-input"
         maxlength="500"
-        placeholder="记录本次执行的进度、问题或灵感（支持 Markdown）..."
+        placeholder="记录本次执行的进度、问题或灵感..."
         :value="noteDraft"
         @input="emit('draft-note', task.id, $event.target.value)"
-      />
+      ></textarea>
       <button type="button" class="note-submit" @click="emit('submit-note', task.id)">
         提交记录
       </button>
@@ -180,7 +179,7 @@ const displayName = computed(() => getTaskDisplayName(props.task?.name));
             <span class="material-symbols-outlined">delete</span>
           </button>
         </div>
-        <div class="task-note-markdown" v-html="renderMarkdown(note)" />
+        <p class="task-note-text">{{ renderMarkdown(note) }}</p>
       </div>
     </div>
   </article>

@@ -4,6 +4,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router";
 
 import SegmentedTabs from "../components/common/SegmentedTabs.vue";
+import MarkdownWysiwygEditor from "../components/common/MarkdownWysiwygEditor.vue";
 import ToolbarSelect from "../components/common/ToolbarSelect.vue";
 import TaskIconPicker from "../components/today/TaskIconPicker.vue";
 import TaskDialog from "../components/today/TaskDialog.vue";
@@ -702,12 +703,12 @@ watch(
               </div>
             </div>
 
-            <textarea
+            <MarkdownWysiwygEditor
               v-if="showSummaryEdit"
               class="weekly-summary-input"
-              :value="weeklyStore.currentSummaryDraft"
-              placeholder="记录本周的收获、问题和下一步。支持 Markdown。"
-              @input="weeklyStore.updateSummaryDraft($event.target.value)"
+              :model-value="weeklyStore.currentSummaryDraft"
+              placeholder="记录本周的收获、问题和下一步（支持 Markdown）..."
+              @update:model-value="weeklyStore.updateSummaryDraft"
             />
             <div v-else-if="weeklyStore.currentSummary.content" class="weekly-summary-display" v-html="weeklyStore.summaryDisplayHtml" />
             <div v-else class="weekly-summary-display">
