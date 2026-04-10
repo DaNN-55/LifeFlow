@@ -30,7 +30,6 @@ const sessionStore = useSessionStore();
 const todayStore = useTodayStore();
 const accountMenuRef = ref(null);
 const topTabsRef = ref(null);
-const centerStageRef = ref(null);
 const topTabNodes = new Map();
 const routeScrollTopByPath = new Map();
 const hoveredTopTabId = ref("");
@@ -205,21 +204,23 @@ function formatPercent(value) {
   return `${Math.max(0, Math.min(100, value)).toFixed(1)}%`;
 }
 
-function saveCurrentRouteScroll() {
-  if (!(centerStageRef.value instanceof HTMLElement)) {
-    return;
+function getCurrentScrollTop() {
+  if (typeof window === "undefined") {
+    return 0;
   }
-  routeScrollTopByPath.set(route.fullPath, centerStageRef.value.scrollTop);
+  return window.scrollY || document.scrollingElement?.scrollTop || 0;
+}
+
+function saveCurrentRouteScroll() {
+  routeScrollTopByPath.set(route.fullPath, getCurrentScrollTop());
 }
 
 async function restoreRouteScroll() {
   await nextTick();
-  if (!(centerStageRef.value instanceof HTMLElement)) {
+  if (typeof window === "undefined") {
     return;
   }
   if (route.path === "/content" || route.path.startsWith("/content/")) {
-    centerStageRef.value.scrollTo({ top: 0, left: 0, behavior: "auto" });
-    centerStageRef.value.scrollTop = 0;
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
     if (document.scrollingElement) {
       document.scrollingElement.scrollTop = 0;
@@ -227,7 +228,11 @@ async function restoreRouteScroll() {
     return;
   }
   const savedScrollTop = routeScrollTopByPath.get(route.fullPath);
-  centerStageRef.value.scrollTop = Number.isFinite(savedScrollTop) ? savedScrollTop : 0;
+  const nextScrollTop = Number.isFinite(savedScrollTop) ? savedScrollTop : 0;
+  window.scrollTo({ top: nextScrollTop, left: 0, behavior: "auto" });
+  if (document.scrollingElement) {
+    document.scrollingElement.scrollTop = nextScrollTop;
+  }
 }
 
 async function bootstrapHome() {
@@ -405,7 +410,7 @@ watch(
 onMounted(() => {
   document.addEventListener("pointerdown", handleDocumentPointerDown);
   window.addEventListener("resize", refreshShellMode);
-  centerStageRef.value?.addEventListener("scroll", saveCurrentRouteScroll, { passive: true });
+  window.addEventListener("scroll", saveCurrentRouteScroll, { passive: true });
   refreshShellMode();
   refreshTopTabIndicator();
   restoreRouteScroll();
@@ -414,14 +419,14 @@ onMounted(() => {
 onBeforeUnmount(() => {
   document.removeEventListener("pointerdown", handleDocumentPointerDown);
   window.removeEventListener("resize", refreshShellMode);
-  centerStageRef.value?.removeEventListener("scroll", saveCurrentRouteScroll);
+  window.removeEventListener("scroll", saveCurrentRouteScroll);
 });
 
 watch(
   () => route.fullPath,
   async (_nextPath, previousPath) => {
-    if (previousPath && centerStageRef.value instanceof HTMLElement) {
-      routeScrollTopByPath.set(previousPath, centerStageRef.value.scrollTop);
+    if (previousPath) {
+      routeScrollTopByPath.set(previousPath, getCurrentScrollTop());
     }
     refreshTopTabIndicator();
     await restoreRouteScroll();
@@ -586,7 +591,7 @@ watch(
         />
       </aside>
 
-      <section ref="centerStageRef" class="center-stage">
+      <section class="center-stage">
         <div v-if="shellFeedback" class="theme-feedback-banner">
           {{ shellFeedback }}
         </div>

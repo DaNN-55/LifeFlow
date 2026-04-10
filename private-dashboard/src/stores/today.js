@@ -22,6 +22,7 @@ import { formatDateKey, formatDisplayDate, formatDateTime, getTodayDateString, p
 import { getUserFacingErrorMessage } from "../utils/error-message";
 import { getTaskIcon as resolveTaskIcon } from "../utils/task-icons";
 import { useSessionStore } from "./session";
+import { useWeeklyStore } from "./weekly";
 
 function normalizeTask(task = {}, index = 0) {
   return {
@@ -645,6 +646,9 @@ export const useTodayStore = defineStore("today", {
         };
         const response = await saveAccountPreferences(nextPreferences);
         sessionStore.setPreferences(response?.preferences || nextPreferences);
+        const weeklyStore = useWeeklyStore();
+        const snapshot = loadDashboardSnapshot(sessionStore.user?.id);
+        weeklyStore.refreshAggregationsFromSnapshot(snapshot);
         this.setSaveState(`已删除任务：${taskName}`, "success");
         this.closeDeleteDialog();
       } catch (error) {
@@ -668,6 +672,10 @@ export const useTodayStore = defineStore("today", {
         return;
       }
       await this.deleteTaskNote(taskId, noteId);
+      const sessionStore = useSessionStore();
+      const weeklyStore = useWeeklyStore();
+      const snapshot = loadDashboardSnapshot(sessionStore.user?.id);
+      weeklyStore.refreshAggregationsFromSnapshot(snapshot);
       this.closeDeleteNoteDialog();
     },
     async reorderTasks(orderedTaskIds = []) {

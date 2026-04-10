@@ -24,10 +24,6 @@ const props = defineProps({
     type: Number,
     default: 0,
   },
-  totalDays: {
-    type: Number,
-    default: 7,
-  },
   noteCount: {
     type: Number,
     default: 0,

@@ -173,30 +173,11 @@ async function loadContentChannel() {
   await contentStore.loadChannel(props.channel);
 }
 
-function getCenterStageElement() {
-  const element = document.querySelector(".center-stage");
-  return element instanceof HTMLElement ? element : null;
-}
-
-async function scrollCenterStageToTop() {
-  const centerStage = getCenterStageElement();
+async function scrollPageToTop() {
   if (document.activeElement instanceof HTMLElement) {
     document.activeElement.blur();
   }
   await nextTick();
-  centerStage?.scrollTo({ top: 0, left: 0, behavior: "auto" });
-  if (centerStage) {
-    centerStage.scrollTop = 0;
-  }
-  window.scrollTo({ top: 0, left: 0, behavior: "auto" });
-  if (document.scrollingElement) {
-    document.scrollingElement.scrollTop = 0;
-  }
-  await new Promise((resolve) => requestAnimationFrame(() => resolve()));
-  centerStage?.scrollTo({ top: 0, left: 0, behavior: "auto" });
-  if (centerStage) {
-    centerStage.scrollTop = 0;
-  }
   window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   if (document.scrollingElement) {
     document.scrollingElement.scrollTop = 0;
@@ -205,26 +186,26 @@ async function scrollCenterStageToTop() {
 
 async function loadChannelFromTop(overrides = {}) {
   await contentStore.loadChannel(props.channel, overrides);
-  await scrollCenterStageToTop();
+  await scrollPageToTop();
 }
 
 onMounted(async () => {
   await loadContentChannel();
-  await scrollCenterStageToTop();
+  await scrollPageToTop();
 });
 
 watch(
   () => props.channel,
   async () => {
     await loadContentChannel();
-    await scrollCenterStageToTop();
+    await scrollPageToTop();
   },
 );
 watch(
   () => sessionStore.user?.id,
   async () => {
     await loadContentChannel();
-    await scrollCenterStageToTop();
+    await scrollPageToTop();
   },
 );
 </script>

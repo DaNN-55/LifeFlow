@@ -527,6 +527,15 @@ export const useWeeklyStore = defineStore("weekly", {
     applyTimelineFromSnapshot(snapshot = {}) {
       this.timelineAggregation = buildCachedTimelineAggregation(snapshot);
     },
+    refreshAggregationsFromSnapshot(snapshot = {}) {
+      if (this.mode === "month") {
+        this.applyMonthReviewFromSnapshot(snapshot);
+      } else {
+        this.applyWeekReviewFromSnapshot(snapshot);
+      }
+      this.applyTimelineFromSnapshot(snapshot);
+      this.syncTaskFilterSelection();
+    },
     async bootstrap() {
       const sessionStore = useSessionStore();
       if (!sessionStore.user?.id) {
@@ -571,6 +580,7 @@ export const useWeeklyStore = defineStore("weekly", {
         }
       } finally {
         this.loading = false;
+        this.syncTaskFilterSelection();
       }
     },
     async loadWeekReview() {
@@ -632,6 +642,20 @@ export const useWeeklyStore = defineStore("weekly", {
         ...this.filters,
         [key]: value,
       };
+    },
+    syncTaskFilterSelection() {
+      const taskId = String(this.filters.taskId || "all");
+      if (taskId === "all") {
+        return;
+      }
+      const task = this.aggregation.tasks.find((item) => item.id === taskId);
+      const visibleInWeek = this.mode !== "week" || isTaskVisibleInWeekReview(task, this.selectedWeek);
+      if (!task || !visibleInWeek) {
+        this.filters = {
+          ...this.filters,
+          taskId: "all",
+        };
+      }
     },
     updateSummaryDraft(value) {
       this.summaryDrafts = {
@@ -704,11 +728,7 @@ export const useWeeklyStore = defineStore("weekly", {
           },
         });
         const snapshot = loadDashboardSnapshot(sessionStore.user?.id);
-        if (this.mode === "month") {
-          this.applyMonthReviewFromSnapshot(snapshot);
-        } else {
-          this.applyWeekReviewFromSnapshot(snapshot);
-        }
+        this.refreshAggregationsFromSnapshot(snapshot);
         this.setSaveStatus(`已恢复任务：${task.name}`);
       } catch (error) {
         this.handleActionError(error, "任务恢复失败");

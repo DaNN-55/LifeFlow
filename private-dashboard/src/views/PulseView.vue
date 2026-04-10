@@ -84,21 +84,6 @@ function saveCachedQuote(nextQuote) {
 }
 
 const isAuthenticated = computed(() => Boolean(sessionStore.user?.id));
-function hasTaskHistoryInSelectedMonth(taskId) {
-  return (
-    Number(weeklyStore.aggregation?.presenceCounts?.[taskId] || 0) > 0
-    || Number(weeklyStore.aggregation?.completionCounts?.[taskId] || 0) > 0
-    || (Array.isArray(weeklyStore.aggregation?.notesByTask?.[taskId]) && weeklyStore.aggregation.notesByTask[taskId].length > 0)
-  );
-}
-
-function hasArchivedTaskActivityInSelectedMonth(taskId) {
-  return (
-    Number(weeklyStore.aggregation?.completionCounts?.[taskId] || 0) > 0
-    || (Array.isArray(weeklyStore.aggregation?.notesByTask?.[taskId]) && weeklyStore.aggregation.notesByTask[taskId].length > 0)
-  );
-}
-
 function isTaskArchivedInSelectedMonth(task) {
   if (!task?.archived || !task?.archivedAt) {
     return false;
@@ -110,17 +95,29 @@ function isTaskArchivedInSelectedMonth(task) {
   return formatMonthValue(archivedAt) === weeklyStore.selectedMonth;
 }
 
+function hasTaskActivityInSelectedMonth(task) {
+  const taskId = task?.id;
+  const completionCount = Number(weeklyStore.aggregation?.completionCounts?.[taskId] || 0);
+  const noteCount = Array.isArray(weeklyStore.aggregation?.notesByTask?.[taskId])
+    ? weeklyStore.aggregation.notesByTask[taskId].length
+    : 0;
+  if (task?.archived) {
+    return completionCount > 0 || noteCount > 0 || isTaskArchivedInSelectedMonth(task);
+  }
+  return (
+    Number(weeklyStore.aggregation?.presenceCounts?.[taskId] || 0) > 0
+    || completionCount > 0
+    || noteCount > 0
+  );
+}
+
 const displayedRankedTasks = computed(() => {
   const tasks = Array.isArray(weeklyStore.aggregation?.tasks) ? weeklyStore.aggregation.tasks : [];
   const completionCounts = weeklyStore.aggregation?.completionCounts || {};
   const notesByTask = weeklyStore.aggregation?.notesByTask || {};
 
   return [...tasks]
-    .filter((task) => (
-      task?.archived
-        ? hasArchivedTaskActivityInSelectedMonth(task.id) || isTaskArchivedInSelectedMonth(task)
-        : hasTaskHistoryInSelectedMonth(task.id)
-    ))
+    .filter((task) => hasTaskActivityInSelectedMonth(task))
     .sort((left, right) => {
       const leftArchived = left?.archived ? 1 : 0;
       const rightArchived = right?.archived ? 1 : 0;
