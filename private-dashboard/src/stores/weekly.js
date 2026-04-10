@@ -74,6 +74,33 @@ function hasAnyTaskHistory(aggregation) {
   return (aggregation?.tasks || []).some((task) => hasTaskHistory(aggregation, task.id));
 }
 
+function getDateKeyFromTimestamp(value) {
+  if (!value) {
+    return "";
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return "";
+  }
+  return formatDateKey(parsed);
+}
+
+function isTaskArchivedWithinWeek(task = {}, weekValue = "") {
+  if (!task?.archived || !task?.archivedAt || !weekValue) {
+    return false;
+  }
+  const archiveDateKey = getDateKeyFromTimestamp(task.archivedAt);
+  if (!archiveDateKey) {
+    return false;
+  }
+  const weekDateKeys = buildWeekDateKeys(weekValue);
+  return weekDateKeys.includes(archiveDateKey);
+}
+
+function isTaskVisibleInWeekReview(task = {}, weekValue = "") {
+  return !task.archived || isTaskArchivedWithinWeek(task, weekValue);
+}
+
 function buildMonthDateKeys(monthValue) {
   const range = getMonthRange(monthValue);
   const dates = [];
@@ -181,32 +208,34 @@ function createEmptyRecord(recordDate) {
 }
 
 function buildTimelineEntries(taskId, dateKeys = [], responses = []) {
-  return dateKeys
-    .map((recordDate, index) => {
+  const entriesByDateKey = new Map();
+
+  dateKeys.forEach((recordDate, index) => {
       const record = responses[index]?.record;
       const payloadTasks = record?.payload?.tasks || {};
       const taskState = payloadTasks[taskId];
 
       if (!taskState) {
-        return null;
+        return;
       }
 
       const notes = normalizeTimelineNotes(taskState.notes, recordDate);
       const completed = Boolean(taskState.completed);
 
       if (!completed && notes.length === 0) {
-        return null;
+        return;
       }
 
-      return {
+      entriesByDateKey.set(recordDate, {
         dateKey: recordDate,
         dateLabel: formatMonthDay(parseLocalDate(recordDate)),
         completed,
         notes,
-      };
-    })
-    .filter(Boolean)
-    .sort((left, right) => right.dateKey.localeCompare(left.dateKey));
+        archived: false,
+      });
+    });
+
+  return entriesByDateKey;
 }
 
 function buildAggregationFromRecords(tasks = [], dateKeys = [], records = [], totalDays = 7) {
@@ -237,10 +266,34 @@ function buildAggregationFromRecords(tasks = [], dateKeys = [], records = [], to
 
   Object.keys(aggregation.notesByTask).forEach((taskId) => {
     aggregation.notesByTask[taskId].sort((left, right) => left.createdAt.localeCompare(right.createdAt));
-    aggregation.eventsByTask[taskId] = buildTimelineEntries(
+    const timelineEntries = buildTimelineEntries(
       taskId,
       dateKeys,
       records.map((record) => ({ record })),
+    );
+    const task = tasks.find((item) => item.id === taskId);
+    const archiveDateKey = getDateKeyFromTimestamp(task?.archivedAt);
+
+    if (task?.archived && archiveDateKey) {
+      const archivedEntry = timelineEntries.get(archiveDateKey);
+      if (archivedEntry) {
+        timelineEntries.set(archiveDateKey, {
+          ...archivedEntry,
+          archived: true,
+        });
+      } else {
+        timelineEntries.set(archiveDateKey, {
+          dateKey: archiveDateKey,
+          dateLabel: formatMonthDay(parseLocalDate(archiveDateKey)),
+          completed: false,
+          notes: [],
+          archived: true,
+        });
+      }
+    }
+
+    aggregation.eventsByTask[taskId] = Array.from(timelineEntries.values()).sort((left, right) =>
+      right.dateKey.localeCompare(left.dateKey),
     );
   });
 
@@ -279,9 +332,12 @@ export const useWeeklyStore = defineStore("weekly", {
       return getMonthlyRangeOptions();
     },
     taskFilterOptions(state) {
+      const reviewTasks = state.mode === "week"
+        ? state.aggregation.tasks.filter((task) => isTaskVisibleInWeekReview(task, state.selectedWeek))
+        : state.aggregation.tasks;
       return [
         { value: "all", label: "全部任务" },
-        ...state.aggregation.tasks.map((task) => ({ value: task.id, label: task.name })),
+        ...reviewTasks.map((task) => ({ value: task.id, label: task.name })),
       ];
     },
     completionFilterOptions() {
@@ -304,6 +360,7 @@ export const useWeeklyStore = defineStore("weekly", {
     visibleTasks(state) {
       return state.aggregation.tasks
         .filter((task) => hasTaskHistory(state.aggregation, task.id))
+        .filter((task) => (state.mode === "week" ? isTaskVisibleInWeekReview(task, state.selectedWeek) : true))
         .filter((task) => {
           const completionCount = state.aggregation.completionCounts[task.id] || 0;
 

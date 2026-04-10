@@ -4,6 +4,7 @@ import { computed, nextTick, onMounted, ref, watch } from "vue";
 import ToolbarSelect from "../components/common/ToolbarSelect.vue";
 import ContentCard from "../components/content/ContentCard.vue";
 import ContentSourceDialog from "../components/content/ContentSourceDialog.vue";
+import TaskDialog from "../components/today/TaskDialog.vue";
 import { useContentStore } from "../stores/content";
 import { useSessionStore } from "../stores/session";
 import { getContentMetaTone } from "../utils/content";
@@ -22,6 +23,10 @@ const isAuthenticated = computed(() => Boolean(sessionStore.user?.id));
 const isLocalMode = computed(() => contentState.value?.mode === "local");
 const showSourceControls = computed(() => isLocalMode.value || isAuthenticated.value);
 const importInputRef = ref(null);
+const confirmDialog = ref({
+  type: "",
+  sourceId: "",
+});
 const contentState = computed(() => contentStore.getChannelState(props.channel));
 const sourceForm = computed({
   get: () => contentStore.sourceForm,
@@ -59,6 +64,46 @@ const hasFilters = computed(
     contentState.value?.sort !== "latest",
 );
 
+const confirmDialogTitle = computed(() => {
+  if (confirmDialog.value.type === "delete-source") {
+    return "删除信源";
+  }
+  if (confirmDialog.value.type === "clear-local-marks") {
+    return "清空本地标记";
+  }
+  if (confirmDialog.value.type === "reset-local-cache") {
+    return "重置频道缓存";
+  }
+  return "";
+});
+
+const confirmDialogCopy = computed(() => {
+  if (confirmDialog.value.type === "delete-source") {
+    const source = getSourceById(confirmDialog.value.sourceId);
+    return source ? `确认删除信源 ${source.name} 吗？` : "确认删除这个信源吗？";
+  }
+  if (confirmDialog.value.type === "clear-local-marks") {
+    return "确认清空当前频道的本地已读和收藏标记吗？";
+  }
+  if (confirmDialog.value.type === "reset-local-cache") {
+    return "确认重置当前频道缓存吗？这会清空本地资讯和本地信源。";
+  }
+  return "";
+});
+
+const confirmDialogLabel = computed(() => {
+  if (confirmDialog.value.type === "delete-source") {
+    return "确认删除";
+  }
+  if (confirmDialog.value.type === "clear-local-marks") {
+    return "确认清空";
+  }
+  if (confirmDialog.value.type === "reset-local-cache") {
+    return "确认重置";
+  }
+  return "确认";
+});
+
 const readCount = computed(() => {
   const items = Array.isArray(contentState.value?.items) ? contentState.value.items : [];
   return items.filter((item) => contentStore.isItemRead(item)).length;
@@ -73,6 +118,42 @@ async function resetFilters() {
     favoriteFilter: "all",
     sort: "latest",
   });
+}
+
+function getSourceById(sourceId) {
+  if (!sourceId) {
+    return null;
+  }
+  return [
+    ...(contentStore.getVisibleSources(props.channel) || []),
+    ...(contentStore.getHiddenSources(props.channel) || []),
+  ].find((source) => source.id === sourceId) || null;
+}
+
+function openConfirmDialog(type, sourceId = "") {
+  confirmDialog.value = {
+    type,
+    sourceId,
+  };
+}
+
+function closeConfirmDialog() {
+  confirmDialog.value = {
+    type: "",
+    sourceId: "",
+  };
+}
+
+async function confirmDangerAction() {
+  const { type, sourceId } = confirmDialog.value;
+  if (type === "delete-source" && sourceId) {
+    await contentStore.deleteSource(sourceId);
+  } else if (type === "clear-local-marks") {
+    await contentStore.clearLocalChannelMarks(props.channel);
+  } else if (type === "reset-local-cache") {
+    await contentStore.resetLocalChannelCache(props.channel);
+  }
+  closeConfirmDialog();
 }
 
 function openLocalCacheImport() {
@@ -183,8 +264,8 @@ watch(
             <button type="button" class="task-cancel-action" @click="contentStore.exportLocalCache()">导出本地缓存</button>
             <button type="button" class="task-cancel-action" @click="openLocalCacheImport">导入本地缓存</button>
             <button type="button" class="task-cancel-action" @click="contentStore.markCurrentPageAsRead(channel)">本页标记已读</button>
-            <button type="button" class="task-cancel-action" @click="contentStore.clearLocalChannelMarks(channel)">清空本地标记</button>
-            <button type="button" class="task-cancel-action" @click="contentStore.resetLocalChannelCache(channel)">重置频道缓存</button>
+            <button type="button" class="task-cancel-action" @click="openConfirmDialog('clear-local-marks')">清空本地标记</button>
+            <button type="button" class="task-cancel-action" @click="openConfirmDialog('reset-local-cache')">重置频道缓存</button>
           </div>
         </div>
 
@@ -315,11 +396,21 @@ watch(
       @close="contentStore.closeSourceModal"
       @save-source="contentStore.saveSource"
       @edit-source="contentStore.startEditSource"
-      @delete-source="contentStore.deleteSource"
+      @delete-source="openConfirmDialog('delete-source', $event)"
       @hide-source="contentStore.hideSource"
       @unhide-source="contentStore.unhideSource"
       @toggle-source-enabled="contentStore.toggleSourceEnabled"
       @update:form="sourceForm = $event"
+    />
+
+    <TaskDialog
+      :open="Boolean(confirmDialog.type)"
+      :title="confirmDialogTitle"
+      :copy="confirmDialogCopy"
+      :confirm-label="confirmDialogLabel"
+      tone="danger"
+      @cancel="closeConfirmDialog"
+      @confirm="confirmDangerAction"
     />
   </section>
 </template>

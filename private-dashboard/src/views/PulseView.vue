@@ -8,7 +8,7 @@ import { loadDashboardSnapshot } from "../services/sync-service";
 import { useSessionStore } from "../stores/session";
 import { useTodayStore } from "../stores/today";
 import { useWeeklyStore } from "../stores/weekly";
-import { formatDateTime, formatWeekInputValue, getTodayDateString } from "../utils/date";
+import { formatDateTime, formatMonthValue, formatWeekInputValue, getTodayDateString } from "../utils/date";
 import { getUserFacingErrorMessage } from "../utils/error-message";
 import { renderTaskNoteMarkdown } from "../utils/markdown";
 import { getTaskDisplayName, getTaskIcon } from "../utils/task-icons";
@@ -84,7 +84,66 @@ function saveCachedQuote(nextQuote) {
 }
 
 const isAuthenticated = computed(() => Boolean(sessionStore.user?.id));
-const displayedRankedTasks = computed(() => (weeklyStore.monthOverview.rankedTasks || []).slice(0, 8));
+function hasTaskHistoryInSelectedMonth(taskId) {
+  return (
+    Number(weeklyStore.aggregation?.presenceCounts?.[taskId] || 0) > 0
+    || Number(weeklyStore.aggregation?.completionCounts?.[taskId] || 0) > 0
+    || (Array.isArray(weeklyStore.aggregation?.notesByTask?.[taskId]) && weeklyStore.aggregation.notesByTask[taskId].length > 0)
+  );
+}
+
+function hasArchivedTaskActivityInSelectedMonth(taskId) {
+  return (
+    Number(weeklyStore.aggregation?.completionCounts?.[taskId] || 0) > 0
+    || (Array.isArray(weeklyStore.aggregation?.notesByTask?.[taskId]) && weeklyStore.aggregation.notesByTask[taskId].length > 0)
+  );
+}
+
+function isTaskArchivedInSelectedMonth(task) {
+  if (!task?.archived || !task?.archivedAt) {
+    return false;
+  }
+  const archivedAt = new Date(task.archivedAt);
+  if (Number.isNaN(archivedAt.getTime())) {
+    return false;
+  }
+  return formatMonthValue(archivedAt) === weeklyStore.selectedMonth;
+}
+
+const displayedRankedTasks = computed(() => {
+  const tasks = Array.isArray(weeklyStore.aggregation?.tasks) ? weeklyStore.aggregation.tasks : [];
+  const completionCounts = weeklyStore.aggregation?.completionCounts || {};
+  const notesByTask = weeklyStore.aggregation?.notesByTask || {};
+
+  return [...tasks]
+    .filter((task) => (
+      task?.archived
+        ? hasArchivedTaskActivityInSelectedMonth(task.id) || isTaskArchivedInSelectedMonth(task)
+        : hasTaskHistoryInSelectedMonth(task.id)
+    ))
+    .sort((left, right) => {
+      const leftArchived = left?.archived ? 1 : 0;
+      const rightArchived = right?.archived ? 1 : 0;
+      const leftCompletionDays = Number(completionCounts[left.id] || 0);
+      const rightCompletionDays = Number(completionCounts[right.id] || 0);
+      const leftNotes = Array.isArray(notesByTask[left.id]) ? notesByTask[left.id].length : 0;
+      const rightNotes = Array.isArray(notesByTask[right.id]) ? notesByTask[right.id].length : 0;
+
+      return leftArchived - rightArchived
+        || rightCompletionDays - leftCompletionDays
+        || rightNotes - leftNotes
+        || Number(left.order || 0) - Number(right.order || 0);
+    })
+    .map((task) => ({
+      id: task.id,
+      name: task.name,
+      color: task.color,
+      archived: Boolean(task.archived),
+      completionCount: Number(completionCounts[task.id] || 0),
+      noteCount: Array.isArray(notesByTask[task.id]) ? notesByTask[task.id].length : 0,
+      notes: Array.isArray(notesByTask[task.id]) ? notesByTask[task.id] : [],
+    }));
+});
 const activeNotesTask = computed(() => displayedRankedTasks.value.find((task) => task.id === activeNotesTaskId.value) || null);
 const currentWeekPendingSummary = computed(() => {
   const currentWeek = formatWeekInputValue(new Date());
@@ -325,6 +384,7 @@ watch(
               v-for="task in displayedRankedTasks"
               :key="task.id"
               class="pulse-task-item"
+              :class="{ 'is-archived': task.archived }"
               :style="{ '--task-accent': task.color }"
               role="link"
               tabindex="0"

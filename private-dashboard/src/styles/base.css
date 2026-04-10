@@ -105,7 +105,7 @@ a {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
   background: var(--panel);
 }
 
@@ -1224,13 +1224,12 @@ a {
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr) 320px;
   flex: 1;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .left-rail,
 .right-rail {
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: visible;
   padding: 16px;
   background: var(--sidebar);
   display: flex;
@@ -1240,8 +1239,7 @@ a {
 
 .center-stage {
   --center-stage-max-width: 1180px;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: visible;
   display: grid;
   align-content: start;
   gap: 14px;
@@ -2976,12 +2974,14 @@ a {
 .review-tag-row {
   margin-top: 0;
   gap: 6px;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .review-card-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
   padding-bottom: 8px;
   border-bottom: 1px solid var(--line);
@@ -3001,9 +3001,10 @@ a {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: flex-end;
   flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .review-chip {
@@ -3025,6 +3026,11 @@ a {
   padding: 0 8px;
   font-size: 0.64rem;
   color: #111111;
+}
+
+.review-head-actions .task-menu-panel {
+  top: 32px;
+  right: 0;
 }
 
 .review-notes {
@@ -3961,16 +3967,16 @@ body[data-theme="light"] .weather-tooltip {
 
 .pulse-column-card {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
   align-content: start;
-  height: 760px;
-  min-height: 760px;
+  height: auto;
+  min-height: 0;
   padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
-  overflow: hidden;
+  overflow: visible;
   transition: none;
 }
 
@@ -4001,13 +4007,11 @@ body[data-theme="light"] .weather-tooltip {
 .pulse-summary-list {
   display: grid;
   gap: 0;
-  min-height: 0;
+  min-height: auto;
   align-content: start;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding-right: 4px;
-  margin-right: -4px;
-  overscroll-behavior: contain;
+  overflow: visible;
+  padding-right: 0;
+  margin-right: 0;
 }
 
 .pulse-column-card > .monthly-overview-empty {
@@ -4039,6 +4043,51 @@ body[data-theme="light"] .weather-tooltip {
   gap: 6px;
   padding-inline: 14px;
   cursor: pointer;
+}
+
+.pulse-task-item.is-archived {
+  background: transparent;
+}
+
+.pulse-task-item.is-archived .pulse-task-title-icon {
+  color: color-mix(in srgb, var(--task-accent) 32%, var(--text));
+}
+
+.pulse-task-item.is-archived .pulse-task-link {
+  color: color-mix(in srgb, var(--text) 84%, var(--muted));
+}
+
+.pulse-task-item.is-archived .pulse-task-progress-copy {
+  color: color-mix(in srgb, var(--muted) 96%, var(--text));
+}
+
+.pulse-task-item.is-archived .pulse-task-progress {
+  background: color-mix(in srgb, var(--line) 92%, var(--card-2));
+}
+
+.pulse-task-item.is-archived .pulse-task-notes {
+  border-color: color-mix(in srgb, var(--line) 94%, white);
+  background: transparent;
+  color: color-mix(in srgb, var(--muted) 92%, var(--text));
+}
+
+.pulse-task-item.is-archived .pulse-task-progress-fill {
+  background: color-mix(in srgb, var(--task-accent) 34%, white);
+}
+
+.pulse-task-item.is-archived:hover,
+.pulse-task-item.is-archived:focus-within {
+  transform: none;
+}
+
+.pulse-task-item.is-archived:hover::before,
+.pulse-task-item.is-archived:focus-within::before {
+  background: var(--pulse-open-line);
+}
+
+.pulse-task-item.is-archived:hover .pulse-task-link,
+.pulse-task-item.is-archived:focus-within .pulse-task-link {
+  color: color-mix(in srgb, var(--text) 88%, var(--muted));
 }
 
 .pulse-summary-item {
@@ -4933,6 +4982,22 @@ body[data-theme="light"] .weather-tooltip {
   align-items: center;
 }
 
+.today-timeline-card.is-archived {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--task-accent) 16%, transparent), transparent),
+    color-mix(in srgb, var(--task-accent) 10%, var(--card));
+  border-color: color-mix(in srgb, var(--task-accent) 40%, var(--line));
+}
+
+.today-timeline-card.is-archived .review-title,
+.today-timeline-card.is-archived .review-chip-summary {
+  color: color-mix(in srgb, var(--task-accent) 68%, var(--text));
+}
+
+.today-timeline-card.is-archived .review-note-date {
+  color: color-mix(in srgb, var(--task-accent) 48%, var(--text));
+}
+
 .timeline-toggle-button {
   display: inline-flex;
   align-items: center;
@@ -4973,16 +5038,46 @@ body[data-theme="light"] .weather-tooltip {
 
 .timeline-review-item {
   grid-template-columns: 20px 52px minmax(0, 1fr);
+  align-items: center;
+}
+
+.timeline-review-item .review-note-date,
+.timeline-review-item .review-note-copy {
+  display: flex;
+  align-items: center;
+  min-height: 100%;
 }
 
 .timeline-review-item .review-note-text {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .timeline-review-item.is-complete:not(:hover):not(:focus-within) {
   background: transparent;
+}
+
+.timeline-review-item:hover .review-note-marker::before,
+.timeline-review-item:focus-within .review-note-marker::before {
+  transform: translate(-50%, -50%) scale(1.18);
+}
+
+.today-timeline-card.is-archived .timeline-review-item:hover,
+.today-timeline-card.is-archived .timeline-review-item:focus-within {
+  background: transparent;
+}
+
+.today-timeline-card.is-archived .timeline-review-item:hover .review-note-text,
+.today-timeline-card.is-archived .timeline-review-item:focus-within .review-note-text {
+  color: color-mix(in srgb, var(--task-accent) 68%, var(--text));
+}
+
+.today-timeline-card.is-archived .timeline-review-item:hover .review-note-date,
+.today-timeline-card.is-archived .timeline-review-item:focus-within .review-note-date {
+  color: color-mix(in srgb, var(--task-accent) 48%, var(--text));
 }
 
 .content-stream-view .panel-header {
@@ -8274,8 +8369,8 @@ body:not([data-theme="light"]) .weekly-mode-toggle .task-cancel-action:hover {
   }
 
   .pulse-column-card {
-    height: 680px;
-    min-height: 680px;
+    height: auto;
+    min-height: 0;
   }
 
   .pulse-column-card:first-child {
@@ -8757,8 +8852,8 @@ body:not([data-theme="light"]) .weekly-mode-toggle .task-cancel-action:hover {
   }
 
   .pulse-column-card {
-    height: 620px;
-    min-height: 620px;
+    height: auto;
+    min-height: 0;
   }
 
   .task-card,

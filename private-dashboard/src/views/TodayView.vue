@@ -130,6 +130,10 @@ const todayPanelItems = [
 const renameTask = computed(() => todayStore.getTaskForDialog(todayStore.renameDialogTaskId));
 const archiveTask = computed(() => todayStore.getTaskForDialog(todayStore.archiveDialogTaskId));
 const deleteTask = computed(() => todayStore.getTaskForDialog(todayStore.deleteDialogTaskId));
+const deleteTaskName = computed(() => deleteTask.value?.name || "该任务");
+const deleteNote = computed(() =>
+  todayStore.getTaskNoteForDialog(todayStore.deleteNoteDialogTaskId, todayStore.deleteNoteDialogNoteId),
+);
 const showSummaryEdit = computed(
   () => weeklyStore.mode === "week" && weeklyStore.currentSummaryMode !== "view",
 );
@@ -240,7 +244,10 @@ async function loadCurrentPanel() {
     return;
   }
   destroySortable();
-  await loadWeeklyModule();
+  await Promise.all([
+    loadTodayModule(),
+    loadWeeklyModule(),
+  ]);
 }
 
 function handleDocumentPointerDown(event) {
@@ -369,7 +376,18 @@ function toggleTimelineCard(taskId) {
   };
 }
 
+async function handleTimelineRestore(taskId) {
+  todayStore.closeTransientUi();
+  await weeklyStore.restoreTask(taskId);
+}
+
 function buildTimelineSummary(entry) {
+  if (entry?.archived && Array.isArray(entry?.notes) && entry.notes.length) {
+    return `已存档 · ${entry.notes.map((note) => note.text).filter(Boolean).join(" · ")}`;
+  }
+  if (entry?.archived) {
+    return "已存档";
+  }
   if (Array.isArray(entry?.notes) && entry.notes.length) {
     return entry.notes.map((note) => note.text).filter(Boolean).join(" · ");
   }
@@ -545,7 +563,7 @@ watch(
             @set-color="todayStore.setTaskColor"
             @draft-note="todayStore.setNoteDraft"
             @submit-note="todayStore.submitTaskNote"
-            @delete-note="todayStore.deleteTaskNote"
+            @delete-note="todayStore.openDeleteNoteDialog"
             @edit-task="todayStore.openRenameDialog"
             @archive-task="todayStore.openArchiveDialog"
             @delete-task="todayStore.openDeleteDialog"
@@ -747,7 +765,11 @@ watch(
             :total-days="7"
             :note-count="task.events.reduce((count, entry) => count + entry.notes.length, 0)"
             :expanded="isTimelineExpanded(task.id)"
+            :menu-open="todayStore.activeTaskMenuId === task.id"
             @toggle="toggleTimelineCard"
+            @toggle-menu="todayStore.toggleTaskMenu"
+            @restore-task="handleTimelineRestore"
+            @delete-task="todayStore.openDeleteDialog"
           />
         </div>
 
@@ -784,7 +806,11 @@ watch(
             :total-days="7"
             :note-count="weeklyStore.timelineAggregation.notesByTask[task.id]?.length || 0"
             :expanded="isTimelineExpanded(task.id)"
+            :menu-open="todayStore.activeTaskMenuId === task.id"
             @toggle="toggleTimelineCard"
+            @toggle-menu="todayStore.toggleTaskMenu"
+            @restore-task="handleTimelineRestore"
+            @delete-task="todayStore.openDeleteDialog"
           />
         </div>
       </template>
@@ -815,13 +841,23 @@ watch(
     />
 
     <TaskDialog
-      :open="Boolean(deleteTask)"
+      :open="Boolean(todayStore.deleteDialogTaskId)"
       title="删除任务"
-      :copy="deleteTask ? `确认永久删除 ${deleteTask.name} 吗？该操作不会保留任务本体。` : ''"
+      :copy="`确认永久删除 ${deleteTaskName} 吗？该操作不会保留任务本体。`"
       confirm-label="确认删除"
       tone="danger"
       @cancel="todayStore.closeDeleteDialog"
       @confirm="todayStore.confirmDelete"
+    />
+
+    <TaskDialog
+      :open="Boolean(deleteNote)"
+      title="删除备注"
+      copy="确认删除这条备注吗？删除后不能恢复。"
+      confirm-label="确认删除"
+      tone="danger"
+      @cancel="todayStore.closeDeleteNoteDialog"
+      @confirm="todayStore.confirmDeleteNote"
     />
 
     <TaskDialog

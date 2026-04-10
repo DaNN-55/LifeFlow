@@ -12,6 +12,7 @@ import FavoritesWidget from "../home/FavoritesWidget.vue";
 import FeedPreviewCard from "../home/FeedPreviewCard.vue";
 import GitHubWidget from "../home/GitHubWidget.vue";
 import StockWidget from "../home/StockWidget.vue";
+import TaskDialog from "../today/TaskDialog.vue";
 import WeatherWidget from "../home/WeatherWidget.vue";
 import { useAppStore } from "../../stores/app";
 import { useAccountStore } from "../../stores/account";
@@ -33,6 +34,7 @@ const centerStageRef = ref(null);
 const topTabNodes = new Map();
 const routeScrollTopByPath = new Map();
 const hoveredTopTabId = ref("");
+const accountDangerDialog = ref("");
 const topTabIndicatorStyle = ref({
   width: "0px",
   transform: "translateX(0px)",
@@ -111,6 +113,27 @@ const shellFeedback = computed(() => {
   }
   return appStore.pwaFeedback;
 });
+const accountDangerDialogTitle = computed(() => {
+  if (accountDangerDialog.value === "clear-data") {
+    return "清空账号数据";
+  }
+  if (accountDangerDialog.value === "delete-account") {
+    return "删除账号";
+  }
+  return "";
+});
+const accountDangerDialogCopy = computed(() => {
+  if (accountDangerDialog.value === "clear-data") {
+    return "确认清空当前账号下的任务、每日记录和周总结吗？";
+  }
+  if (accountDangerDialog.value === "delete-account") {
+    return "确认删除当前账号吗？该操作会彻底移除账号与云端数据。";
+  }
+  return "";
+});
+const accountDangerConfirmLabel = computed(() => (
+  accountDangerDialog.value === "clear-data" ? "确认清空" : "确认删除"
+));
 
 function getPwaTabIcon(tabId) {
   if (tabId === "pulse") {
@@ -295,6 +318,23 @@ function handleTopTabFocus(tab) {
 function handleTopTabBlur() {
   hoveredTopTabId.value = "";
   refreshTopTabIndicator();
+}
+
+function openAccountDangerDialog(action) {
+  accountDangerDialog.value = action;
+}
+
+function closeAccountDangerDialog() {
+  accountDangerDialog.value = "";
+}
+
+async function confirmAccountDangerAction() {
+  if (accountDangerDialog.value === "clear-data") {
+    await accountStore.clearAllAccountData();
+  } else if (accountDangerDialog.value === "delete-account") {
+    await accountStore.removeAccount();
+  }
+  closeAccountDangerDialog();
 }
 
 async function handleAccountChipClick() {
@@ -618,8 +658,8 @@ watch(
       @regenerate-recovery="accountStore.regenerateRecoveryCode"
       @change-username="accountStore.saveUsername"
       @signout-all="accountStore.signOutAllSessions"
-      @clear-data="accountStore.clearAllAccountData"
-      @delete-account="accountStore.removeAccount"
+      @clear-data="openAccountDangerDialog('clear-data')"
+      @delete-account="openAccountDangerDialog('delete-account')"
       @update:profile-form="accountStore.forms.profile = $event"
       @update:account-form="accountStore.forms.account = $event"
     />
@@ -667,6 +707,16 @@ watch(
       @close="accountStore.closeWidgetSettings"
       @save="accountStore.saveWidgetSettings"
       @update:profile-form="accountStore.forms.profile = $event"
+    />
+
+    <TaskDialog
+      :open="Boolean(accountDangerDialog)"
+      :title="accountDangerDialogTitle"
+      :copy="accountDangerDialogCopy"
+      :confirm-label="accountDangerConfirmLabel"
+      tone="danger"
+      @cancel="closeAccountDangerDialog"
+      @confirm="confirmAccountDangerAction"
     />
   </div>
 </template>

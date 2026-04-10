@@ -30,6 +30,10 @@ const activeTasks = computed(() => todayStore.activeTasks);
 const renameTask = computed(() => todayStore.getTaskForDialog(todayStore.renameDialogTaskId));
 const archiveTask = computed(() => todayStore.getTaskForDialog(todayStore.archiveDialogTaskId));
 const deleteTask = computed(() => todayStore.getTaskForDialog(todayStore.deleteDialogTaskId));
+const deleteTaskName = computed(() => deleteTask.value?.name || "该任务");
+const deleteNote = computed(() =>
+  todayStore.getTaskNoteForDialog(todayStore.deleteNoteDialogTaskId, todayStore.deleteNoteDialogNoteId),
+);
 const showSummaryEdit = computed(
   () => weeklyStore.mode === "week" && weeklyStore.currentSummaryMode !== "view",
 );
@@ -259,7 +263,7 @@ watch(
           @set-color="todayStore.setTaskColor"
           @draft-note="todayStore.setNoteDraft"
           @submit-note="todayStore.submitTaskNote"
-          @delete-note="todayStore.deleteTaskNote"
+          @delete-note="todayStore.openDeleteNoteDialog"
           @edit-task="todayStore.openRenameDialog"
           @archive-task="todayStore.openArchiveDialog"
           @delete-task="todayStore.openDeleteDialog"
@@ -530,13 +534,23 @@ watch(
     />
 
     <TaskDialog
-      :open="Boolean(deleteTask)"
+      :open="Boolean(todayStore.deleteDialogTaskId)"
       title="删除任务"
-      :copy="deleteTask ? `确认永久删除 ${deleteTask.name} 吗？该操作不会保留任务本体。` : ''"
+      :copy="`确认永久删除 ${deleteTaskName} 吗？该操作不会保留任务本体。`"
       confirm-label="确认删除"
       tone="danger"
       @cancel="todayStore.closeDeleteDialog"
       @confirm="todayStore.confirmDelete"
+    />
+
+    <TaskDialog
+      :open="Boolean(deleteNote)"
+      title="删除备注"
+      copy="确认删除这条备注吗？删除后不能恢复。"
+      confirm-label="确认删除"
+      tone="danger"
+      @cancel="todayStore.closeDeleteNoteDialog"
+      @confirm="todayStore.confirmDeleteNote"
     />
 
     <TaskDialog

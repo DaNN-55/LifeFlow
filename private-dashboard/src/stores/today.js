@@ -135,6 +135,8 @@ export const useTodayStore = defineStore("today", {
     renameDraftIcon: "",
     archiveDialogTaskId: "",
     deleteDialogTaskId: "",
+    deleteNoteDialogTaskId: "",
+    deleteNoteDialogNoteId: "",
   }),
   getters: {
     activeTasks(state) {
@@ -615,22 +617,24 @@ export const useTodayStore = defineStore("today", {
       this.deleteDialogTaskId = "";
     },
     async confirmDelete() {
-      const task = this.tasks.find((item) => item.id === this.deleteDialogTaskId);
-      if (!task) {
+      const taskId = String(this.deleteDialogTaskId || "");
+      if (!taskId) {
         this.closeDeleteDialog();
         return;
       }
+      const task = this.tasks.find((item) => item.id === taskId) || null;
+      const taskName = task?.name || "该任务";
       try {
         this.setSaveState("正在同步到云端...", "progress");
-        await deleteTask(task.id);
-        this.tasks = this.tasks.filter((item) => item.id !== task.id);
-        delete this.record.payload.tasks[task.id];
+        await deleteTask(taskId);
+        this.tasks = this.tasks.filter((item) => item.id !== taskId);
+        delete this.record.payload.tasks[taskId];
         this.persistLocalCache();
         const sessionStore = useSessionStore();
         const nextTagsByTaskId = { ...(sessionStore.user?.preferences?.tasks?.tagsByTaskId || {}) };
         const nextIconByTaskId = { ...(sessionStore.user?.preferences?.tasks?.iconByTaskId || {}) };
-        delete nextTagsByTaskId[task.id];
-        delete nextIconByTaskId[task.id];
+        delete nextTagsByTaskId[taskId];
+        delete nextIconByTaskId[taskId];
         const nextPreferences = {
           ...(sessionStore.user?.preferences || {}),
           tasks: {
@@ -641,11 +645,30 @@ export const useTodayStore = defineStore("today", {
         };
         const response = await saveAccountPreferences(nextPreferences);
         sessionStore.setPreferences(response?.preferences || nextPreferences);
-        this.setSaveState(`已删除任务：${task.name}`, "success");
+        this.setSaveState(`已删除任务：${taskName}`, "success");
         this.closeDeleteDialog();
       } catch (error) {
         this.handleActionError(error, "删除任务失败");
       }
+    },
+    openDeleteNoteDialog(taskId, noteId) {
+      this.deleteNoteDialogTaskId = taskId;
+      this.deleteNoteDialogNoteId = noteId;
+      this.activeTaskMenuId = "";
+    },
+    closeDeleteNoteDialog() {
+      this.deleteNoteDialogTaskId = "";
+      this.deleteNoteDialogNoteId = "";
+    },
+    async confirmDeleteNote() {
+      const taskId = this.deleteNoteDialogTaskId;
+      const noteId = this.deleteNoteDialogNoteId;
+      if (!taskId || !noteId) {
+        this.closeDeleteNoteDialog();
+        return;
+      }
+      await this.deleteTaskNote(taskId, noteId);
+      this.closeDeleteNoteDialog();
     },
     async reorderTasks(orderedTaskIds = []) {
       const orderMap = new Map(orderedTaskIds.map((taskId, index) => [taskId, index + 1]));
@@ -689,6 +712,13 @@ export const useTodayStore = defineStore("today", {
     },
     getTaskForDialog(taskId) {
       return this.tasks.find((item) => item.id === taskId) || null;
+    },
+    getTaskNoteForDialog(taskId, noteId) {
+      if (!taskId || !noteId) {
+        return null;
+      }
+      const taskState = this.record?.payload?.tasks?.[taskId];
+      return taskState?.notes?.find((note) => note.id === noteId) || null;
     },
     formatDateTime,
     formatDateKey,

@@ -36,26 +36,57 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  menuOpen: {
+    type: Boolean,
+    default: false,
+  },
 });
 
-const emit = defineEmits(["toggle"]);
+const emit = defineEmits(["toggle", "toggle-menu", "restore-task", "delete-task"]);
 const displayName = computed(() => getTaskDisplayName(props.task?.name));
 </script>
 
 <template>
-  <article class="review-card today-timeline-card" :style="{ '--task-accent': task.color }">
+  <article
+    class="review-card today-timeline-card"
+    :class="{ 'is-archived': task.archived }"
+    :style="{ '--task-accent': task.color }"
+  >
     <div class="review-card-header">
       <div class="review-title-row">
         <div class="review-title-with-icon">
           <span class="material-symbols-outlined task-title-icon review-task-icon" aria-hidden="true">{{ taskIcon }}</span>
           <h3 class="review-title">{{ displayName }}</h3>
         </div>
-        <span class="review-chip review-chip-summary">{{ completionCount }} / {{ totalDays }} DAYS</span>
         <div v-if="tags.length" class="task-tag-row review-tag-row">
           <span v-for="tag in tags" :key="tag" class="task-tag">#{{ tag }}</span>
         </div>
       </div>
       <div class="review-summary">
+        <span class="review-chip review-chip-summary">{{ completionCount }} DAYS</span>
+        <div v-if="task.archived" class="task-head-actions review-head-actions">
+          <button
+            type="button"
+            class="task-menu-trigger"
+            :class="{ 'is-open': menuOpen }"
+            :aria-expanded="menuOpen ? 'true' : 'false'"
+            :aria-label="`${task.name} 更多操作`"
+            @click="emit('toggle-menu', task.id)"
+          >
+            <span class="material-symbols-outlined">more_horiz</span>
+          </button>
+
+          <div class="task-menu-panel" :class="{ 'is-open': menuOpen }">
+            <button type="button" class="task-menu-item" @click="emit('restore-task', task.id)">
+              <span class="material-symbols-outlined">restore</span>
+              <span>恢复</span>
+            </button>
+            <button type="button" class="task-menu-item is-danger" @click="emit('delete-task', task.id)">
+              <span class="material-symbols-outlined">delete</span>
+              <span>删除</span>
+            </button>
+          </div>
+        </div>
         <button
           type="button"
           class="timeline-toggle-button"
