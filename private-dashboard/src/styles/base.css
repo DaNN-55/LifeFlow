@@ -2533,6 +2533,25 @@ a {
   border-color: color-mix(in srgb, var(--line-2) 74%, var(--line));
 }
 
+textarea.review-summary-textarea {
+  display: block;
+  min-height: 180px;
+  padding: 12px 14px;
+  overflow: auto;
+  resize: vertical;
+  line-height: 1.6;
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: "JetBrains Mono", "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+textarea.review-summary-textarea:focus,
+textarea.review-summary-textarea:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--line-2) 74%, var(--line));
+}
+
 .weekly-summary-input .milkdown {
   --crepe-color-background: var(--input);
   --crepe-color-on-background: var(--text);
