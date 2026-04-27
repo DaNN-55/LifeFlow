@@ -29,6 +29,7 @@ const activeNotesTaskId = ref("");
 const noteDraft = ref("");
 const noteSubmitting = ref(false);
 const quote = ref(loadCachedQuote());
+const summaryExpandedState = ref({});
 
 function getDateKeyInTimeZone(date = new Date(), timeZone = PULSE_QUOTE_TIME_ZONE) {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -185,6 +186,21 @@ function renderSummary(content) {
 
 function getSummaryMarker(index) {
   return `Week ${index + 1}`;
+}
+
+function isSummaryExpanded(week) {
+  return summaryExpandedState.value[String(week || "")] !== false;
+}
+
+function toggleSummaryExpanded(week) {
+  const key = String(week || "");
+  if (!key) {
+    return;
+  }
+  summaryExpandedState.value = {
+    ...summaryExpandedState.value,
+    [key]: !isSummaryExpanded(key),
+  };
 }
 
 function getTaskTitleIcon(task) {
@@ -440,9 +456,23 @@ watch(
               <div class="pulse-summary-content">
                 <div class="pulse-summary-head">
                   <strong>{{ summary.label }}</strong>
+                  <button
+                    type="button"
+                    class="pulse-summary-toggle"
+                    :aria-expanded="isSummaryExpanded(summary.week)"
+                    :aria-label="isSummaryExpanded(summary.week) ? `收起 ${summary.label}` : `展开 ${summary.label}`"
+                    @click="toggleSummaryExpanded(summary.week)"
+                  >
+                    <span class="material-symbols-outlined" aria-hidden="true">
+                      {{ isSummaryExpanded(summary.week) ? "expand_less" : "expand_more" }}
+                    </span>
+                  </button>
                 </div>
-                <div class="pulse-summary-card">
+                <div v-show="isSummaryExpanded(summary.week)" class="pulse-summary-card">
                   <div class="pulse-summary-body" v-html="renderSummary(summary.content)"></div>
+                  <div class="pulse-summary-time-row">
+                    <span class="pulse-summary-time">{{ summary.updatedAt || "未记录保存时间" }}</span>
+                  </div>
                 </div>
               </div>
             </article>

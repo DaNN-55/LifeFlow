@@ -4675,8 +4675,53 @@ body[data-theme="light"] .weather-tooltip {
   word-break: break-word;
 }
 
+.pulse-summary-head .pulse-summary-toggle {
+  margin-left: auto;
+}
+
 .pulse-summary-head .pulse-summary-status {
   margin-left: auto;
+}
+
+.pulse-summary-time {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.pulse-summary-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition:
+    color 160ms ease,
+    background-color 160ms ease,
+    transform 160ms ease;
+}
+
+.pulse-summary-toggle .material-symbols-outlined {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.pulse-summary-toggle:hover,
+.pulse-summary-toggle:focus-visible {
+  color: var(--text);
+  background: color-mix(in srgb, var(--card-2) 84%, transparent);
+  outline: none;
+}
+
+.pulse-summary-toggle:active {
+  transform: scale(0.96);
 }
 
 .pulse-summary-timeline {
@@ -4720,6 +4765,8 @@ body[data-theme="light"] .weather-tooltip {
   border-radius: 0;
   background: transparent;
   transition: color 160ms ease;
+  display: grid;
+  gap: 8px;
 }
 
 .pulse-summary-card-pending {
@@ -4735,6 +4782,12 @@ body[data-theme="light"] .weather-tooltip {
   font-size: 0.88rem;
   font-weight: 600;
   text-align: left;
+}
+
+.pulse-summary-time-row {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 2px;
 }
 
 .pulse-summary-body {
@@ -8331,6 +8384,11 @@ body:not([data-theme="light"]) .pulse-summary-timeline-tag {
   background: color-mix(in srgb, var(--card) 94%, rgba(15, 23, 42, 0.92));
   color: color-mix(in srgb, var(--text) 82%, var(--muted));
   border: 1px solid color-mix(in srgb, var(--line) 94%, transparent);
+}
+
+body:not([data-theme="light"]) .pulse-summary-toggle:hover,
+body:not([data-theme="light"]) .pulse-summary-toggle:focus-visible {
+  background: color-mix(in srgb, var(--card) 90%, rgba(15, 23, 42, 0.92));
 }
 
 body:not([data-theme="light"]) .pulse-summary-item-pending .pulse-summary-timeline-tag,
