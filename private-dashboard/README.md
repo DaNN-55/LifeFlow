@@ -1,53 +1,48 @@
-# LifeFlow
+# LifeFlow 开发入口
 
-当前仓库已收口到 `private-dashboard/` 作为唯一主目录。
+项目定位、功能范围、架构、AI Coding 协作边界和已知限制统一维护在[仓库根 README](../README.md)。本文件只保留本地开发所需信息。
 
 ## 目录
 
 ```text
 private-dashboard/
-├─ src/                 # 当前有效前端源码（Vue + Pinia + Vite）
-├─ public/              # 前端静态资源
-├─ backend/             # 当前有效后端源码
-├─ docs/                # 规划文档、设计稿、原始说明书、原型
-├─ package.json         # 前端脚本
+├─ src/             # Vue 3 + Pinia + Vue Router 前端
+├─ public/          # PWA 与静态资源
+├─ backend/         # Express API、测试与 Supabase schema
+├─ docs/            # 历史规划和原型
+├─ package.json
 └─ vite.config.js
 ```
 
-## 当前开发入口
+## 初始化
 
-- 前端：`private-dashboard/`
-- 后端：`private-dashboard/backend/`
+要求 Node.js 20 和 npm：
+
+```bash
+npm ci
+npm --prefix backend ci
+cp backend/.env.example backend/.env
+```
+
+未填写 Supabase 配置时，后端使用易失的 Memory 模式。
 
 ## 常用命令
 
 ```bash
-cd private-dashboard
-npm install
+# 前端开发服务器
 npm run dev
-```
 
-后端：
-
-```bash
-cd private-dashboard
+# 后端开发服务器
 npm run backend:dev
-```
 
-测试后端：
-
-```bash
-cd private-dashboard
+# 后端测试
 npm run backend:test
-```
 
-构建前端：
+# Demo 状态单元测试
+npm test
 
-```bash
-cd private-dashboard
+# 前端生产构建
 npm run build
 ```
 
-## 说明
-
-- 新功能、修复和整理都应优先落在 `src/` 或 `backend/`。
+前后端开发服务器需要分别运行。后端配置与数据库初始化见 [backend/README.md](backend/README.md)。

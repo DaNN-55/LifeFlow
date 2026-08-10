@@ -3,7 +3,7 @@
 这是给 LifeFlow Dashboard 配套使用的轻量后端。
 
 当前支持两种存储模式：
-- `memory`：本地开发使用，不依赖外部服务
+- `memory`：本地开发使用，不依赖外部服务；进程重启后数据会丢失
 - `supabase`：使用 Supabase Postgres 作为数据库
 
 当前认证方式：
@@ -22,7 +22,7 @@
 - 每日记录读写
 - 周复盘聚合
 - 每周总结读写
-- Finance / Science 资讯聚合、信源管理与手动刷新
+- News 资讯聚合、信源管理与手动刷新
 - 天气组件代理接口
 
 ## 快速开始
@@ -31,7 +31,7 @@
 
 ```bash
 cd private-dashboard/backend
-npm install
+npm ci
 ```
 
 2. 复制环境变量模板
@@ -61,6 +61,7 @@ http://localhost:8787
 ## 接口
 
 认证接口：
+- `GET /api/auth/challenge`
 - `POST /api/auth/signup`
 - `POST /api/auth/signin`
 - `POST /api/auth/recover-password`
@@ -69,6 +70,9 @@ http://localhost:8787
 - `GET /api/auth/captcha`
 
 业务接口：
+- `GET /api/pulse/quote`
+- `GET /api/sync/bootstrap`
+- `GET /api/sync/changes`
 - `GET /api/tasks`
 - `POST /api/tasks`
 - `PATCH /api/tasks/:taskId`
@@ -76,6 +80,7 @@ http://localhost:8787
 - `GET /api/daily-records/:date`
 - `PUT /api/daily-records/:date`
 - `GET /api/weekly-review/:week`
+- `GET /api/task-timeline`
 - `GET /api/weekly-summaries/:week`
 - `PUT /api/weekly-summaries/:week`
 - `GET /api/account/profile`
@@ -93,18 +98,18 @@ http://localhost:8787
 - `DELETE /api/content/favorites`
 - `GET /api/content-sources`
 - `POST /api/content-sources`
-- `PATCH /api/content-sources/:id`
-- `DELETE /api/content-sources/:id`
+- `PATCH /api/content-sources/:sourceId`
+- `DELETE /api/content-sources/:sourceId`
 - `GET /api/widgets/weather`
 
 ## Supabase 作为数据库
 
-如果你要把后端切到 Supabase，按下面顺序做：
+如果你要把后端切到 Supabase：
 
-1. 在 Supabase 创建一个新项目
-2. 打开 SQL Editor，执行：
+1. 在 Supabase 创建一个新项目。
+2. 全新项目打开 SQL Editor，只需执行当前完整基线：
    `supabase/schema.sql`
-3. 再按顺序执行以下迁移：
+3. 已使用旧版 schema 的现有项目不要重复执行完整基线，只按时间顺序补执行尚未应用的迁移：
    `supabase/migrations/2026-03-09-add-user-scope.sql`
    `supabase/migrations/2026-03-11-add-task-archive-columns.sql`
    `supabase/migrations/2026-03-11-add-users-and-sessions.sql`
@@ -114,6 +119,10 @@ http://localhost:8787
    `supabase/migrations/2026-03-12-add-content-tables.sql`
    `supabase/migrations/2026-03-12-add-content-favorites.sql`
    `supabase/migrations/2026-03-14-add-user-recovery-code.sql`
+   `supabase/migrations/2026-03-27-add-sync-tracking.sql`
+   `supabase/migrations/2026-03-27-dedupe-content-sources-and-add-identity-constraint.sql`
+   `supabase/migrations/2026-03-27-drop-content-source-is-default.sql`
+   `supabase/migrations/2026-03-28-ensure-content-items-and-source-sync-state.sql`
 4. 在项目设置里拿到：
    - `Project URL`
    - `service_role` key
@@ -169,6 +178,8 @@ http://localhost:8787/health
 - Supabase 这里只负责数据库存储
 - 账号偏好当前通过 `users.preferences` 保存，包含侧边栏、组件配置、资讯已读/稍后读/隐藏来源，以及轻量同步状态
 
+这里的用户隔离由后端会话校验和带 `user_id` 的存储查询负责。当前 schema 没有配置独立的 Row Level Security 策略，因此 `service_role` key 只能保存在后端，不能放进前端或暴露给用户。
+
 ## 部署注意
 
 如果前端在 `Vercel`，后端在 `Render`：
@@ -178,7 +189,14 @@ http://localhost:8787/health
 - 前后端都必须使用 HTTPS
 - 登录态依赖 Cookie，跨域场景下后端会自动写 `SameSite=None; Secure`
 
-## 当前你需要做的事
+## 外部服务与安全边界
+
+- 资讯刷新会请求用户配置的 RSS / 网页信源；天气、每日语录和安全验证也依赖第三方服务。
+- 外部服务超时、限流、返回结构变化或暂时不可用时，对应内容可能刷新失败，但不应影响任务与复盘数据。
+- 当前自定义信源仅校验为 `http(s)` URL，尚未完成面向生产环境的内网地址拦截和完整 SSRF 防护。公开部署前应补齐该边界。
+- Supabase Store 已有自动化错误分类测试；当前作品集收口未使用真实 Supabase 项目完成端到端验证。
+
+## 启用 Supabase 模式
 
 如果你要把现在这版完整连起来，最低只需要完成：
 
