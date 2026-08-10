@@ -105,6 +105,47 @@ function normalizeContentItem(item = {}) {
   };
 }
 
+function formatSupabaseErrorText(error) {
+  return [error?.message, error?.details, error?.hint]
+    .filter((value) => typeof value === "string" && value.trim())
+    .join(" | ");
+}
+
+function buildTableAvailabilityError(tableName, error) {
+  const code = String(error?.code || "").trim().toUpperCase();
+  const status = Number(error?.status || 0);
+  const errorText = formatSupabaseErrorText(error);
+
+  if (
+    code === "42P01" ||
+    code === "PGRST205" ||
+    /relation .* does not exist|schema cache|could not find the table/i.test(errorText)
+  ) {
+    return new Error(`Supabase 表 ${tableName} 不可用，请先执行最新 migration`);
+  }
+
+  if (
+    status === 401 ||
+    status === 403 ||
+    /invalid api key|invalid jwt|jwt|permission denied|not authorized|forbidden/i.test(errorText)
+  ) {
+    return new Error(
+      `Supabase 表 ${tableName} 检查失败，请确认 SUPABASE_SERVICE_ROLE_KEY 正确且具备访问权限`
+    );
+  }
+
+  if (
+    /fetch failed|network|econn|enotfound|etimedout|tls connection/i.test(errorText)
+  ) {
+    return new Error(
+      `Supabase 表 ${tableName} 检查失败，当前无法连接到 Supabase，请确认 SUPABASE_URL、网络和目标服务状态`
+    );
+  }
+
+  const detail = errorText || "未知错误";
+  return new Error(`Supabase 表 ${tableName} 检查失败: ${detail}`);
+}
+
 async function fetchAllRows(query, batchSize = 1000) {
   const rows = [];
   let from = 0;
@@ -146,7 +187,7 @@ class SupabaseStore {
     if (!error) {
       return;
     }
-    const nextError = new Error(`Supabase 表 ${tableName} 不可用，请先执行最新 migration`);
+    const nextError = buildTableAvailabilityError(tableName, error);
     nextError.cause = error;
     throw nextError;
   }
@@ -1273,4 +1314,4 @@ class SupabaseStore {
   }
 }
 
-module.exports = { SupabaseStore };
+module.exports = { SupabaseStore, buildTableAvailabilityError };
