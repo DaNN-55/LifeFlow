@@ -23,7 +23,7 @@ defineProps({
   },
 });
 
-const emit = defineEmits(["toggle-favorite", "open-link"]);
+const emit = defineEmits(["toggle-favorite", "toggle-read", "open-link"]);
 
 function handleImageError(event) {
   const target = event.target;
@@ -99,6 +99,13 @@ function handleImageError(event) {
         </div>
 
         <div class="content-card-actions">
+          <button
+            type="button"
+            class="task-cancel-action"
+            @click="emit('toggle-read', item)"
+          >
+            {{ isRead ? "标记未读" : "标记已读" }}
+          </button>
           <button
             type="button"
             class="content-favorite-button"

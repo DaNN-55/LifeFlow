@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 
 import { saveWeeklySummary } from "../services/weekly-api";
+import { demoState } from "../services/demo-state";
 import {
   applyDashboardMutation,
   hasDashboardSnapshotData,
@@ -36,6 +37,8 @@ function normalizeTask(task = {}, index = 0) {
     order: Number(task.display_order || index + 1),
     archived: Boolean(task.archived),
     archivedAt: task.archived_at || "",
+    tags: Array.isArray(task.tags) ? task.tags : [],
+    icon: String(task.icon || ""),
   };
 }
 
@@ -538,7 +541,7 @@ export const useWeeklyStore = defineStore("weekly", {
     },
     async bootstrap() {
       const sessionStore = useSessionStore();
-      if (!sessionStore.user?.id) {
+      if (!sessionStore.user?.id && !sessionStore.previewMode) {
         return;
       }
       await this.loadCurrentView();
@@ -549,6 +552,16 @@ export const useWeeklyStore = defineStore("weekly", {
       let hasCachedData = false;
       try {
         const sessionStore = useSessionStore();
+        if (sessionStore.previewMode) {
+          const snapshot = demoState.ensure();
+          if (this.mode === "month") {
+            this.applyMonthReviewFromSnapshot(snapshot);
+          } else {
+            this.applyWeekReviewFromSnapshot(snapshot);
+          }
+          this.setSaveStatus("Demo 数据仅保存在独立的本地空间");
+          return;
+        }
         const cachedSnapshot = loadDashboardSnapshot(sessionStore.user?.id);
         hasCachedData = hasDashboardSnapshotData(cachedSnapshot);
 
@@ -591,6 +604,12 @@ export const useWeeklyStore = defineStore("weekly", {
     },
     async loadTimelineView() {
       const sessionStore = useSessionStore();
+      if (sessionStore.previewMode) {
+        this.applyTimelineFromSnapshot(demoState.ensure());
+        this.setSaveStatus("Timeline 已从 Demo 本地数据载入");
+        this.error = "";
+        return;
+      }
       if (!sessionStore.user?.id) {
         return;
       }
@@ -679,6 +698,21 @@ export const useWeeklyStore = defineStore("weekly", {
       try {
         const sessionStore = useSessionStore();
         const content = String(this.currentSummaryDraft || "").trim();
+        if (sessionStore.previewMode) {
+          const snapshot = demoState.saveWeeklySummary(this.selectedWeek, content);
+          this.applyWeekReviewFromSnapshot(snapshot);
+          this.summaryDrafts = {
+            ...this.summaryDrafts,
+            [this.selectedWeek]: content,
+          };
+          this.summaryModes = {
+            ...this.summaryModes,
+            [this.selectedWeek]: content ? "view" : "edit",
+          };
+          this.summaryDialogOpen = false;
+          this.setSaveStatus(`已保存 ${formatWeekRangeText(this.selectedWeek)} 的周总结 · Demo 本地保存`);
+          return;
+        }
         const optimisticSummary = {
           week: this.selectedWeek,
           content,
@@ -716,6 +750,12 @@ export const useWeeklyStore = defineStore("weekly", {
       const sessionStore = useSessionStore();
       const task = this.aggregation.tasks.find((item) => item.id === taskId);
       if (!task) {
+        return;
+      }
+      if (sessionStore.previewMode) {
+        const snapshot = demoState.updateTask(taskId, { archived: false, archivedAt: null });
+        this.refreshAggregationsFromSnapshot(snapshot);
+        this.setSaveStatus(`已恢复任务：${task.name} · Demo 本地保存`);
         return;
       }
       try {

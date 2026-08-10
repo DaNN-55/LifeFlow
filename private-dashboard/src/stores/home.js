@@ -17,6 +17,7 @@ import {
   normalizeSymbols,
 } from "../services/home-api";
 import { refreshContent } from "../services/content-api";
+import { demoState } from "../services/demo-state";
 import {
   addDays,
   formatDateKey,
@@ -323,6 +324,25 @@ export const useHomeStore = defineStore("home", {
     },
     async bootstrap() {
       const sessionStore = useSessionStore();
+      if (sessionStore.previewMode) {
+        const snapshot = demoState.ensure();
+        this.applyCachedHome({
+          ...buildHomeFromContentSnapshot(snapshot),
+          ...pickSupplementalHomeState(snapshot.home || {}),
+        });
+        this.weather = {
+          ...this.weather,
+          forecast: (this.weather.forecast || []).map((item) => ({
+            ...item,
+            dayLabel: formatWeekday(item.date),
+            axisLabel: formatWeekdayShortEn(item.date),
+            dateLabel: formatMonthDayLabel(item.date),
+          })),
+        };
+        await this.loadCalendar(this.calendarSelectedDate, snapshot);
+        this.loaded = true;
+        return;
+      }
       if (!sessionStore.user?.id) {
         this.loaded = false;
         this.weather = createEmptyWeatherState();
@@ -459,6 +479,9 @@ export const useHomeStore = defineStore("home", {
       });
     },
     async refreshGitHub() {
+      if (useSessionStore().previewMode) {
+        return;
+      }
       this.github = await fetchGitHubPreview(this.githubProfileUrl).catch(() => ({
         status: "error",
         repos: [],
@@ -471,6 +494,9 @@ export const useHomeStore = defineStore("home", {
       });
     },
     async refreshWeather() {
+      if (useSessionStore().previewMode) {
+        return;
+      }
       const weather = await fetchWeatherWidget(this.weatherLocationQuery).catch(() => createEmptyWeatherState());
       this.weather = {
         ...createEmptyWeatherState(),
@@ -491,6 +517,9 @@ export const useHomeStore = defineStore("home", {
       });
     },
     async refreshStocks() {
+      if (useSessionStore().previewMode) {
+        return;
+      }
       this.stock = await fetchStockWidget(this.stockSymbolsInput);
       const sessionStore = useSessionStore();
       applyDashboardMutation(sessionStore.user?.id, {

@@ -12,6 +12,7 @@ import {
   updateContentSource,
 } from "../services/content-api";
 import { saveAccountPreferences } from "../services/today-api";
+import { demoState } from "../services/demo-state";
 import { formatDateTime } from "../utils/date";
 import { getUserFacingErrorMessage } from "../utils/error-message";
 import {
@@ -246,6 +247,7 @@ export const useContentStore = defineStore("content", {
       sourceFeedback: null,
       localModeFeedback: null,
       localCache,
+      demoReadItems: {},
     };
   },
   getters: {
@@ -255,6 +257,9 @@ export const useContentStore = defineStore("content", {
     },
     readItems() {
       const sessionStore = useSessionStore();
+      if (sessionStore.previewMode) {
+        return this.demoReadItems;
+      }
       return sessionStore.user?.preferences?.content?.readItems || this.localCache.readItems || {};
     },
     currentSourceFailures(state) {
@@ -507,6 +512,14 @@ export const useContentStore = defineStore("content", {
         return;
       }
 
+      if (sessionStore.previewMode) {
+        const snapshot = demoState.markRead(channelState.items.map((item) => item.id));
+        this.demoReadItems = { ...(snapshot.content.readItems || {}) };
+        this.applySyncedChannelSnapshot(channel, snapshot);
+        this.channels[channel].mode = "demo";
+        return;
+      }
+
       if (!sessionStore.user?.id) {
         const timestamp = new Date().toISOString();
         keys.forEach((key) => {
@@ -593,6 +606,14 @@ export const useContentStore = defineStore("content", {
       contentState.error = "";
 
       try {
+        if (sessionStore.previewMode) {
+          const snapshot = demoState.ensure();
+          this.demoReadItems = { ...(snapshot.content.readItems || {}) };
+          this.applySyncedChannelSnapshot(channel, snapshot);
+          contentState.mode = "demo";
+          contentState.lastRefreshedAt ||= new Date().toISOString();
+          return;
+        }
         if (!sessionStore.user?.id) {
           const localChannel = this.ensureLocalChannelCache(channel);
           const payload = getMockContentPayloadFromItems(localChannel.items, contentState);
@@ -715,6 +736,11 @@ export const useContentStore = defineStore("content", {
       contentState.refreshing = true;
       contentState.error = "";
       try {
+        if (sessionStore.previewMode) {
+          this.applySyncedChannelSnapshot(channel, demoState.load());
+          contentState.mode = "demo";
+          return;
+        }
         if (!sessionStore.user?.id) {
           const refreshedAt = new Date().toISOString();
           const localChannel = this.ensureLocalChannelCache(channel);
@@ -747,6 +773,12 @@ export const useContentStore = defineStore("content", {
         return;
       }
       const sessionStore = useSessionStore();
+      if (sessionStore.previewMode) {
+        const snapshot = demoState.toggleFavorite(item.id);
+        useHomeStore().applyContentSnapshot(snapshot, false);
+        await this.loadChannel(item.channel);
+        return;
+      }
       if (!sessionStore.user?.id) {
         const key = getItemKey(item);
         if (!key) {
@@ -816,6 +848,13 @@ export const useContentStore = defineStore("content", {
       }
       const sessionStore = useSessionStore();
       const timestamp = new Date().toISOString();
+      if (sessionStore.previewMode) {
+        if (!this.isItemRead(item)) {
+          demoState.toggleRead(item.id);
+        }
+        await this.loadChannel(item.channel);
+        return;
+      }
       if (!sessionStore.user?.id) {
         this.localCache.readItems[key] = timestamp;
         this.persistLocalCache();
@@ -855,6 +894,12 @@ export const useContentStore = defineStore("content", {
       const sessionStore = useSessionStore();
       const channelState = this.channels[item.channel];
       const isRead = this.isItemRead(item);
+
+      if (sessionStore.previewMode) {
+        demoState.toggleRead(item.id);
+        await this.loadChannel(item.channel);
+        return;
+      }
 
       if (!sessionStore.user?.id) {
         if (isRead) {

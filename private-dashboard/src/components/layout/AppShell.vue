@@ -19,6 +19,7 @@ import { useAccountStore } from "../../stores/account";
 import { useHomeStore } from "../../stores/home";
 import { useSessionStore } from "../../stores/session";
 import { useTodayStore } from "../../stores/today";
+import { demoState } from "../../services/demo-state";
 import { buildWeatherAxis, buildWeatherHotspots, buildWeatherPolyline, sparklinePoints } from "../../utils/home";
 
 const route = useRoute();
@@ -75,9 +76,15 @@ const yearProgress = computed(() => {
 });
 
 const lifeProgress = computed(() => {
+  if (sessionStore.previewMode) {
+    return null;
+  }
   const profile = sessionStore.user?.preferences?.profile || {};
-  const birthDate = String(profile.birthDate || "1996-11-05");
+  const birthDate = String(profile.birthDate || "");
   const expectancy = Number(profile.lifeExpectancyYears || 80) || 80;
+  if (!birthDate) {
+    return null;
+  }
   const birth = new Date(`${birthDate}T00:00:00`);
   if (Number.isNaN(birth.getTime())) {
     return 0;
@@ -201,6 +208,9 @@ async function refreshTopTabIndicator() {
 }
 
 function formatPercent(value) {
+  if (!Number.isFinite(value)) {
+    return "--";
+  }
   return `${Math.max(0, Math.min(100, value)).toFixed(1)}%`;
 }
 
@@ -236,10 +246,15 @@ async function restoreRouteScroll() {
 }
 
 async function bootstrapHome() {
-  if (!sessionStore.user?.id || sessionStore.previewMode) {
+  if (!sessionStore.user?.id && !sessionStore.previewMode) {
     return;
   }
   await homeStore.bootstrap();
+}
+
+function resetDemo() {
+  demoState.reset();
+  window.location.reload();
 }
 
 function detectPwaPhoneShell() {
@@ -389,9 +404,9 @@ async function handleAccountAction(action) {
 }
 
 watch(
-  () => sessionStore.user?.id,
-  async (userId) => {
-    if (userId) {
+  () => [sessionStore.user?.id, sessionStore.previewMode],
+  async ([userId, previewMode]) => {
+    if (userId || previewMode) {
       await bootstrapHome();
     }
   },
@@ -510,6 +525,14 @@ watch(
       </div>
 
       <div class="nav-actions">
+        <button
+          v-if="sessionStore.previewMode"
+          type="button"
+          class="task-cancel-action nav-pwa-button"
+          @click="resetDemo"
+        >
+          重置 Demo
+        </button>
         <div v-if="appStore.pwaInstallReady || appStore.pwaUpdateReady" class="nav-pwa-actions">
           <button
             v-if="appStore.pwaInstallReady"
@@ -605,6 +628,7 @@ watch(
           :build-polyline="buildWeatherPolyline"
           :build-axis="buildWeatherAxis"
           :build-hotspots="buildWeatherHotspots"
+          :controls-enabled="!sessionStore.previewMode"
           @refresh="homeStore.refreshWeather"
           @configure="accountStore.openWidgetSettings('weather')"
         />
@@ -615,6 +639,7 @@ watch(
           :format-code="homeStore.formatDisplayStockCode"
           :sparkline-points="sparklinePoints"
           :format-date-time="homeStore.formatDateTime"
+          :controls-enabled="!sessionStore.previewMode"
           @refresh="homeStore.refreshStocks"
           @configure="accountStore.openWidgetSettings('stock')"
         />

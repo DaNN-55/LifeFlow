@@ -35,7 +35,7 @@ function createDefaultSidebarPreferences() {
 
 function createDefaultProfilePreferences() {
   return {
-    birthDate: "1996-11-05",
+    birthDate: "",
     lifeExpectancyYears: 80,
   };
 }

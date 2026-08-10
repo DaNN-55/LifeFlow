@@ -45,7 +45,13 @@ function syncNetworkStatus() {
 }
 
 router.beforeEach(async (to) => {
-  const sessionStore = await ensureSessionBootstrapped();
+  const existingSessionStore = useSessionStore(pinia);
+  const shouldDeferSessionProbe = to.name === "auth"
+    && existingSessionStore.status === "idle"
+    && !existingSessionStore.previewMode;
+  const sessionStore = shouldDeferSessionProbe
+    ? existingSessionStore
+    : await ensureSessionBootstrapped();
   const isAuthenticated = Boolean(sessionStore.user?.id) || sessionStore.previewMode;
   const requiresAuth = to.meta.requiresAuth !== false;
   const redirectTarget =

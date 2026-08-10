@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "test": "node --test test/*.test.js",
     "preview": "vite preview",
     "backend:dev": "npm --prefix backend run dev",
     "backend:start": "npm --prefix backend run start",

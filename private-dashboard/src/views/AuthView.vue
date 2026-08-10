@@ -1,8 +1,8 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
-import { AUTH_CHALLENGE_ENABLED } from "../app/constants";
+import { AUTH_CHALLENGE_ENABLED, AUTH_PREVIEW_ENABLED } from "../app/constants";
 import { fetchAuthChallenge, fetchCaptcha, recoverPassword, signIn, signUp } from "../services/auth-api";
 import { loadApiBase, loadAuthConfig, refreshApiBase, saveAuthConfig } from "../services/config";
 import { useSessionStore } from "../stores/session";
@@ -23,6 +23,7 @@ const recoveryCodeModalOpen = ref(false);
 const recoveryCodeValue = ref("");
 const signupModalOpen = ref(false);
 const pendingRedirect = ref(false);
+const challengeRequested = ref(false);
 const turnstileHostRef = ref(null);
 const captcha = reactive({
   id: "",
@@ -55,7 +56,7 @@ const isLegacyCaptchaMode = computed(() => challenge.provider === "captcha");
 const isChallengeDisabled = computed(() => !AUTH_CHALLENGE_ENABLED || challenge.provider === "none");
 const isChallengeBusy = computed(() => challenge.loading || (isLegacyCaptchaMode.value && captcha.loading));
 const isChallengeUnavailable = computed(
-  () => !challenge.loading && !isTurnstileMode.value && !isLegacyCaptchaMode.value && !isChallengeDisabled.value,
+  () => challengeRequested.value && !challenge.loading && !isTurnstileMode.value && !isLegacyCaptchaMode.value && !isChallengeDisabled.value,
 );
 const currentApiBase = computed(() => loadApiBase());
 
@@ -76,9 +77,23 @@ function submitPrimaryAuth() {
 }
 
 function openSignupModal() {
+  ensureAuthChallengeLoaded();
   signupForm.username = String(form.username || "").trim();
   signupForm.password = "";
   signupModalOpen.value = true;
+}
+
+async function ensureAuthChallengeLoaded() {
+  if (challenge.loading || challenge.provider) {
+    return;
+  }
+  challengeRequested.value = true;
+  await loadAuthChallengeConfig();
+}
+
+async function enterDemo() {
+  sessionStore.startPreviewSession();
+  await router.replace("/today");
 }
 
 function closeSignupModal() {
@@ -535,10 +550,6 @@ async function submitSignup() {
   }
 }
 
-onMounted(async () => {
-  await loadAuthChallengeConfig();
-});
-
 onBeforeUnmount(() => {
   teardownTurnstileWidget();
 });
@@ -553,11 +564,18 @@ onBeforeUnmount(() => {
         登录后你的任务、备注和周总结会接入现有后端。首次使用可先创建账号，并妥善保存系统生成的恢复码；如果忘记密码，可用恢复码重置。
       </p>
 
+      <button v-if="AUTH_PREVIEW_ENABLED" type="button" class="auth-button" @click="enterDemo">
+        体验安全 Demo
+      </button>
+      <p v-if="AUTH_PREVIEW_ENABLED" class="settings-copy">
+        使用合成数据，不连接生产 API 或外部数据服务。
+      </p>
+
       <div v-if="isFileProtocol" class="auth-inline-note">
         当前页面是通过 <code>file://</code> 打开的。正式使用请改用本地或部署后的 HTTP 地址访问。
       </div>
 
-      <form class="auth-gate-form" @submit.prevent="submitPrimaryAuth">
+      <form class="auth-gate-form" @focusin.once="ensureAuthChallengeLoaded" @submit.prevent="submitPrimaryAuth">
         <label class="auth-field">
           <span class="auth-field-label">用户名</span>
           <input
@@ -594,7 +612,11 @@ onBeforeUnmount(() => {
         <div v-if="!isChallengeDisabled" class="auth-field captcha-field">
           <span class="auth-field-label">{{ isTurnstileMode ? "安全验证" : "验证码" }}</span>
 
-          <div v-if="challenge.loading" class="captcha-status-card">
+          <div v-if="!challengeRequested" class="captcha-status-card">
+            填写登录信息时再连接安全验证服务。
+          </div>
+
+          <div v-else-if="challenge.loading" class="captcha-status-card">
             正在唤醒认证服务，Render 免费实例首次请求可能需要 20-50 秒。
           </div>
 

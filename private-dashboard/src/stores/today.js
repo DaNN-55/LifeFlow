@@ -12,6 +12,7 @@ import {
   loadCachedTodayNoteDrafts,
   saveCachedTodayNoteDrafts,
 } from "../services/dashboard-cache";
+import { demoState } from "../services/demo-state";
 import {
   applyDashboardMutation,
   hasDashboardSnapshotData,
@@ -32,6 +33,8 @@ function normalizeTask(task = {}, index = 0) {
     order: Number(task.display_order || index + 1),
     archived: Boolean(task.archived),
     archivedAt: task.archived_at || "",
+    tags: Array.isArray(task.tags) ? task.tags : [],
+    icon: String(task.icon || ""),
   };
 }
 
@@ -218,6 +221,12 @@ export const useTodayStore = defineStore("today", {
     },
     async bootstrap() {
       const sessionStore = useSessionStore();
+      if (sessionStore.previewMode) {
+        this.applySnapshot(demoState.ensure());
+        this.setSaveState("Demo 数据仅保存在独立的本地空间", "success");
+        this.error = "";
+        return;
+      }
       if (!sessionStore.user?.id) {
         this.ready = false;
         return;
@@ -322,6 +331,16 @@ export const useTodayStore = defineStore("today", {
       if (targetDate === this.selectedDate) {
         this.record = normalizeRecord(nextRecord, this.tasks, targetDate);
       }
+      const sessionStore = useSessionStore();
+      if (sessionStore.previewMode) {
+        const snapshot = demoState.updateDailyRecord(
+          targetDate,
+          buildRecordPayloadFromTasks(this.tasks, nextRecord),
+        );
+        this.applySnapshot(snapshot);
+        this.setSaveState(`${successMessage} · Demo 本地保存`, "success");
+        return this.record;
+      }
       this.persistLocalCache({
         dailyRecord: {
           ...nextRecord,
@@ -347,6 +366,12 @@ export const useTodayStore = defineStore("today", {
       }
     },
     async persistTask(taskId, payload, successMessage) {
+      const sessionStore = useSessionStore();
+      if (sessionStore.previewMode) {
+        this.applySnapshot(demoState.updateTask(taskId, payload));
+        this.setSaveState(`${successMessage} · Demo 本地保存`, "success");
+        return true;
+      }
       try {
         this.persistLocalCache();
         this.setSaveState("正在同步到云端...", "progress");
@@ -365,6 +390,13 @@ export const useTodayStore = defineStore("today", {
     },
     async persistTaskPreferences(taskId, { tags, icon } = {}) {
       const sessionStore = useSessionStore();
+      if (sessionStore.previewMode) {
+        this.applySnapshot(demoState.updateTask(taskId, {
+          ...(Array.isArray(tags) ? { tags } : {}),
+          ...(typeof icon === "string" ? { icon } : {}),
+        }));
+        return true;
+      }
       if (!sessionStore.user) {
         return false;
       }
@@ -521,6 +553,21 @@ export const useTodayStore = defineStore("today", {
         return;
       }
 
+      const sessionStore = useSessionStore();
+      if (sessionStore.previewMode) {
+        const snapshot = demoState.createTask({
+          name: normalizedName,
+          tags: normalizeTaskTags(tagsInput),
+          color: color || getRandomTaskColor(),
+          icon,
+        });
+        this.applySnapshot(snapshot);
+        this.newTaskColor = "";
+        this.newTaskIcon = "";
+        this.setSaveState(`已创建任务：${normalizedName} · Demo 本地保存`, "success");
+        return;
+      }
+
       try {
         this.setSaveState("正在同步到云端...", "progress");
         const response = await createTask({
@@ -625,13 +672,19 @@ export const useTodayStore = defineStore("today", {
       }
       const task = this.tasks.find((item) => item.id === taskId) || null;
       const taskName = task?.name || "该任务";
+      const sessionStore = useSessionStore();
+      if (sessionStore.previewMode) {
+        this.applySnapshot(demoState.deleteTask(taskId));
+        this.setSaveState(`已删除任务：${taskName} · Demo 本地保存`, "success");
+        this.closeDeleteDialog();
+        return;
+      }
       try {
         this.setSaveState("正在同步到云端...", "progress");
         await deleteTask(taskId);
         this.tasks = this.tasks.filter((item) => item.id !== taskId);
         delete this.record.payload.tasks[taskId];
         this.persistLocalCache();
-        const sessionStore = useSessionStore();
         const nextTagsByTaskId = { ...(sessionStore.user?.preferences?.tasks?.tagsByTaskId || {}) };
         const nextIconByTaskId = { ...(sessionStore.user?.preferences?.tasks?.iconByTaskId || {}) };
         delete nextTagsByTaskId[taskId];
@@ -696,6 +749,13 @@ export const useTodayStore = defineStore("today", {
         .map((task) => changedTasks.find((candidate) => candidate.id === task.id) || task)
         .sort((left, right) => left.order - right.order);
 
+      if (useSessionStore().previewMode) {
+        changedTasks.forEach((task) => demoState.updateTask(task.id, { displayOrder: task.order }));
+        this.applySnapshot(demoState.load());
+        this.setSaveState("任务顺序已更新 · Demo 本地保存", "success");
+        return;
+      }
+
       try {
         this.setSaveState("正在同步排序...", "progress");
         await Promise.all(
@@ -713,10 +773,12 @@ export const useTodayStore = defineStore("today", {
       return this.ensureTaskRecord(taskId);
     },
     getTaskTags(taskId) {
-      return this.tagsByTaskId[taskId] || [];
+      const task = this.tasks.find((item) => item.id === taskId);
+      return useSessionStore().previewMode ? (task?.tags || []) : (this.tagsByTaskId[taskId] || []);
     },
     getTaskIcon(taskId, taskName = "") {
-      return resolveTaskIcon(taskName, this.iconByTaskId[taskId] || "");
+      const task = this.tasks.find((item) => item.id === taskId);
+      return resolveTaskIcon(taskName, useSessionStore().previewMode ? (task?.icon || "") : (this.iconByTaskId[taskId] || ""));
     },
     getTaskForDialog(taskId) {
       return this.tasks.find((item) => item.id === taskId) || null;

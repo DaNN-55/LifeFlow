@@ -20,6 +20,10 @@ defineProps({
     type: Function,
     required: true,
   },
+  controlsEnabled: {
+    type: Boolean,
+    default: true,
+  },
 });
 
 const emit = defineEmits(["refresh", "configure"]);
@@ -29,7 +33,7 @@ const emit = defineEmits(["refresh", "configure"]);
   <section class="rail-card widget-card" aria-labelledby="stock-title">
     <div class="section-head">
       <h2 id="stock-title">Stock</h2>
-      <button type="button" class="icon-button" aria-label="打开股票组件设置" @click="emit('configure')">
+      <button v-if="controlsEnabled" type="button" class="icon-button" aria-label="打开股票组件设置" @click="emit('configure')">
         <span class="material-symbols-outlined">settings</span>
       </button>
     </div>
@@ -39,7 +43,7 @@ const emit = defineEmits(["refresh", "configure"]);
         <div>
           <h3 class="widget-title">{{ title }}</h3>
         </div>
-        <button type="button" class="widget-refresh-button" title="刷新行情" aria-label="刷新行情" @click="emit('refresh')">
+        <button v-if="controlsEnabled" type="button" class="widget-refresh-button" title="刷新行情" aria-label="刷新行情" @click="emit('refresh')">
           <span class="material-symbols-outlined">refresh</span>
         </button>
       </div>

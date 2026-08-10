@@ -21,6 +21,7 @@ const contentStore = useContentStore();
 
 const isAuthenticated = computed(() => Boolean(sessionStore.user?.id));
 const isLocalMode = computed(() => contentState.value?.mode === "local");
+const isDemoMode = computed(() => contentState.value?.mode === "demo");
 const showSourceControls = computed(() => isLocalMode.value || isAuthenticated.value);
 const importInputRef = ref(null);
 const confirmDialog = ref({
@@ -236,7 +237,14 @@ watch(
           </button>
         </div>
 
-        <div v-if="isLocalMode" class="local-mode-strip">
+        <div v-if="isDemoMode" class="local-mode-strip">
+          <p class="local-mode-copy">
+            当前为安全 Demo，资讯、收藏和已读状态均为合成数据，并保存在独立的本地空间。
+            当前页已读 {{ readCount }} / {{ contentState.items.length }}。
+          </p>
+        </div>
+
+        <div v-else-if="isLocalMode" class="local-mode-strip">
           <p class="local-mode-copy">
             未登录时已切到本地模式，你可以直接用本地缓存测试 News 页面，筛选状态也会保留在本地。
             当前页已读 {{ readCount }} / {{ contentState.items.length }}。
@@ -338,6 +346,7 @@ watch(
             :published-at="contentStore.getPublishedAt(item)"
             :is-read="contentStore.isItemRead(item)"
             @toggle-favorite="contentStore.toggleFavorite"
+            @toggle-read="contentStore.toggleReadStatus"
             @open-link="contentStore.markAsRead"
           />
         </div>

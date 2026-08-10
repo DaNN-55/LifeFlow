@@ -24,11 +24,11 @@ defineProps({
         <h2 id="github-card-title">GitHub</h2>
       </div>
       <a
+        v-if="profileUrl"
         class="icon-button github-open-button"
-        :href="profileUrl || 'https://github.com/DanN-55'"
+        :href="profileUrl"
         target="_blank"
         rel="noreferrer"
-        :aria-disabled="!profileUrl"
         aria-label="打开 GitHub 主页"
       >
         <svg viewBox="0 0 24 24" aria-hidden="true" class="github-logo">

@@ -83,7 +83,7 @@ function saveCachedQuote(nextQuote) {
   );
 }
 
-const isAuthenticated = computed(() => Boolean(sessionStore.user?.id));
+const isAuthenticated = computed(() => Boolean(sessionStore.user?.id) || sessionStore.previewMode);
 function isTaskArchivedInSelectedMonth(task) {
   if (!task?.archived || !task?.archivedAt) {
     return false;
@@ -135,6 +135,7 @@ const displayedRankedTasks = computed(() => {
       id: task.id,
       name: task.name,
       color: task.color,
+      icon: task.icon || "",
       archived: Boolean(task.archived),
       completionCount: Number(completionCounts[task.id] || 0),
       noteCount: Array.isArray(notesByTask[task.id]) ? notesByTask[task.id].length : 0,
@@ -188,7 +189,10 @@ function getSummaryMarker(index) {
 }
 
 function getTaskTitleIcon(task) {
-  return getTaskIcon(task?.name, sessionStore.user?.preferences?.tasks?.iconByTaskId?.[task?.id] || "");
+  return getTaskIcon(
+    task?.name,
+    sessionStore.previewMode ? (task?.icon || "") : (sessionStore.user?.preferences?.tasks?.iconByTaskId?.[task?.id] || ""),
+  );
 }
 
 function openNotesModal(taskId) {
@@ -267,7 +271,7 @@ async function loadPulse() {
 }
 
 async function loadQuote() {
-  if (!isAuthenticated.value) {
+  if (!isAuthenticated.value || sessionStore.previewMode) {
     return;
   }
   try {

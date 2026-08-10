@@ -15,90 +15,6 @@ import { useSessionStore } from "../stores/session";
 import { useTodayStore } from "../stores/today";
 import { useWeeklyStore } from "../stores/weekly";
 
-const previewTasks = [
-  {
-    id: "preview-task-1",
-    name: "收口 Today / Review / Timeline 结构",
-    color: "#64748b",
-    meta: ["Design", "2 notes"],
-  },
-  {
-    id: "preview-task-2",
-    name: "整理 Content 一级 / 二级导航关系",
-    color: "#94a3b8",
-    meta: ["IA", "in progress"],
-  },
-  {
-    id: "preview-task-3",
-    name: "接入 FretFlow 独立主入口",
-    color: "#cbd5e1",
-    meta: ["Done", "prototype"],
-  },
-];
-
-const previewReviewTasks = [
-  {
-    id: "preview-review-1",
-    name: "Today 信息架构",
-    color: "#64748b",
-    archived: false,
-    notes: [
-      { dateLabel: "03-21", createdAt: "2026-03-21T09:20:00.000Z", note: "把 Weekly 收回到 Today 内部的二级视图。" },
-      { dateLabel: "03-24", createdAt: "2026-03-24T14:08:00.000Z", note: "确定 Review 承担周总结，Timeline 承担事件总览。" },
-    ],
-    tags: ["review", "timeline"],
-    completionCount: 4,
-  },
-  {
-    id: "preview-review-2",
-    name: "Content 分层",
-    color: "#94a3b8",
-    archived: false,
-    notes: [
-      { dateLabel: "03-23", createdAt: "2026-03-23T20:44:00.000Z", note: "内容扩展优先留在 Content 二级导航，不再增加一级 tab。" },
-    ],
-    tags: ["content"],
-    completionCount: 3,
-  },
-];
-
-const previewTimelineTasks = [
-  {
-    id: "preview-timeline-1",
-    name: "Today 结构调整",
-    color: "#64748b",
-    tags: ["review", "timeline"],
-    events: [
-      {
-        dateLabel: "2026-03-21",
-        dateKey: "2026-03-21",
-        completed: true,
-        notes: [{ id: "pt-1", text: "把 Weekly 从一级导航移除。" }],
-      },
-      {
-        dateLabel: "2026-03-24",
-        dateKey: "2026-03-24",
-        completed: false,
-        notes: [{ id: "pt-2", text: "确认 Timeline 作为 Today 的二级视图长期保留。" }],
-      },
-    ],
-  },
-  {
-    id: "preview-timeline-2",
-    name: "FretFlow 主入口",
-    color: "#94a3b8",
-    tags: ["fretflow"],
-    events: [
-      {
-        dateLabel: "2026-03-24",
-        dateKey: "2026-03-24",
-        completed: true,
-        notes: [{ id: "pt-3", text: "决定将 FretFlow 作为独立一级 tab 接入。" }],
-      },
-    ],
-  },
-];
-
 const sessionStore = useSessionStore();
 const todayStore = useTodayStore();
 const weeklyStore = useWeeklyStore();
@@ -116,8 +32,7 @@ const expandedTimelineCards = ref({});
 let highlightTimeout = null;
 let sortableInstance = null;
 
-const isAuthenticated = computed(() => Boolean(sessionStore.user?.id));
-const isPreviewMode = computed(() => sessionStore.previewMode);
+const isAuthenticated = computed(() => Boolean(sessionStore.user?.id) || sessionStore.previewMode);
 const todayPanel = computed(() => (
   TODAY_PANELS.includes(String(route.query.panel || "")) ? String(route.query.panel) : "focus"
 ));
@@ -181,7 +96,7 @@ const weeklyStatusText = computed(() => {
 });
 
 async function loadTodayModule() {
-  if (!isAuthenticated.value || isPreviewMode.value) {
+  if (!isAuthenticated.value) {
     return;
   }
   const routeDate = /^\d{4}-\d{2}-\d{2}$/.test(String(route.query.date || "")) ? String(route.query.date) : "";
@@ -192,7 +107,7 @@ async function loadTodayModule() {
 }
 
 async function loadWeeklyModule() {
-  if (!isAuthenticated.value || isPreviewMode.value) {
+  if (!isAuthenticated.value) {
     return;
   }
   if (todayPanel.value === "timeline") {
@@ -233,10 +148,6 @@ async function setupSortable() {
 }
 
 async function loadCurrentPanel() {
-  if (isPreviewMode.value) {
-    destroySortable();
-    return;
-  }
   if (todayPanel.value === "focus") {
     await loadTodayModule();
     await setupSortable();
@@ -498,38 +409,7 @@ watch(
       </div>
 
       <template v-if="todayPanel === 'focus'">
-        <div v-if="isPreviewMode" class="task-stack" aria-live="polite">
-          <article
-            v-for="task in previewTasks"
-            :key="task.id"
-            class="task-card"
-            :style="{ '--task-accent': task.color }"
-          >
-            <div class="task-row">
-              <div class="task-title-group">
-                <button type="button" class="task-completion-toggle" aria-label="预览模式任务状态"></button>
-                <div>
-                  <h3 class="task-title">{{ task.name }}</h3>
-                  <div class="task-meta-stack">
-                    <span v-for="meta in task.meta" :key="meta" class="task-meta">{{ meta }}</span>
-                  </div>
-                </div>
-              </div>
-              <div class="task-head-actions">
-                <span class="task-drag-handle mono">::</span>
-              </div>
-            </div>
-          </article>
-
-          <article class="task-card new-task-card">
-            <div>
-              <h3 class="task-title">+ 新建任务</h3>
-            </div>
-            <p class="panel-copy">预览模式下不提交真实数据，这里只展示 Today 主输入区的结构。</p>
-          </article>
-        </div>
-
-        <div v-else-if="!isAuthenticated" class="today-state-card">
+        <div v-if="!isAuthenticated" class="today-state-card">
           <h2>未连接账号</h2>
           <p>当前还没有拿到登录会话，Today 模块需要先连接现有后端账号。</p>
         </div>
@@ -721,59 +601,7 @@ watch(
           </section>
         </div>
 
-        <div v-if="isPreviewMode && todayPanel === 'review'" class="stage-view">
-          <section
-            class="weekly-summary-card is-saved"
-            aria-labelledby="preview-weekly-summary-title"
-          >
-            <div class="section-head">
-              <div>
-                <p class="panel-kicker">Weekly wrap-up</p>
-                <h2 id="preview-weekly-summary-title">周总结</h2>
-              </div>
-            </div>
-            <div class="weekly-summary-display">
-              <p>这一周主要完成了信息架构收口：Today 成为默认入口，Weekly 被拆成 Review / Timeline，Content 保持频道式扩展，FretFlow 独立成一级空间。</p>
-            </div>
-            <p class="weekly-summary-meta">预览模式示例文案</p>
-          </section>
-
-          <div class="review-stack">
-            <WeeklyReviewCard
-              v-for="task in previewReviewTasks"
-              :key="task.id"
-              :task="task"
-              task-icon="dashboard"
-              :tags="task.tags"
-              :completion-count="task.completionCount"
-              :total-days="7"
-              :notes="task.notes"
-              :expanded="isReviewExpanded(task.id)"
-              @toggle="toggleReviewCard"
-            />
-          </div>
-        </div>
-
-        <div v-else-if="isPreviewMode && todayPanel === 'timeline'" class="today-timeline-stack">
-          <TimelineTaskCard
-            v-for="task in previewTimelineTasks"
-            :key="task.id"
-            :task="task"
-            task-icon="dashboard"
-            :tags="task.tags"
-            :entries="buildTimelineCardEntries(task.events)"
-            :completion-count="task.events.filter((entry) => entry.completed).length"
-            :note-count="task.events.reduce((count, entry) => count + entry.notes.length, 0)"
-            :expanded="isTimelineExpanded(task.id)"
-            :menu-open="todayStore.activeTaskMenuId === task.id"
-            @toggle="toggleTimelineCard"
-            @toggle-menu="todayStore.toggleTaskMenu"
-            @restore-task="handleTimelineRestore"
-            @delete-task="todayStore.openDeleteDialog"
-          />
-        </div>
-
-        <div v-else-if="weeklyStatusText" class="today-state-card">
+        <div v-if="weeklyStatusText" class="today-state-card">
           <h2>{{ todayPanel === "review" ? "Review" : "Timeline" }}</h2>
           <p>{{ weeklyStatusText }}</p>
         </div>
@@ -784,7 +612,7 @@ watch(
             :key="task.id"
             :task="task"
             :task-icon="todayStore.getTaskIcon(task.id, task.name)"
-            :tags="sessionStore.user?.preferences?.tasks?.tagsByTaskId?.[task.id] || []"
+            :tags="todayStore.getTaskTags(task.id)"
             :completion-count="weeklyStore.aggregation.completionCounts[task.id] || 0"
             :total-days="weeklyStore.aggregation.totalDays"
             :notes="weeklyStore.aggregation.notesByTask[task.id] || []"
@@ -800,7 +628,7 @@ watch(
             :key="`timeline-${task.id}`"
             :task="task"
             :task-icon="todayStore.getTaskIcon(task.id, task.name)"
-            :tags="sessionStore.user?.preferences?.tasks?.tagsByTaskId?.[task.id] || []"
+            :tags="todayStore.getTaskTags(task.id)"
             :entries="buildTimelineCardEntries(getTimelineEntries(task.id))"
             :completion-count="weeklyStore.timelineAggregation.completionCounts[task.id] || 0"
             :note-count="weeklyStore.timelineAggregation.notesByTask[task.id]?.length || 0"

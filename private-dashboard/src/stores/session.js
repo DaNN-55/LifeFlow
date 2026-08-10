@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 
 import { signOutAccount } from "../services/account-api";
 import { fetchSession, probeHealth } from "../services/api-client";
+import { demoState } from "../services/demo-state";
 import {
   clearOfflineSession,
   loadOfflineSession,
@@ -61,6 +62,7 @@ export const useSessionStore = defineStore("session", {
       return true;
     },
     startPreviewSession() {
+      demoState.ensure();
       this.user = null;
       this.previewMode = true;
       this.status = "ready";
@@ -136,10 +138,13 @@ export const useSessionStore = defineStore("session", {
     },
     async signOut() {
       const previousUserId = this.user?.id || "";
-      try {
-        await signOutAccount();
-      } catch {
-        // Best-effort signout; still clear local session state.
+      const wasPreviewMode = this.previewMode;
+      if (!wasPreviewMode) {
+        try {
+          await signOutAccount();
+        } catch {
+          // Best-effort signout; still clear local session state.
+        }
       }
       saveSessionId("");
       savePreviewMode(false);
@@ -148,6 +153,9 @@ export const useSessionStore = defineStore("session", {
       this.previewMode = false;
       this.status = "guest";
       this.feedback = "已退出登录";
+      if (wasPreviewMode) {
+        demoState.clear();
+      }
       if (previousUserId) {
         resetDashboardSyncState(previousUserId);
       }
