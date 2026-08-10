@@ -7,4 +7,5 @@ private-dashboard/backend/.vercel/
 private-dashboard/.vercel/
 .DS_Store
 *.log
-private-dashboard/docs/
+private-dashboard/docs/personal/
+private-dashboard/docs/plans/
