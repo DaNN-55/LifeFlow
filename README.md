@@ -94,14 +94,29 @@ flowchart LR
 
 Demo 的目标是安全验证主业务闭环，不代表真实账号、Supabase 或外部服务已经完成生产环境验收。
 
+## 安全 Demo 界面证据
+
+以下截图来自同一次完整 Demo 流程，全部使用合成数据：Today 记录执行并完成任务，Review 保存周总结，News 标记已读与收藏，最后在 Pulse 查看聚合结果。
+
+| Today：执行记录与任务状态 | Review：周总结保存结果 |
+| --- | --- |
+| ![Today 安全 Demo：提交执行记录并完成任务](docs/portfolio/01-today-execution.png) | ![Review 安全 Demo：保存周总结](docs/portfolio/02-weekly-review.png) |
+
+| News：合成资讯状态 | Pulse：任务、记录与周总结聚合 |
+| --- | --- |
+| ![News 安全 Demo：标记合成资讯为已读并收藏](docs/portfolio/03-news-input.png) | ![Pulse 安全 Demo：查看任务、记录和周总结聚合](docs/portfolio/04-pulse-overview.png) |
+
 ## 工程证据与验证
 
-| 证据 | 验证内容 |
+本次验证于 2026-08-10 在本地 Node.js v25.5.0、npm 11.8.0 环境完成：
+
+| 证据 | 实际结果 |
 | --- | --- |
-| 安全 Demo | 初始化、独立存储、任务 / 记录 / 周总结写入、资讯标记和重置。 |
-| 后端测试 | 密码与恢复码、账号 Session、跨账号任务隔离、Memory Store、内容刷新与去重、增量同步、天气降级、Supabase 常见配置错误分类。 |
-| 生产构建 | 检查 Vue 前端可完成生产构建。 |
-| 页面验收 | 登录、Today、Review / Timeline 和 News 的关键流程需要实际操作检查。 |
+| `npm test` | 3 / 3 通过：Demo 初始化与独立存储、任务 / 记录 / 周总结持久化、资讯标记和重置；其中独立存储测试证明不会覆盖真实用户缓存。 |
+| `npm run backend:test` | 21 / 21 通过：密码与恢复码、账号 Session、跨账号任务隔离、Memory Store、内容刷新与去重、增量同步、天气降级、Supabase 常见配置错误分类。 |
+| `npm run build` | Vite 生产构建成功；主 JavaScript 包为 522.05 kB（gzip 179.57 kB），保留超过 500 kB 的 chunk size warning。 |
+| 桌面浏览器手动验收 | 无后端时从 `/auth` 进入安全 Demo，实际完成新建任务、提交备注、完成任务、刷新后确认持久化、Review 二次确认保存、News 已读 / 收藏、Pulse 聚合、重置与退出；全流程未观察到相关控制台 error / warn。 |
+| 375px 移动端检查 | 实际内容宽度无横向溢出，Today 核心入口可见。 |
 
 在仓库根目录运行：
 
@@ -116,7 +131,7 @@ npm test
 npm run build
 ```
 
-真实 Supabase 连接不在当前自动化测试范围内；前端自动化测试也不等同于完整的浏览器端回归测试。
+上述浏览器验收为手动操作，尚未形成可提交、可重复运行的浏览器自动化回归。真实 Supabase 连接不在当前自动化测试范围内；项目声明的 Node.js 20.x 也未在本次验证中精确复跑。
 
 ## 本地运行真实模式
 
