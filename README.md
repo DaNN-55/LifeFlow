@@ -42,7 +42,6 @@ LifeFlow 是一个面向个人知识工作者的执行与信息管理工具：�
 安全 Demo 不需要启动后端、配置 `.env`、注册账号或提供任何外部服务凭据。安装前端依赖后即可运行：
 
 ```bash
-cd private-dashboard
 npm ci
 npm run dev
 ```
@@ -71,13 +70,13 @@ flowchart LR
     Server --> External["RSS / 网页 / 天气等外部服务"]
 ```
 
-- 前端位于 `private-dashboard/src/`，按 view、component、store、service 分层。
+- 前端位于 `src/`，按 view、component、store、service 分层。
 - 前端通过统一 API Client 调用 Express，并携带 Session Cookie；同时保留 `x-session-id` 兼容路径。
 - 后端在路由层完成认证和输入校验，再通过同一存储接口访问 Memory 或 Supabase。
 - Supabase 模式下，任务、每日记录、周总结、资讯源和收藏均带 `user_id`，后端按当前会话限定读写范围。
 - 跨域部署时，前后端必须使用 HTTPS；后端按请求场景写入 `SameSite=None; Secure` Cookie，并通过 `CORS_ORIGIN` 限制允许的前端来源。
 
-后端接口、环境变量和数据库初始化细节见 [后端说明](private-dashboard/backend/README.md)。
+后端接口、环境变量和数据库初始化细节见 [后端说明](backend/README.md)。
 
 ## AI Coding 协作边界
 
@@ -94,7 +93,6 @@ flowchart LR
 要求 Node.js 20 和 npm。全新 clone 需要分别安装前端与后端依赖：
 
 ```bash
-cd private-dashboard
 npm ci
 npm --prefix backend ci
 cp backend/.env.example backend/.env
@@ -115,8 +113,6 @@ npm run dev
 ## 验证
 
 ```bash
-cd private-dashboard
-
 # 后端 Node.js 测试
 npm run backend:test
 
@@ -133,7 +129,7 @@ npm run build
 
 ## 部署
 
-- 前端可部署到 Vercel，项目 Root Directory 需要设置为 `private-dashboard`。
+- 前端可部署到 Vercel，项目 Root Directory 使用仓库根目录。
 - 后端需部署到可持续运行 Node.js 的服务，并配置 `CORS_ORIGIN`。
 - 持久化部署需配置 `SUPABASE_URL` 和 `SUPABASE_SERVICE_ROLE_KEY`；两项均未配置时会自动使用易失的 Memory 模式。
 - 前端部署时需要让 API Base 指向对应后端，且跨域前后端都使用 HTTPS。
@@ -151,14 +147,14 @@ npm run build
 
 ```text
 LifeFlow/
-├─ README.md                    # 作品入口
-└─ private-dashboard/
-   ├─ src/                     # Vue 前端
-   ├─ public/                  # PWA 与静态资源
-   ├─ backend/                 # Express API、测试与 Supabase schema
-   ├─ docs/                    # 历史规划和原型，不代表当前实现状态
-   ├─ package.json
-   └─ vite.config.js
+├─ src/                         # Vue 前端
+├─ public/                      # PWA 与静态资源
+├─ backend/                     # Express API、测试与 Supabase schema
+├─ docs/                        # 历史规划和原型，不代表当前实现状态
+├─ test/                        # Demo 状态单元测试
+├─ package.json
+├─ vite.config.js
+└─ README.md                    # 作品入口与运行说明
 ```
 
 历史规划和原型保留了设计过程，但部分内容早于当前 Vue、Pulse 和 FretFlow 实现；判断当前能力时以运行代码、测试和本 README 为准。
