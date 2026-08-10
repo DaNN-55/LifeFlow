@@ -13,12 +13,15 @@ export const AUTH_GATE_ENABLED = true;
 export const ACCOUNT_CONTROLS_ENABLED = true;
 export const AUTH_CHALLENGE_ENABLED = true;
 export const AUTH_PREVIEW_ENABLED = true;
+export const FRETFLOW_ENABLED = false;
 
 export const topTabs = [
   { id: "pulse", label: "Pulse", to: "/pulse" },
   { id: "today", label: "Today", to: "/today" },
   { id: "content", label: "News", to: "/content" },
-  { id: "fretflow", label: "FretFlow", to: "/fretflow" },
+  ...(FRETFLOW_ENABLED
+    ? [{ id: "fretflow", label: "FretFlow", to: "/fretflow" }]
+    : []),
 ];
 
 export const contentTabs = [

@@ -4,7 +4,7 @@ import AuthView from "../views/AuthView.vue";
 import PulseView from "../views/PulseView.vue";
 import TodayView from "../views/TodayView.vue";
 import ContentView from "../views/ContentView.vue";
-import FretFlowView from "../views/FretFlowView.vue";
+import { FRETFLOW_ENABLED } from "../app/constants";
 
 const routes = [
   {
@@ -51,11 +51,16 @@ const routes = [
       channel: "news",
     },
   },
-  {
-    path: "/fretflow",
-    name: "fretflow",
-    component: FretFlowView,
-  },
+  ...(FRETFLOW_ENABLED
+    ? [{
+        path: "/fretflow",
+        name: "fretflow",
+        component: () => import("../views/FretFlowView.vue"),
+      }]
+    : [{
+        path: "/fretflow/:pathMatch(.*)*",
+        redirect: "/pulse",
+      }]),
 ];
 
 export const router = createRouter({
