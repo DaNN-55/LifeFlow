@@ -4,6 +4,9 @@ const { createServer } = require("node:http");
 const { once } = require("node:events");
 
 const { createApp } = require("../src/app");
+const { createInformationInput } = require("../src/information-input");
+const { createMemoryContentCollector } = require("../src/information-input/memoryCollector");
+const { createInformationInputPersistence } = require("../src/information-input/persistence");
 const { MemoryStore } = require("../src/store/memoryStore");
 
 function createTestConfig() {
@@ -48,6 +51,10 @@ test("sync endpoints return bootstrap, incremental changes, and reset snapshots"
   const app = createApp({
     config: createTestConfig(),
     store,
+    informationInput: createInformationInput({
+      persistence: createInformationInputPersistence(store),
+      collector: createMemoryContentCollector(),
+    }),
   });
   const server = createServer(app);
   server.listen(0, "127.0.0.1");

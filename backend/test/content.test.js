@@ -1,7 +1,16 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { extractFeedItemImage, refreshChannelContent } = require("../src/lib/content");
+const { extractFeedItemImage, createProductionContentCollector } = require("../src/information-input/productionCollector");
+const { createInformationInput } = require("../src/information-input");
+const { createInformationInputPersistence } = require("../src/information-input/persistence");
 const { MemoryStore } = require("../src/store/memoryStore");
+
+function createInput(store) {
+  return createInformationInput({
+    persistence: createInformationInputPersistence(store),
+    collector: createProductionContentCollector(),
+  });
+}
 
 function buildRssFeed(items = []) {
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -50,6 +59,30 @@ test("extractFeedItemImage resolves relative image urls from html content", () =
   );
 
   assert.equal(imageUrl, "https://example.com/images/story-cover.webp");
+});
+
+test("refresh with no available sources clears items without advancing the sync cursor", async () => {
+  const store = new MemoryStore();
+  const user = await store.createUser({
+    id: "user-news-empty-sources",
+    username: "news-empty-sources-user",
+    password_hash: "hash",
+    recovery_code_hash: "recovery",
+    preferences: {},
+  });
+  await store.upsertContentItems({ userId: user.id }, [{
+    id: "stale-item",
+    channel: "news",
+    title: "Existing",
+    canonical_url: "https://example.com/existing",
+    published_at: "2026-03-30T00:00:00.000Z",
+  }]);
+  const before = await store.getUserSyncState(user.id);
+
+  await createInput(store).refresh({ userId: user.id }, { channel: "news" });
+
+  assert.equal((await store.listContent({ userId: user.id }, { channel: "news" })).total, 0);
+  assert.deepEqual(await store.getUserSyncState(user.id), before);
 });
 
 test("refreshChannelContent normalizes nested feed categories to first-level tags", async () => {
@@ -101,9 +134,7 @@ test("refreshChannelContent normalizes nested feed categories to first-level tag
     );
 
   try {
-    await refreshChannelContent({
-      store,
-      userId: user.id,
+    await createInput(store).refresh({ userId: user.id }, {
       channel: "news",
       limit: 10,
     });
@@ -175,9 +206,7 @@ test("refreshChannelContent stores source sync metadata and avoids article fetch
   };
 
   try {
-    const result = await refreshChannelContent({
-      store,
-      userId: user.id,
+    const result = await createInput(store).refresh({ userId: user.id }, {
       channel: "news",
       limit: 10,
     });
@@ -265,15 +294,12 @@ test("refreshChannelContent only appends newer feed items on subsequent syncs", 
     });
 
   try {
-    await refreshChannelContent({
-      store,
-      userId: user.id,
+    const input = createInput(store);
+    await input.refresh({ userId: user.id }, {
       channel: "news",
       limit: 10,
     });
-    await refreshChannelContent({
-      store,
-      userId: user.id,
+    await input.refresh({ userId: user.id }, {
       channel: "news",
       limit: 10,
     });
@@ -361,9 +387,7 @@ test("refreshChannelContent prunes stale news items older than one week", async 
     );
 
   try {
-    await refreshChannelContent({
-      store,
-      userId: user.id,
+    await createInput(store).refresh({ userId: user.id }, {
       channel: "news",
       limit: 10,
     });
