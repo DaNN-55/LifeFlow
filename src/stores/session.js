@@ -2,7 +2,6 @@ import { defineStore } from "pinia";
 
 import { signOutAccount } from "../services/account-api";
 import { fetchSession, probeHealth } from "../services/api-client";
-import { demoState } from "../services/demo-state";
 import {
   clearOfflineSession,
   loadOfflineSession,
@@ -11,7 +10,7 @@ import {
   savePreviewMode,
   saveSessionId,
 } from "../services/config";
-import { hasDashboardSnapshotData, loadDashboardSnapshot, resetDashboardSyncState } from "../services/sync-service";
+import { stateContinuity, views } from "../services/state-continuity";
 import { getUserFacingErrorMessage } from "../utils/error-message";
 
 export const useSessionStore = defineStore("session", {
@@ -25,7 +24,6 @@ export const useSessionStore = defineStore("session", {
   }),
   actions: {
     applySession(payload, feedback = "") {
-      const previousUserId = this.user?.id || "";
       this.user = payload?.user || null;
       this.previewMode = false;
       savePreviewMode(false);
@@ -35,17 +33,13 @@ export const useSessionStore = defineStore("session", {
       if (this.user) {
         this.apiStatus = "ready";
       }
-      if (previousUserId) {
-        resetDashboardSyncState(previousUserId);
-      }
       if (this.user?.id) {
-        resetDashboardSyncState(this.user.id);
+        stateContinuity.open({ id: this.user.id }).control.sync().catch(() => {});
       }
       this.feedback = feedback || (this.user ? `已识别 ${this.user.username}` : "当前未登录");
     },
     restoreOfflineSession(payload, feedback = "当前离线，已显示最近一次同步内容") {
       const restoredUser = payload?.user || null;
-      const hasOfflineSnapshot = restoredUser?.id && hasDashboardSnapshotData(loadDashboardSnapshot(restoredUser.id));
       if (!restoredUser?.id) {
         this.user = null;
         this.status = "offline";
@@ -58,11 +52,13 @@ export const useSessionStore = defineStore("session", {
       this.previewMode = false;
       this.status = "ready";
       this.apiStatus = "offline";
+      const scope = stateContinuity.open({ id: restoredUser.id });
+      const hasOfflineSnapshot = scope.view(views.today()).freshness === "cached";
       this.feedback = hasOfflineSnapshot ? feedback : "当前离线，会话已保留，待服务恢复后继续同步";
       return true;
     },
     startPreviewSession() {
-      demoState.ensure();
+      stateContinuity.open({ mode: "demo" }).control.sync();
       this.user = null;
       this.previewMode = true;
       this.status = "ready";
@@ -154,10 +150,9 @@ export const useSessionStore = defineStore("session", {
       this.status = "guest";
       this.feedback = "已退出登录";
       if (wasPreviewMode) {
-        demoState.clear();
-      }
-      if (previousUserId) {
-        resetDashboardSyncState(previousUserId);
+        stateContinuity.open({ mode: "demo" }).control.close({ purge: true });
+      } else if (previousUserId) {
+        stateContinuity.open({ id: previousUserId }).control.close({ purge: true });
       }
     },
   },
