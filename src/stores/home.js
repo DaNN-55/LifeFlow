@@ -1,12 +1,7 @@
 import { defineStore } from "pinia";
 
-import { contentTabs, defaultWidgets } from "../app/constants";
-import {
-  applyDashboardMutation,
-  hasDashboardSnapshotData,
-  loadDashboardSnapshot,
-  syncDashboardSnapshot,
-} from "../services/sync-service";
+import { defaultWidgets } from "../app/constants";
+import { stateContinuity, views } from "../services/state-continuity";
 import {
   createEmptyHomeState,
   createEmptyWeatherState,
@@ -16,8 +11,6 @@ import {
   formatDisplayStockCode,
   normalizeSymbols,
 } from "../services/home-api";
-import { refreshContent } from "../services/content-api";
-import { demoState } from "../services/demo-state";
 import {
   addDays,
   formatDateKey,
@@ -31,6 +24,9 @@ import { formatMonthDayLabel, formatWeekday, formatWeekdayShortEn } from "../uti
 import { loadSessionId } from "../services/config";
 import { useSessionStore } from "./session";
 import { useTodayStore } from "./today";
+
+let observedScope = null;
+let stopObserving = null;
 
 function countExecutionDensity(record) {
   const tasks = record?.payload?.tasks;
@@ -85,142 +81,6 @@ function createCalendarGrid(selectedDateString) {
   };
 }
 
-function buildFreshNewsKey(item = {}) {
-  return String(item?.id || item?.canonical_url || item?.source_url || item?.title || "").trim();
-}
-
-function getNewsTypeKey(item = {}) {
-  const explicitType = String(item?.content_type || "").trim();
-  if (explicitType) {
-    return explicitType;
-  }
-  const firstTag = Array.isArray(item?.tags) ? String(item.tags[0] || "").trim() : "";
-  return firstTag || "资讯";
-}
-
-function createChannelFeedMap() {
-  return Object.fromEntries(contentTabs.map((tab) => [tab.id, []]));
-}
-
-function normalizeChannelFeedMap(value = {}) {
-  const normalized = createChannelFeedMap();
-  for (const tab of contentTabs) {
-    normalized[tab.id] = Array.isArray(value?.[tab.id]) ? value[tab.id] : [];
-  }
-  return normalized;
-}
-
-function getNewsSortTime(item = {}) {
-  return new Date(item?.published_at || item?.fetched_at || item?.created_at || 0).getTime();
-}
-
-function buildFreshNewsFeed(channelFeeds = {}, limit = 5) {
-  const normalizedFeeds = normalizeChannelFeedMap(channelFeeds);
-  const merged = contentTabs
-    .flatMap((tab) =>
-      normalizedFeeds[tab.id].map((item) => ({
-        ...item,
-        channel: item?.channel || tab.id,
-      })),
-    )
-    .filter((item) => buildFreshNewsKey(item));
-
-  const deduped = [];
-  const seen = new Set();
-  merged.forEach((item) => {
-    const key = buildFreshNewsKey(item);
-    if (!key || seen.has(key)) {
-      return;
-    }
-    seen.add(key);
-    deduped.push(item);
-  });
-
-  const sorted = deduped.sort((left, right) => getNewsSortTime(right) - getNewsSortTime(left));
-  const picked = [];
-  const usedTypes = new Set();
-
-  for (const item of sorted) {
-    const typeKey = getNewsTypeKey(item);
-    if (usedTypes.has(typeKey)) {
-      continue;
-    }
-    usedTypes.add(typeKey);
-    picked.push(item);
-    if (picked.length >= limit) {
-      return picked;
-    }
-  }
-
-  for (const item of sorted) {
-    if (picked.includes(item)) {
-      continue;
-    }
-    picked.push(item);
-    if (picked.length >= limit) {
-      break;
-    }
-  }
-
-  return picked;
-}
-
-function buildFavoritesFromContentSnapshot(snapshot = {}, options = {}) {
-  const contentSnapshot = snapshot?.content || {};
-  const favoriteChannel = String(options?.favoriteChannel || "all");
-  const selectedChannels = favoriteChannel === "all" ? contentTabs.map((tab) => tab.id) : [favoriteChannel];
-  const favoriteItems = selectedChannels
-    .flatMap((channel) => Object.values(contentSnapshot?.favorites?.[channel] || {}))
-    .sort((left, right) => {
-      const leftTime = new Date(left?.favorited_at || left?.published_at || left?.created_at || 0).getTime();
-      const rightTime = new Date(right?.favorited_at || right?.published_at || right?.created_at || 0).getTime();
-      return rightTime - leftTime;
-    })
-    .slice(0, 3);
-
-  return {
-    status: favoriteItems.length ? "ready" : "empty",
-    items: favoriteItems,
-    message: favoriteItems.length ? "最近收藏资讯" : "当前还没有收藏资讯。",
-  };
-}
-
-function buildHomeFromContentSnapshot(snapshot = {}, options = {}) {
-  const contentSnapshot = snapshot?.content || {};
-  const channelFeeds = createChannelFeedMap();
-  const hiddenSourceKeys = new Set(
-    Object.keys(options?.hiddenSources || {})
-      .filter(Boolean)
-      .map((key) => String(key)),
-  );
-
-  contentTabs.forEach((tab) => {
-    const enabledSourceIds = new Set(
-      Object.values(contentSnapshot?.sources?.[tab.id] || {})
-        .filter((source) => source?.enabled !== false)
-        .map((source) => String(source?.id || "").trim())
-        .filter(Boolean),
-    );
-    const items = Object.values(contentSnapshot?.items?.[tab.id] || {})
-      .filter((item) => {
-        const sourceId = String(item?.source_id || "").trim();
-        if (sourceId && hiddenSourceKeys.has(`${tab.id}:${sourceId}`)) {
-          return false;
-        }
-        return !sourceId || enabledSourceIds.size === 0 || enabledSourceIds.has(sourceId);
-      })
-      .sort((left, right) => getNewsSortTime(right) - getNewsSortTime(left))
-      .slice(0, 12);
-    channelFeeds[tab.id] = items;
-  });
-
-  return {
-    channelFeeds,
-    freshNewsFeed: buildFreshNewsFeed(channelFeeds),
-    favorites: buildFavoritesFromContentSnapshot(snapshot, options),
-  };
-}
-
 function pickSupplementalHomeState(home = {}) {
   const picked = {};
   if (home?.github && typeof home.github === "object") {
@@ -251,19 +111,19 @@ export const useHomeStore = defineStore("home", {
   getters: {
     githubProfileUrl() {
       const sessionStore = useSessionStore();
-      return String(sessionStore.user?.preferences?.widgets?.github?.profileUrl || defaultWidgets.github.profileUrl || "").trim();
+      return String(sessionStore.preferences?.widgets?.github?.profileUrl || defaultWidgets.github.profileUrl || "").trim();
     },
     favoritesChannel() {
       const sessionStore = useSessionStore();
-      return String(sessionStore.user?.preferences?.widgets?.favorites?.channel || defaultWidgets.favorites.channel || "all");
+      return String(sessionStore.preferences?.widgets?.favorites?.channel || defaultWidgets.favorites.channel || "all");
     },
     weatherLocationQuery() {
       const sessionStore = useSessionStore();
-      return String(sessionStore.user?.preferences?.widgets?.weather?.locationQuery || defaultWidgets.weather.locationQuery || "").trim();
+      return String(sessionStore.preferences?.widgets?.weather?.locationQuery || defaultWidgets.weather.locationQuery || "").trim();
     },
     stockSymbolsInput() {
       const sessionStore = useSessionStore();
-      return String(sessionStore.user?.preferences?.widgets?.stock?.symbols || defaultWidgets.stock.symbols);
+      return String(sessionStore.preferences?.widgets?.stock?.symbols || defaultWidgets.stock.symbols);
     },
     todaySummary() {
       const todayStore = useTodayStore();
@@ -275,60 +135,39 @@ export const useHomeStore = defineStore("home", {
     },
   },
   actions: {
-    applyContentSnapshot(snapshot = {}, persist = true) {
+    getContinuityScope() {
       const sessionStore = useSessionStore();
-      const nextHome = buildHomeFromContentSnapshot(snapshot, {
-        hiddenSources: sessionStore.user?.preferences?.content?.hiddenSources || {},
-        favoriteChannel: this.favoritesChannel,
+      if (sessionStore.previewMode) return stateContinuity.open({ mode: "demo" });
+      if (!sessionStore.user?.id) return null;
+      return stateContinuity.open({ id: sessionStore.user.id });
+    },
+    observeContinuity(scope) {
+      if (!scope || observedScope === scope) return;
+      stopObserving?.();
+      observedScope = scope;
+      stopObserving = scope.observe(() => {
+        const data = scope.view(views.home()).data;
+        this.applyCachedHome(pickSupplementalHomeState(data.supplemental));
+        this.loadCalendar(this.calendarSelectedDate, data);
       });
-      this.channelFeeds = normalizeChannelFeedMap(nextHome.channelFeeds);
-      this.freshNewsFeed = Array.isArray(nextHome.freshNewsFeed) ? nextHome.freshNewsFeed : [];
-      this.favorites = nextHome.favorites;
-      if (!persist) {
-        return nextHome;
-      }
-      applyDashboardMutation(sessionStore.user?.id, nextHome);
-      return nextHome;
     },
     applyCachedHome(home = {}) {
-      const channelFeeds = normalizeChannelFeedMap(
-        home.channelFeeds && typeof home.channelFeeds === "object"
-          ? home.channelFeeds
-          : {
-              news: Array.isArray(home.freshNewsFeed)
-                ? home.freshNewsFeed
-                : [],
-            },
-      );
-      this.channelFeeds = channelFeeds;
-      if (Array.isArray(home.freshNewsFeed)) {
-        this.freshNewsFeed = home.freshNewsFeed;
-      } else {
-        this.rebuildFreshNewsFeed(false);
-      }
-      if (home.favorites && typeof home.favorites === "object") {
-        this.favorites = home.favorites;
-      }
-      if (home.github && typeof home.github === "object") {
-        this.github = home.github;
-      }
-      if (home.weather && typeof home.weather === "object") {
-        this.weather = {
-          ...createEmptyWeatherState(),
-          ...home.weather,
-        };
-      }
-      if (home.stock && typeof home.stock === "object") {
-        this.stock = home.stock;
-      }
+      const empty = createEmptyHomeState();
+      this.github = home.github && typeof home.github === "object" ? home.github : empty.github;
+      this.weather = {
+        ...createEmptyWeatherState(),
+        ...(home.weather && typeof home.weather === "object" ? home.weather : {}),
+      };
+      this.stock = home.stock && typeof home.stock === "object" ? home.stock : empty.stock;
     },
     async bootstrap() {
       const sessionStore = useSessionStore();
+      const scope = this.getContinuityScope();
+      this.observeContinuity(scope);
       if (sessionStore.previewMode) {
-        const snapshot = demoState.ensure();
+        const projection = scope.view(views.home());
         this.applyCachedHome({
-          ...buildHomeFromContentSnapshot(snapshot),
-          ...pickSupplementalHomeState(snapshot.home || {}),
+          ...pickSupplementalHomeState(projection.data.supplemental),
         });
         this.weather = {
           ...this.weather,
@@ -339,7 +178,7 @@ export const useHomeStore = defineStore("home", {
             dateLabel: formatMonthDayLabel(item.date),
           })),
         };
-        await this.loadCalendar(this.calendarSelectedDate, snapshot);
+        await this.loadCalendar(this.calendarSelectedDate, projection.data);
         this.loaded = true;
         return;
       }
@@ -349,52 +188,39 @@ export const useHomeStore = defineStore("home", {
         return;
       }
 
-      const cachedSnapshot = loadDashboardSnapshot(sessionStore.user.id);
+      const cachedSnapshot = scope.view(views.home()).data;
       const cachedHome = {
-        ...buildHomeFromContentSnapshot(cachedSnapshot, {
-          hiddenSources: sessionStore.user?.preferences?.content?.hiddenSources || {},
-          favoriteChannel: this.favoritesChannel,
-        }),
-        ...pickSupplementalHomeState(cachedSnapshot?.home || {}),
+        ...pickSupplementalHomeState(cachedSnapshot?.supplemental || {}),
       };
       this.applyCachedHome(cachedHome);
       const currentSessionId = loadSessionId();
       const lastSidebarRefreshSessionId = String(cachedHome.sidebarRefreshSessionId || "");
       const shouldAutoRefreshSidebar = Boolean(currentSessionId && currentSessionId !== lastSidebarRefreshSessionId);
-      if (hasDashboardSnapshotData(cachedSnapshot)) {
-        await this.loadCalendar(this.calendarSelectedDate, cachedSnapshot);
-      }
+      await this.loadCalendar(this.calendarSelectedDate, cachedSnapshot);
 
-      const remoteSnapshot = await syncDashboardSnapshot(sessionStore.user.id);
+      await scope.control.sync();
+      const remoteSnapshot = scope.view(views.home()).data;
       this.applyCachedHome({
-        ...buildHomeFromContentSnapshot(remoteSnapshot, {
-          hiddenSources: sessionStore.user?.preferences?.content?.hiddenSources || {},
-          favoriteChannel: this.favoritesChannel,
-        }),
-        ...pickSupplementalHomeState(remoteSnapshot?.home || {}),
+        ...pickSupplementalHomeState(remoteSnapshot?.supplemental || {}),
       });
-      const shouldPrimeFreshNews = !shouldAutoRefreshSidebar && this.freshNewsFeed.length === 0;
 
       const jobs = [this.loadCalendar(this.calendarSelectedDate, remoteSnapshot)];
       if (shouldAutoRefreshSidebar) {
-        jobs.push(this.refreshSidebarAfterLogin(currentSessionId));
-      } else if (shouldPrimeFreshNews) {
-        jobs.push(this.refreshFeeds());
+        jobs.push(this.refreshSidebarAfterLogin(currentSessionId, scope));
       }
 
       await Promise.allSettled(jobs);
       this.loaded = true;
     },
-    async refreshSidebarAfterLogin(sessionId = loadSessionId()) {
+    async refreshSidebarAfterLogin(sessionId = loadSessionId(), scope = this.getContinuityScope()) {
+      const commitHome = scope?.supplemental.beginHomeUpdate();
       await Promise.allSettled([
-        this.refreshFeeds(),
-        this.refreshGitHub(),
-        this.refreshWeather(),
-        this.refreshStocks(),
+        this.refreshGitHub(scope),
+        this.refreshWeather(scope),
+        this.refreshStocks(scope),
       ]);
 
-      const sessionStore = useSessionStore();
-      applyDashboardMutation(sessionStore.user?.id, {
+      commitHome?.({
         sidebarRefreshSessionId: String(sessionId || ""),
       });
     },
@@ -407,7 +233,7 @@ export const useHomeStore = defineStore("home", {
       const todayKey = getTodayDateString();
       const selectedMonth = parseLocalDate(this.calendarSelectedDate).getMonth();
       const selectedYear = parseLocalDate(this.calendarSelectedDate).getFullYear();
-      const resolvedSnapshot = snapshot || loadDashboardSnapshot(useSessionStore().user?.id);
+      const resolvedSnapshot = snapshot || this.getContinuityScope()?.view(views.home()).data || {};
       const records = dates.map((date) => {
         const key = formatDateKey(date);
         return resolvedSnapshot?.dailyRecords?.[key] || { date: key, payload: { tasks: {} } };
@@ -431,74 +257,26 @@ export const useHomeStore = defineStore("home", {
     async selectCalendarDate(dateString) {
       await this.loadCalendar(dateString);
     },
-    async refreshFeeds() {
-      const results = await Promise.allSettled(contentTabs.map((tab) => this.refreshFeed(tab.id)));
-      const nextChannelFeeds = normalizeChannelFeedMap(this.channelFeeds);
-      results.forEach((result, index) => {
-        if (result.status === "rejected") {
-          nextChannelFeeds[contentTabs[index].id] = [];
-        }
-      });
-      this.channelFeeds = nextChannelFeeds;
-      if (results.every((result) => result.status === "rejected")) {
-        this.freshNewsFeed = [];
-        const sessionStore = useSessionStore();
-        applyDashboardMutation(sessionStore.user?.id, {
-          channelFeeds: this.channelFeeds,
-          freshNewsFeed: this.freshNewsFeed,
-        });
-        return;
-      }
-      this.rebuildFreshNewsFeed();
-    },
-    async refreshFeed(channel) {
-      const targetChannel = contentTabs.some((tab) => tab.id === channel) ? channel : (contentTabs[0]?.id || "news");
-      const sessionStore = useSessionStore();
-      if (!sessionStore.user?.id) {
-        this.channelFeeds = {
-          ...normalizeChannelFeedMap(this.channelFeeds),
-          [targetChannel]: [],
-        };
-        return [];
-      }
-      await refreshContent(targetChannel);
-      const snapshot = await syncDashboardSnapshot(sessionStore.user.id, { force: true });
-      const nextHome = this.applyContentSnapshot(snapshot);
-      const items = Array.isArray(nextHome?.channelFeeds?.[targetChannel]) ? nextHome.channelFeeds[targetChannel] : [];
-      return items;
-    },
-    rebuildFreshNewsFeed(persist = true) {
-      this.freshNewsFeed = buildFreshNewsFeed(this.channelFeeds);
-      if (!persist) {
-        return;
-      }
-      const sessionStore = useSessionStore();
-      applyDashboardMutation(sessionStore.user?.id, {
-        channelFeeds: this.channelFeeds,
-        freshNewsFeed: this.freshNewsFeed,
-      });
-    },
-    async refreshGitHub() {
+    async refreshGitHub(scope = this.getContinuityScope()) {
       if (useSessionStore().previewMode) {
         return;
       }
-      this.github = await fetchGitHubPreview(this.githubProfileUrl).catch(() => ({
+      const commitHome = scope?.supplemental.beginHomeUpdate();
+      const github = await fetchGitHubPreview(this.githubProfileUrl).catch(() => ({
         status: "error",
         repos: [],
         url: this.githubProfileUrl,
         message: "GitHub 预览暂时不可用",
       }));
-      const sessionStore = useSessionStore();
-      applyDashboardMutation(sessionStore.user?.id, {
-        github: this.github,
-      });
+      if (commitHome?.({ github })) this.github = github;
     },
-    async refreshWeather() {
+    async refreshWeather(scope = this.getContinuityScope()) {
       if (useSessionStore().previewMode) {
         return;
       }
+      const commitHome = scope?.supplemental.beginHomeUpdate();
       const weather = await fetchWeatherWidget(this.weatherLocationQuery).catch(() => createEmptyWeatherState());
-      this.weather = {
+      const nextWeather = {
         ...createEmptyWeatherState(),
         ...weather,
         forecast: Array.isArray(weather?.forecast)
@@ -511,25 +289,19 @@ export const useHomeStore = defineStore("home", {
           : [],
         status: weather?.location ? "ready" : "error",
       };
-      const sessionStore = useSessionStore();
-      applyDashboardMutation(sessionStore.user?.id, {
-        weather: this.weather,
-      });
+      if (commitHome?.({ weather: nextWeather })) this.weather = nextWeather;
     },
-    async refreshStocks() {
+    async refreshStocks(scope = this.getContinuityScope()) {
       if (useSessionStore().previewMode) {
         return;
       }
-      this.stock = await fetchStockWidget(this.stockSymbolsInput);
-      const sessionStore = useSessionStore();
-      applyDashboardMutation(sessionStore.user?.id, {
-        stock: this.stock,
-      });
+      const commitHome = scope?.supplemental.beginHomeUpdate();
+      const stock = await fetchStockWidget(this.stockSymbolsInput);
+      if (commitHome?.({ stock })) this.stock = stock;
     },
     formatDateTime,
     formatMonthDay,
     formatDisplayStockCode,
     normalizeSymbols,
-    contentTabs,
   },
 });

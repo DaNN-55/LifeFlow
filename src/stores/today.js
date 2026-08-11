@@ -1,29 +1,14 @@
 import { defineStore } from "pinia";
 
 import { TASK_COLOR_PALETTES, getRandomTaskColor } from "../app/task-constants";
-import {
-  createTask,
-  deleteTask,
-  saveAccountPreferences,
-  saveDailyRecord,
-  updateTask,
-} from "../services/today-api";
-import {
-  loadCachedTodayNoteDrafts,
-  saveCachedTodayNoteDrafts,
-} from "../services/dashboard-cache";
-import { demoState } from "../services/demo-state";
-import {
-  applyDashboardMutation,
-  hasDashboardSnapshotData,
-  loadDashboardSnapshot,
-  syncDashboardSnapshot,
-} from "../services/sync-service";
+import { stateContinuity, views } from "../services/state-continuity";
 import { formatDateKey, formatDisplayDate, formatDateTime, getTodayDateString, parseLocalDate } from "../utils/date";
 import { getUserFacingErrorMessage } from "../utils/error-message";
 import { getTaskIcon as resolveTaskIcon } from "../utils/task-icons";
 import { useSessionStore } from "./session";
-import { useWeeklyStore } from "./weekly";
+
+let observedScope = null;
+let stopObserving = null;
 
 function normalizeTask(task = {}, index = 0) {
   return {
@@ -33,6 +18,9 @@ function normalizeTask(task = {}, index = 0) {
     order: Number(task.display_order || index + 1),
     archived: Boolean(task.archived),
     archivedAt: task.archived_at || "",
+    lifecycleEvents: Array.isArray(task.lifecycle_events || task.lifecycleEvents)
+      ? (task.lifecycle_events || task.lifecycleEvents).map(normalizeLifecycleEvent)
+      : [],
     tags: Array.isArray(task.tags) ? task.tags : [],
     icon: String(task.icon || ""),
   };
@@ -50,6 +38,14 @@ function normalizeTaskState(taskState = {}) {
   return {
     completed: Boolean(taskState.completed),
     notes: Array.isArray(taskState.notes) ? taskState.notes.map(normalizeNote) : [],
+  };
+}
+
+function normalizeLifecycleEvent(event = {}) {
+  return {
+    taskId: String(event.taskId || ""),
+    type: event.type === "restore" ? "restore" : "archive",
+    changedAt: String(event.changedAt || ""),
   };
 }
 
@@ -166,68 +162,67 @@ export const useTodayStore = defineStore("today", {
     },
     tagsByTaskId() {
       const sessionStore = useSessionStore();
-      return sessionStore.user?.preferences?.tasks?.tagsByTaskId || {};
+      return sessionStore.preferences?.tasks?.tagsByTaskId || {};
     },
     iconByTaskId() {
       const sessionStore = useSessionStore();
-      return sessionStore.user?.preferences?.tasks?.iconByTaskId || {};
+      return sessionStore.preferences?.tasks?.iconByTaskId || {};
     },
   },
   actions: {
-    applySnapshot(snapshot = {}) {
-      const normalizedTasks = Array.isArray(snapshot?.tasks)
-        ? snapshot.tasks.map(normalizeTask).sort((left, right) => left.order - right.order)
+    getContinuityScope() {
+      const sessionStore = useSessionStore();
+      if (sessionStore.previewMode) {
+        return stateContinuity.open({ mode: "demo" });
+      }
+      if (!sessionStore.user?.id) {
+        return null;
+      }
+      return stateContinuity.open({ id: sessionStore.user.id });
+    },
+    getTodayProjection() {
+      const scope = this.getContinuityScope();
+      return scope ? scope.view(views.today({ date: this.selectedDate })) : null;
+    },
+    observeContinuity(scope) {
+      if (!scope || observedScope === scope) return;
+      stopObserving?.();
+      observedScope = scope;
+      stopObserving = scope.observe(() => this.applyProjection(scope.view(views.today({ date: this.selectedDate }))));
+    },
+    applyProjection(projection) {
+      const data = projection?.data || {};
+      const normalizedTasks = Array.isArray(data.tasks)
+        ? data.tasks.map(normalizeTask).sort((left, right) => left.order - right.order)
         : [];
       this.tasks = normalizedTasks;
-      this.record = normalizeRecord(snapshot?.dailyRecords?.[this.selectedDate], normalizedTasks, this.selectedDate);
-      this.restoreNoteDrafts();
+      this.record = normalizeRecord(data.record, normalizedTasks, this.selectedDate);
+      const activeTaskIds = new Set(normalizedTasks.map((task) => task.id));
+      this.noteDrafts = Object.fromEntries(
+        Object.entries(data.drafts || {}).filter(([taskId]) => activeTaskIds.has(String(taskId || ""))),
+      );
       this.ready = true;
     },
-    persistLocalCache(mutation = {}) {
-      const sessionStore = useSessionStore();
-      if (!sessionStore.user?.id) {
-        return;
-      }
-      applyDashboardMutation(sessionStore.user.id, {
-        tasks: this.tasks,
-        dailyRecord: this.record,
-        ...mutation,
-      });
-    },
     restoreNoteDrafts() {
-      const sessionStore = useSessionStore();
-      if (!sessionStore.user?.id) {
-        this.noteDrafts = {};
-        return;
+      const projection = this.getTodayProjection();
+      if (projection) {
+        this.applyProjection(projection);
       }
-
-      const savedDrafts = loadCachedTodayNoteDrafts(sessionStore.user.id, this.selectedDate);
-      const activeTaskIds = new Set(this.tasks.map((task) => String(task.id || "")));
-
-      this.noteDrafts = Object.fromEntries(
-        Object.entries(savedDrafts).filter(([taskId]) => activeTaskIds.has(String(taskId || ""))),
-      );
     },
     persistNoteDrafts() {
-      const sessionStore = useSessionStore();
-      if (!sessionStore.user?.id) {
+      const scope = this.getContinuityScope();
+      if (!scope) {
         return;
       }
-      saveCachedTodayNoteDrafts(sessionStore.user.id, this.selectedDate, this.noteDrafts);
+      scope.change((writes) => writes.today.saveDrafts(this.selectedDate, this.noteDrafts));
     },
     handleActionError(error, fallbackMessage) {
       this.error = getUserFacingErrorMessage(error, fallbackMessage);
       this.setSaveState(this.error, "error");
     },
     async bootstrap() {
-      const sessionStore = useSessionStore();
-      if (sessionStore.previewMode) {
-        this.applySnapshot(demoState.ensure());
-        this.setSaveState("Demo 数据仅保存在独立的本地空间", "success");
-        this.error = "";
-        return;
-      }
-      if (!sessionStore.user?.id) {
+      const scope = this.getContinuityScope();
+      if (!scope) {
         this.ready = false;
         return;
       }
@@ -238,21 +233,24 @@ export const useTodayStore = defineStore("today", {
 
       this.loading = true;
       this.error = "";
+      this.observeContinuity(scope);
 
       try {
-        const cachedSnapshot = loadDashboardSnapshot(sessionStore.user.id);
-        const hasCachedData = hasDashboardSnapshotData(cachedSnapshot);
-
-        if (hasCachedData) {
-          this.applySnapshot(cachedSnapshot);
+        const initialProjection = this.getTodayProjection();
+        const hasCachedData = initialProjection?.freshness === "cached";
+        if (hasCachedData || initialProjection?.freshness === "demo") {
+          this.applyProjection(initialProjection);
           this.setSaveState("数据已从本地缓存载入", "success");
         }
-
-        const remoteSnapshot = await syncDashboardSnapshot(sessionStore.user.id);
-        this.applySnapshot(remoteSnapshot);
-        this.setSaveState(hasCachedData ? "增量同步已完成" : "数据已从云端载入", "success");
+        await scope.control.sync();
+        this.applyProjection(this.getTodayProjection());
+        this.setSaveState(initialProjection?.freshness === "demo"
+          ? "Demo 数据仅保存在独立的本地空间"
+          : (hasCachedData ? "增量同步已完成" : "数据已从云端载入"), "success");
       } catch (error) {
-        if (this.ready) {
+        const projection = this.getTodayProjection();
+        if (projection?.freshness === "cached") {
+          this.applyProjection(projection);
           this.error = "";
           this.setSaveState("当前离线，已显示最近一次同步内容", "default");
         } else {
@@ -289,9 +287,7 @@ export const useTodayStore = defineStore("today", {
         delete nextDrafts[taskId];
       }
 
-      this.noteDrafts = {
-        ...nextDrafts,
-      };
+      this.noteDrafts = nextDrafts;
       this.persistNoteDrafts();
     },
     toggleTaskMenu(taskId) {
@@ -317,9 +313,9 @@ export const useTodayStore = defineStore("today", {
         return normalizeRecord(this.record, this.tasks, targetDate);
       }
 
-      const sessionStore = useSessionStore();
-      const snapshot = loadDashboardSnapshot(sessionStore.user?.id);
-      return normalizeRecord(snapshot?.dailyRecords?.[targetDate], this.tasks, targetDate);
+      const scope = this.getContinuityScope();
+      const projection = scope?.view(views.today({ date: targetDate }));
+      return normalizeRecord(projection?.data.record, this.tasks, targetDate);
     },
     async persistRecord(successMessage, date = this.selectedDate, mutator = null) {
       const targetDate = /^\d{4}-\d{2}-\d{2}$/.test(String(date || "")) ? String(date) : this.selectedDate;
@@ -328,114 +324,74 @@ export const useTodayStore = defineStore("today", {
         mutator(nextRecord);
       }
 
-      if (targetDate === this.selectedDate) {
-        this.record = normalizeRecord(nextRecord, this.tasks, targetDate);
+      const scope = this.getContinuityScope();
+      if (!scope) {
+        return null;
       }
-      const sessionStore = useSessionStore();
-      if (sessionStore.previewMode) {
-        const snapshot = demoState.updateDailyRecord(
-          targetDate,
-          buildRecordPayloadFromTasks(this.tasks, nextRecord),
-        );
-        this.applySnapshot(snapshot);
-        this.setSaveState(`${successMessage} · Demo 本地保存`, "success");
-        return this.record;
-      }
-      this.persistLocalCache({
-        dailyRecord: {
-          ...nextRecord,
-          payload: buildRecordPayloadFromTasks(this.tasks, nextRecord),
-        },
-      });
+      const payload = buildRecordPayloadFromTasks(this.tasks, nextRecord);
+      const pending = scope.change((writes) => writes.today.saveRecord(targetDate, payload));
+      this.applyProjection(this.getTodayProjection());
 
       try {
         this.setSaveState("正在同步到云端...", "progress");
-        const response = await saveDailyRecord(targetDate, buildRecordPayloadFromTasks(this.tasks, nextRecord));
-        const persistedRecord = normalizeRecord(response?.record, this.tasks, targetDate);
-        if (targetDate === this.selectedDate) {
-          this.record = persistedRecord;
-        }
-        this.persistLocalCache({
-          dailyRecord: persistedRecord,
-        });
+        await pending;
+        this.applyProjection(this.getTodayProjection());
         this.setSaveState(successMessage, "success");
-        return persistedRecord;
+        return this.getRecordForDate(targetDate);
       } catch (error) {
+        this.applyProjection(this.getTodayProjection());
         this.handleActionError(error, "今日记录同步失败");
         return null;
       }
     },
     async persistTask(taskId, payload, successMessage) {
-      const sessionStore = useSessionStore();
-      if (sessionStore.previewMode) {
-        this.applySnapshot(demoState.updateTask(taskId, payload));
-        this.setSaveState(`${successMessage} · Demo 本地保存`, "success");
-        return true;
-      }
+      const scope = this.getContinuityScope();
+      if (!scope) return false;
+      const pending = scope.change((writes) => writes.today.updateTask(taskId, payload));
+      this.applyProjection(this.getTodayProjection());
       try {
-        this.persistLocalCache();
         this.setSaveState("正在同步到云端...", "progress");
-        const response = await updateTask(taskId, payload);
-        const normalized = normalizeTask(response?.task || payload);
-        this.tasks = this.tasks
-          .map((task) => (task.id === taskId ? { ...task, ...normalized } : task))
-          .sort((left, right) => left.order - right.order);
-        this.persistLocalCache();
+        await pending;
+        this.applyProjection(this.getTodayProjection());
         this.setSaveState(successMessage, "success");
         return true;
       } catch (error) {
+        this.applyProjection(this.getTodayProjection());
         this.handleActionError(error, "任务更新失败");
         return false;
       }
     },
+    async restoreTask(taskId) {
+      const task = this.tasks.find((item) => String(item.id) === String(taskId));
+      if (!task) return false;
+      const changedAt = new Date().toISOString();
+      const lifecycleEvents = [...task.lifecycleEvents, normalizeLifecycleEvent({ taskId: task.id, type: "restore", changedAt })];
+      const restored = await this.persistTask(
+        task.id,
+        { archived: false, lifecycleEvents },
+        `已恢复任务：${task.name}`,
+      );
+      return restored;
+    },
     async persistTaskPreferences(taskId, { tags, icon } = {}) {
       const sessionStore = useSessionStore();
       if (sessionStore.previewMode) {
-        this.applySnapshot(demoState.updateTask(taskId, {
+        const scope = this.getContinuityScope();
+        await scope.change((writes) => writes.today.updateTask(taskId, {
           ...(Array.isArray(tags) ? { tags } : {}),
           ...(typeof icon === "string" ? { icon } : {}),
         }));
+        this.applyProjection(this.getTodayProjection());
         return true;
       }
       if (!sessionStore.user) {
         return false;
       }
 
-      const nextTagsByTaskId = {
-        ...(sessionStore.user.preferences?.tasks?.tagsByTaskId || {}),
-      };
-      const nextIconByTaskId = {
-        ...(sessionStore.user.preferences?.tasks?.iconByTaskId || {}),
-      };
-
-      if (Array.isArray(tags)) {
-        if (tags.length) {
-          nextTagsByTaskId[taskId] = tags;
-        } else {
-          delete nextTagsByTaskId[taskId];
-        }
-      }
-
-      if (typeof icon === "string") {
-        if (icon) {
-          nextIconByTaskId[taskId] = icon;
-        } else {
-          delete nextIconByTaskId[taskId];
-        }
-      }
-
-      const nextPreferences = {
-        ...(sessionStore.user.preferences || {}),
-        tasks: {
-          ...(sessionStore.user.preferences?.tasks || {}),
-          tagsByTaskId: nextTagsByTaskId,
-          iconByTaskId: nextIconByTaskId,
-        },
-      };
-
       try {
-        const response = await saveAccountPreferences(nextPreferences);
-        sessionStore.setPreferences(response?.preferences || nextPreferences);
+        const scope = this.getContinuityScope();
+        const response = await scope.change((writes) => writes.today.updateTaskPreferences(taskId, { tags, icon }));
+        sessionStore.setPreferences(response?.preferences || scope.view(views.information()).data.preferences);
         return true;
       } catch (error) {
         this.handleActionError(error, "任务偏好同步失败");
@@ -555,13 +511,14 @@ export const useTodayStore = defineStore("today", {
 
       const sessionStore = useSessionStore();
       if (sessionStore.previewMode) {
-        const snapshot = demoState.createTask({
+        const scope = this.getContinuityScope();
+        await scope.change((writes) => writes.today.createTask({
           name: normalizedName,
           tags: normalizeTaskTags(tagsInput),
           color: color || getRandomTaskColor(),
           icon,
-        });
-        this.applySnapshot(snapshot);
+        }));
+        this.applyProjection(this.getTodayProjection());
         this.newTaskColor = "";
         this.newTaskIcon = "";
         this.setSaveState(`已创建任务：${normalizedName} · Demo 本地保存`, "success");
@@ -570,16 +527,18 @@ export const useTodayStore = defineStore("today", {
 
       try {
         this.setSaveState("正在同步到云端...", "progress");
-        const response = await createTask({
+        const scope = this.getContinuityScope();
+        const response = await scope.change((writes) => writes.today.createTask({
           name: normalizedName,
           color: color || getRandomTaskColor(),
           displayOrder: this.tasks.length + 1,
           archived: false,
-        });
-        const createdTask = normalizeTask(response?.task || {}, this.tasks.length);
-        this.tasks = [...this.tasks, createdTask].sort((left, right) => left.order - right.order);
-        this.record.payload.tasks[createdTask.id] = createEmptyTaskState();
-        this.persistLocalCache();
+        }));
+        this.applyProjection(this.getTodayProjection());
+        const createdTask = this.tasks.find((task) => task.id === String(response?.task?.id || ""));
+        if (!createdTask) {
+          throw new Error("创建任务后未收到任务数据");
+        }
         const tags = normalizeTaskTags(tagsInput);
         await this.persistTaskPreferences(createdTask.id, { tags, icon });
         this.activePaletteTaskId = "";
@@ -648,11 +607,13 @@ export const useTodayStore = defineStore("today", {
         this.closeArchiveDialog();
         return;
       }
+      const changedAt = new Date().toISOString();
       task.archived = true;
-      task.archivedAt = new Date().toISOString();
-      await this.persistTask(
+      task.archivedAt = changedAt;
+      const lifecycleEvents = [...task.lifecycleEvents, normalizeLifecycleEvent({ taskId: task.id, type: "archive", changedAt })];
+      const archived = await this.persistTask(
         task.id,
-        { archived: true, archivedAt: task.archivedAt },
+        { archived: true, archivedAt: task.archivedAt, lifecycleEvents },
         `已存档任务：${task.name}`,
       );
       this.closeArchiveDialog();
@@ -674,37 +635,25 @@ export const useTodayStore = defineStore("today", {
       const taskName = task?.name || "该任务";
       const sessionStore = useSessionStore();
       if (sessionStore.previewMode) {
-        this.applySnapshot(demoState.deleteTask(taskId));
+        await this.getContinuityScope().change((writes) => writes.today.deleteTask(taskId));
+        this.applyProjection(this.getTodayProjection());
         this.setSaveState(`已删除任务：${taskName} · Demo 本地保存`, "success");
         this.closeDeleteDialog();
         return;
       }
       try {
         this.setSaveState("正在同步到云端...", "progress");
-        await deleteTask(taskId);
-        this.tasks = this.tasks.filter((item) => item.id !== taskId);
-        delete this.record.payload.tasks[taskId];
-        this.persistLocalCache();
-        const nextTagsByTaskId = { ...(sessionStore.user?.preferences?.tasks?.tagsByTaskId || {}) };
-        const nextIconByTaskId = { ...(sessionStore.user?.preferences?.tasks?.iconByTaskId || {}) };
-        delete nextTagsByTaskId[taskId];
-        delete nextIconByTaskId[taskId];
-        const nextPreferences = {
-          ...(sessionStore.user?.preferences || {}),
-          tasks: {
-            ...(sessionStore.user?.preferences?.tasks || {}),
-            tagsByTaskId: nextTagsByTaskId,
-            iconByTaskId: nextIconByTaskId,
-          },
-        };
-        const response = await saveAccountPreferences(nextPreferences);
-        sessionStore.setPreferences(response?.preferences || nextPreferences);
-        const weeklyStore = useWeeklyStore();
-        const snapshot = loadDashboardSnapshot(sessionStore.user?.id);
-        weeklyStore.refreshAggregationsFromSnapshot(snapshot);
+        const scope = this.getContinuityScope();
+        const deleted = scope.change((writes) => writes.today.deleteTask(taskId));
+        this.applyProjection(this.getTodayProjection());
+        await deleted;
+        this.applyProjection(this.getTodayProjection());
+        const response = await scope.change((writes) => writes.today.updateTaskPreferences(taskId, { tags: [], icon: "" }));
+        sessionStore.setPreferences(response?.preferences || scope.view(views.information()).data.preferences);
         this.setSaveState(`已删除任务：${taskName}`, "success");
         this.closeDeleteDialog();
       } catch (error) {
+        this.applyProjection(this.getTodayProjection());
         this.handleActionError(error, "删除任务失败");
       }
     },
@@ -725,10 +674,6 @@ export const useTodayStore = defineStore("today", {
         return;
       }
       await this.deleteTaskNote(taskId, noteId);
-      const sessionStore = useSessionStore();
-      const weeklyStore = useWeeklyStore();
-      const snapshot = loadDashboardSnapshot(sessionStore.user?.id);
-      weeklyStore.refreshAggregationsFromSnapshot(snapshot);
       this.closeDeleteNoteDialog();
     },
     async reorderTasks(orderedTaskIds = []) {
@@ -745,27 +690,18 @@ export const useTodayStore = defineStore("today", {
         return;
       }
 
-      this.tasks = this.tasks
-        .map((task) => changedTasks.find((candidate) => candidate.id === task.id) || task)
-        .sort((left, right) => left.order - right.order);
-
-      if (useSessionStore().previewMode) {
-        changedTasks.forEach((task) => demoState.updateTask(task.id, { displayOrder: task.order }));
-        this.applySnapshot(demoState.load());
-        this.setSaveState("任务顺序已更新 · Demo 本地保存", "success");
-        return;
-      }
-
       try {
         this.setSaveState("正在同步排序...", "progress");
-        await Promise.all(
-          changedTasks.map((task) =>
-            updateTask(task.id, { displayOrder: task.order }),
-          ),
-        );
-        this.persistLocalCache();
-        this.setSaveState("任务顺序已更新", "success");
+        const scope = this.getContinuityScope();
+        const writes = changedTasks.map((task) => scope.change((operations) =>
+          operations.today.updateTask(task.id, { displayOrder: task.order }),
+        ));
+        this.applyProjection(this.getTodayProjection());
+        await Promise.all(writes);
+        this.applyProjection(this.getTodayProjection());
+        this.setSaveState(useSessionStore().previewMode ? "任务顺序已更新 · Demo 本地保存" : "任务顺序已更新", "success");
       } catch (error) {
+        this.applyProjection(this.getTodayProjection());
         this.handleActionError(error, "任务排序同步失败");
       }
     },

@@ -20,6 +20,8 @@ import { useHomeStore } from "../../stores/home";
 import { useSessionStore } from "../../stores/session";
 import { useTodayStore } from "../../stores/today";
 import { demoState } from "../../services/demo-state";
+import { attachInformationInput } from "../../services/information-input.js";
+import { stateContinuity } from "../../services/state-continuity.js";
 import { buildWeatherAxis, buildWeatherHotspots, buildWeatherPolyline, sparklinePoints } from "../../utils/home";
 
 const route = useRoute();
@@ -41,6 +43,16 @@ const topTabIndicatorStyle = ref({
   opacity: "0",
 });
 const isPwaPhoneShell = ref(false);
+
+const informationSidebar = computed(() => {
+  if (!sessionStore.user?.id && !sessionStore.previewMode) {
+    return { news: [], favorites: { status: "empty", items: [], message: "当前还没有收藏资讯。" } };
+  }
+  const scope = stateContinuity.open(sessionStore.previewMode
+    ? { mode: "demo" }
+    : { id: sessionStore.user.id });
+  return attachInformationInput(scope).sidebar();
+});
 
 const PWA_PHONE_MIN_WIDTH = 380;
 const PWA_PHONE_MAX_WIDTH = 430;
@@ -79,7 +91,7 @@ const lifeProgress = computed(() => {
   if (sessionStore.previewMode) {
     return null;
   }
-  const profile = sessionStore.user?.preferences?.profile || {};
+  const profile = sessionStore.preferences?.profile || {};
   const birthDate = String(profile.birthDate || "");
   const expectancy = Number(profile.lifeExpectancyYears || 80) || 80;
   if (!birthDate) {
@@ -98,12 +110,12 @@ const lifeProgress = computed(() => {
 });
 
 const sidebarPreferences = computed(() => ({
-  freshNews: sessionStore.user?.preferences?.sidebar?.freshNews !== false,
-  calendar: sessionStore.user?.preferences?.sidebar?.calendar !== false,
-  github: sessionStore.user?.preferences?.sidebar?.github !== false,
-  favorites: sessionStore.user?.preferences?.sidebar?.favorites !== false,
-  weather: sessionStore.user?.preferences?.sidebar?.weather !== false,
-  stock: sessionStore.user?.preferences?.sidebar?.stock !== false,
+  freshNews: sessionStore.preferences?.sidebar?.freshNews !== false,
+  calendar: sessionStore.preferences?.sidebar?.calendar !== false,
+  github: sessionStore.preferences?.sidebar?.github !== false,
+  favorites: sessionStore.preferences?.sidebar?.favorites !== false,
+  weather: sessionStore.preferences?.sidebar?.weather !== false,
+  stock: sessionStore.preferences?.sidebar?.stock !== false,
 }));
 
 const visibleTopTabs = computed(() => (
@@ -310,6 +322,14 @@ function openFavoritesChannel(channel) {
   router.push("/content");
 }
 
+function openSidebarItem(itemRef) {
+  if (!sessionStore.user?.id && !sessionStore.previewMode) return;
+  const scope = stateContinuity.open(sessionStore.previewMode
+    ? { mode: "demo" }
+    : { id: sessionStore.user.id });
+  attachInformationInput(scope).open(itemRef);
+}
+
 function handleDocumentPointerDown(event) {
   const target = event.target;
   if (!(target instanceof Element)) {
@@ -414,7 +434,7 @@ watch(
 );
 
 watch(
-  () => sessionStore.user?.preferences?.theme,
+  () => sessionStore.preferences?.theme,
   (theme) => {
     if (theme) {
       appStore.setTheme(theme);
@@ -609,8 +629,9 @@ watch(
           icon="newspaper"
           channel="news"
           link-to="/content"
-          :items="homeStore.freshNewsFeed"
+          :items="informationSidebar.news"
           :format-date-time="homeStore.formatDateTime"
+          @open="openSidebarItem"
         />
       </aside>
 
@@ -635,7 +656,7 @@ watch(
         <StockWidget
           v-if="sidebarPreferences.stock"
           :stock="homeStore.stock"
-          :title="sessionStore.user?.preferences?.widgets?.stock?.title || 'A股概览'"
+          :title="sessionStore.preferences?.widgets?.stock?.title || 'A股概览'"
           :format-code="homeStore.formatDisplayStockCode"
           :sparkline-points="sparklinePoints"
           :format-date-time="homeStore.formatDateTime"
@@ -645,7 +666,7 @@ watch(
         />
         <FavoritesWidget
           v-if="sidebarPreferences.favorites"
-          :favorites="homeStore.favorites"
+          :favorites="informationSidebar.favorites"
           :format-date-time="homeStore.formatDateTime"
           @jump="openFavoritesChannel"
           @configure="accountStore.openWidgetSettings('favorites')"

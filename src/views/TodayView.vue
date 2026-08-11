@@ -53,8 +53,7 @@ const showSummaryEdit = computed(
   () => weeklyStore.mode === "week" && weeklyStore.currentSummaryMode !== "view",
 );
 const timelineTasks = computed(() => (
-  weeklyStore.timelineAggregation.tasks
-    .filter((task) => (weeklyStore.timelineAggregation.eventsByTask?.[task.id] || []).length > 0)
+  weeklyStore.timelineTasks
     .slice()
     .sort((left, right) => left.order - right.order)
 ));
@@ -110,11 +109,7 @@ async function loadWeeklyModule() {
   if (!isAuthenticated.value) {
     return;
   }
-  if (todayPanel.value === "timeline") {
-    await weeklyStore.loadTimelineView();
-    return;
-  }
-  await weeklyStore.setMode("week");
+  if (todayPanel.value !== "timeline") await weeklyStore.setMode("week");
 }
 
 function destroySortable() {
@@ -237,7 +232,7 @@ function handleSaveSummary() {
 }
 
 function getTimelineEntries(taskId) {
-  return weeklyStore.timelineAggregation.eventsByTask?.[taskId] || [];
+  return weeklyStore.timelineTasks.find((task) => task.id === taskId)?.events || [];
 }
 
 function isReviewExpanded(taskId) {
@@ -289,10 +284,13 @@ function toggleTimelineCard(taskId) {
 
 async function handleTimelineRestore(taskId) {
   todayStore.closeTransientUi();
-  await weeklyStore.restoreTask(taskId);
+  await todayStore.restoreTask(taskId);
 }
 
 function buildTimelineSummary(entry) {
+  if (entry?.lifecycleType === "restore") {
+    return "已恢复";
+  }
   if (entry?.archived && Array.isArray(entry?.notes) && entry.notes.length) {
     return `已存档 · ${entry.notes.map((note) => note.text).filter(Boolean).join(" · ")}`;
   }
@@ -613,12 +611,12 @@ watch(
             :task="task"
             :task-icon="todayStore.getTaskIcon(task.id, task.name)"
             :tags="todayStore.getTaskTags(task.id)"
-            :completion-count="weeklyStore.aggregation.completionCounts[task.id] || 0"
-            :total-days="weeklyStore.aggregation.totalDays"
-            :notes="weeklyStore.aggregation.notesByTask[task.id] || []"
+            :completion-count="task.completionCount"
+            :total-days="task.totalDays"
+            :notes="task.notes"
             :expanded="isReviewExpanded(task.id)"
             @toggle="toggleReviewCard"
-            @restore-task="weeklyStore.restoreTask"
+            @restore-task="todayStore.restoreTask"
           />
         </div>
 
@@ -630,8 +628,8 @@ watch(
             :task-icon="todayStore.getTaskIcon(task.id, task.name)"
             :tags="todayStore.getTaskTags(task.id)"
             :entries="buildTimelineCardEntries(getTimelineEntries(task.id))"
-            :completion-count="weeklyStore.timelineAggregation.completionCounts[task.id] || 0"
-            :note-count="weeklyStore.timelineAggregation.notesByTask[task.id]?.length || 0"
+            :completion-count="task.completionCount"
+            :note-count="task.noteCount"
             :expanded="isTimelineExpanded(task.id)"
             :menu-open="todayStore.activeTaskMenuId === task.id"
             @toggle="toggleTimelineCard"

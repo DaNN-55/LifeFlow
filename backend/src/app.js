@@ -12,13 +12,7 @@ const {
   verifyRecoveryCode,
 } = require("./lib/auth");
 const { formatDateKey, getWeekRangeFromWeekValue } = require("./lib/date");
-const {
-  CHANNELS,
-  DEFAULT_PAGE_SIZE,
-  getContentRetentionCutoffIso,
-  refreshChannelContent,
-  getChannelCacheStatus,
-} = require("./lib/content");
+const { CHANNELS } = require("./information-input");
 
 const SESSION_COOKIE_NAME = "lifeflow_session";
 const SESSION_HEADER_NAME = "x-session-id";
@@ -38,6 +32,11 @@ const taskSchema = z.object({
   displayOrder: z.number().int().positive().optional(),
   archived: z.boolean().optional(),
   archivedAt: z.string().datetime().nullable().optional(),
+  lifecycleEvents: z.array(z.object({
+    taskId: z.string().min(1).max(64),
+    type: z.enum(["archive", "restore"]),
+    changedAt: z.string().datetime(),
+  })).optional(),
 });
 
 const dailyRecordSchema = z.object({
@@ -197,19 +196,13 @@ function buildDateKeysBetween(startDate, endDate) {
   return dates;
 }
 
-async function buildSyncSnapshot(store, userContext) {
-  await store.pruneExpiredContentItems?.(userContext, {
-    cutoffIso: getContentRetentionCutoffIso(),
-  });
-
-  const [tasks, dailyRecords, weeklySummaries, contentSources, contentItems, favoriteContent, syncState] = await Promise.all([
+async function buildSyncSnapshot(store, informationInput, userContext) {
+  const [tasks, dailyRecords, weeklySummaries, content, syncState] = await Promise.all([
     store.listTasks(userContext),
     store.listDailyRecords(userContext),
     store.listWeeklySummaries(userContext),
-    store.listContentSources(userContext),
-    store.listContentUpdatedSince(userContext, ""),
-    store.listFavoriteContentUpdatedSince(userContext, ""),
-    store.getUserSyncState(userContext.userId),
+    informationInput.getFullSyncProjection(userContext),
+    informationInput.getSyncState(userContext.userId),
   ]);
 
   return {
@@ -220,9 +213,9 @@ async function buildSyncSnapshot(store, userContext) {
       dailyRecords,
       weeklySummaries,
       content: {
-        sources: contentSources,
-        items: contentItems,
-        favorites: favoriteContent,
+        sources: content.sources,
+        items: content.items,
+        favorites: content.favorites,
       },
     },
   };
@@ -248,54 +241,6 @@ const contentFavoriteSchema = z.object({
   image_url: z.string().optional().default(""),
 });
 
-const contentSourceSchema = z.object({
-  channel: contentChannelSchema,
-  type: z.enum(["rss", "site", "rsshub"]),
-  name: z.string().min(1).max(80),
-  url: z.string().min(1).max(500),
-  enabled: z.boolean().optional(),
-  sortOrder: z.number().int().positive().optional(),
-  parserKey: z.string().max(300).optional().default(""),
-}).superRefine((value, context) => {
-  const rawUrl = String(value.url || "").trim();
-  const rawParserKey = String(value.parserKey || "").trim();
-
-  const isHttpUrl = (input) => {
-    try {
-      const parsed = new URL(input);
-      return ["http:", "https:"].includes(parsed.protocol);
-    } catch (error) {
-      return false;
-    }
-  };
-
-  if (value.type === "rsshub") {
-    if (!rawUrl || (!rawUrl.startsWith("/") && !isHttpUrl(rawUrl))) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["url"],
-        message: "RSSHub 路由需填写完整 URL，或以 / 开头的 route",
-      });
-    }
-    if (rawParserKey && !isHttpUrl(rawParserKey)) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["parserKey"],
-        message: "RSSHub 实例地址需为有效的 http(s) URL",
-      });
-    }
-    return;
-  }
-
-  if (!isHttpUrl(rawUrl)) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["url"],
-      message: "请输入有效的 http(s) URL",
-    });
-  }
-});
-
 function formatDateKeyInTimeZone(date = new Date(), timeZone = PULSE_QUOTE_TIME_ZONE) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone,
@@ -310,7 +255,10 @@ function formatDateKeyInTimeZone(date = new Date(), timeZone = PULSE_QUOTE_TIME_
   return `${year}-${month}-${day}`;
 }
 
-function createApp({ config, store }) {
+function createApp({ config, store, informationInput: input }) {
+  if (!input) {
+    throw new Error("informationInput is required");
+  }
   const app = express();
   const captchaStore = new Map();
   const pulseQuoteCache = {
@@ -721,7 +669,7 @@ function createApp({ config, store }) {
 
   app.get("/api/sync/bootstrap", requireAuthenticated, async (request, response, next) => {
     try {
-      const payload = await buildSyncSnapshot(store, request.userContext);
+      const payload = await buildSyncSnapshot(store, input, request.userContext);
       response.json(payload);
     } catch (error) {
       next(error);
@@ -730,12 +678,9 @@ function createApp({ config, store }) {
 
   app.get("/api/sync/changes", requireAuthenticated, async (request, response, next) => {
     try {
-      await store.pruneExpiredContentItems?.(request.userContext, {
-        cutoffIso: getContentRetentionCutoffIso(),
-      });
       const query = syncChangesQuerySchema.parse(request.query || {});
       if (!query.since) {
-        const payload = await buildSyncSnapshot(store, request.userContext);
+        const payload = await buildSyncSnapshot(store, input, request.userContext);
         response.json({
           ...payload,
           reset: true,
@@ -743,14 +688,14 @@ function createApp({ config, store }) {
         return;
       }
 
-      const syncState = await store.getUserSyncState(request.userContext.userId);
+      const syncState = await input.getSyncState(request.userContext.userId);
       const cursor = String(syncState?.dataUpdatedAt || new Date().toISOString());
       const resetAt = String(syncState?.dataResetAt || "");
       const sinceMs = new Date(query.since).getTime();
       const resetMs = new Date(resetAt).getTime();
 
       if (!Number.isNaN(resetMs) && resetMs > sinceMs) {
-        const payload = await buildSyncSnapshot(store, request.userContext);
+        const payload = await buildSyncSnapshot(store, input, request.userContext);
         response.json({
           ...payload,
           reset: true,
@@ -758,13 +703,11 @@ function createApp({ config, store }) {
         return;
       }
 
-      const [tasks, dailyRecords, weeklySummaries, contentSources, contentItems, favoriteContent] = await Promise.all([
+      const [tasks, dailyRecords, weeklySummaries, content] = await Promise.all([
         store.listTasksUpdatedSince(request.userContext, query.since),
         store.listDailyRecordsUpdatedSince(request.userContext, query.since),
         store.listWeeklySummariesUpdatedSince(request.userContext, query.since),
-        store.listContentSourcesUpdatedSince(request.userContext, query.since),
-        store.listContentUpdatedSince(request.userContext, query.since),
-        store.listFavoriteContentUpdatedSince(request.userContext, query.since),
+        input.getIncrementalSyncProjection(request.userContext, query.since),
       ]);
 
       response.json({
@@ -776,9 +719,9 @@ function createApp({ config, store }) {
           dailyRecords,
           weeklySummaries,
           content: {
-            sources: contentSources,
-            items: contentItems,
-            favorites: favoriteContent,
+            sources: content.sources,
+            items: content.items,
+            favorites: content.favorites,
           },
         },
       });
@@ -807,6 +750,7 @@ function createApp({ config, store }) {
         display_order: parsed.displayOrder || existingTasks.length + 1,
         archived: Boolean(parsed.archived),
         archived_at: parsed.archivedAt || null,
+        lifecycle_events: parsed.lifecycleEvents || [],
       };
       const created = await store.createTask(request.userContext, task);
       response.status(201).json({ task: created });
@@ -824,6 +768,7 @@ function createApp({ config, store }) {
         display_order: parsed.displayOrder,
         archived: parsed.archived,
         archived_at: parsed.archivedAt,
+        lifecycle_events: parsed.lifecycleEvents,
       });
 
       if (!updated) {
@@ -984,38 +929,7 @@ function createApp({ config, store }) {
   app.get("/api/content", requireAuthenticated, async (request, response, next) => {
     try {
       const query = contentListQuerySchema.parse(request.query || {});
-      const favoritesOnly = query.favorite === "favorites";
-      const requestFilters = {
-        channel: query.channel,
-        page: query.page || 1,
-        pageSize: query.pageSize || DEFAULT_PAGE_SIZE,
-        q: query.q || "",
-        tag: query.tag || "",
-        sourceId: query.sourceId || "",
-        sort: query.sort || "latest",
-      };
-      const [favoriteUrls, result, facets] = await Promise.all([
-        favoritesOnly
-          ? Promise.resolve([])
-          : store.listFavoriteContentUrls(request.userContext, query.channel),
-        favoritesOnly
-          ? store.listFavoriteContent(request.userContext, requestFilters)
-          : store.listContent(request.userContext, requestFilters),
-        favoritesOnly
-          ? store.listFavoriteContentFacets(request.userContext, query.channel)
-          : store.listContentFacets(request.userContext, query.channel),
-      ]);
-      const cacheStatus = getChannelCacheStatus(request.userContext.userId, query.channel);
-      response.json({
-        ...result,
-        items: (result.items || []).map((item) => ({
-          ...item,
-          is_favorite: favoritesOnly || favoriteUrls.includes(item.canonical_url),
-        })),
-        tags: facets.tags || [],
-        sources: facets.sources || [],
-        cache: cacheStatus,
-      });
+      response.json(await input.listContent(request.userContext, query));
     } catch (error) {
       next(error);
     }
@@ -1026,20 +940,7 @@ function createApp({ config, store }) {
       const query = contentListQuerySchema.pick({ channel: true }).extend({
         limit: z.coerce.number().int().min(1).max(12).optional(),
       }).parse(request.query || {});
-      const [favoriteUrls, items] = await Promise.all([
-        store.listFavoriteContentUrls(request.userContext, query.channel),
-        store.getFeaturedContent(
-          request.userContext,
-          query.channel,
-          query.limit || 3,
-        ),
-      ]);
-      response.json({
-        items: (items || []).map((item) => ({
-          ...item,
-          is_favorite: favoriteUrls.includes(item.canonical_url),
-        })),
-      });
+      response.json(await input.listFeatured(request.userContext, query.channel, query.limit || 3));
     } catch (error) {
       next(error);
     }
@@ -1048,17 +949,13 @@ function createApp({ config, store }) {
   app.post("/api/content/refresh", requireAuthenticated, async (request, response, next) => {
     try {
       const parsed = contentRefreshSchema.parse(request.body || {});
-      const result = await refreshChannelContent({
-        store,
-        userId: request.userContext.userId,
-        channel: parsed.channel,
-        limit: parsed.limit,
-      });
+      const result = await input.refresh(request.userContext, parsed);
       response.json({
         ok: true,
         count: Number(result?.stats?.syncedItemCount || 0),
+        items: Array.isArray(result?.items) ? result.items : [],
         refresh: result.stats,
-        cache: getChannelCacheStatus(request.userContext.userId, parsed.channel),
+        cache: input.getCacheStatus(request.userContext.userId, parsed.channel),
       });
     } catch (error) {
       next(error);
@@ -1068,12 +965,7 @@ function createApp({ config, store }) {
   app.post("/api/content/favorites", requireAuthenticated, async (request, response, next) => {
     try {
       const parsed = contentFavoriteSchema.parse(request.body || {});
-      const favorite = await store.upsertFavoriteContent(request.userContext, {
-        ...parsed,
-        favorited_at: new Date().toISOString(),
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      });
+      const favorite = await input.addFavorite(request.userContext, parsed);
       response.status(201).json({ item: favorite });
     } catch (error) {
       next(error);
@@ -1086,7 +978,7 @@ function createApp({ config, store }) {
         channel: contentChannelSchema,
         canonicalUrl: z.string().url().max(1000),
       }).parse(request.query || {});
-      await store.deleteFavoriteContent(request.userContext, parsed.channel, parsed.canonicalUrl);
+      await input.removeFavorite(request.userContext, parsed.channel, parsed.canonicalUrl);
       response.status(204).send();
     } catch (error) {
       next(error);
@@ -1096,7 +988,7 @@ function createApp({ config, store }) {
   app.get("/api/content-sources", requireAuthenticated, async (request, response, next) => {
     try {
       const query = contentListQuerySchema.pick({ channel: true }).parse(request.query || {});
-      const sources = await store.listContentSources(request.userContext, query.channel);
+      const sources = await input.listSources(request.userContext, query.channel);
       response.json({ sources });
     } catch (error) {
       next(error);
@@ -1105,20 +997,7 @@ function createApp({ config, store }) {
 
   app.post("/api/content-sources", requireAuthenticated, async (request, response, next) => {
     try {
-      const parsed = contentSourceSchema.parse(request.body || {});
-      const existing = await store.listContentSources(request.userContext, parsed.channel);
-      const source = await store.createContentSource(request.userContext, {
-        id: crypto.randomUUID(),
-        channel: parsed.channel,
-        type: parsed.type,
-        name: parsed.name,
-        url: parsed.url,
-        enabled: typeof parsed.enabled === "boolean" ? parsed.enabled : true,
-        sort_order: parsed.sortOrder || existing.length + 1,
-        parser_key: parsed.parserKey || "",
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      });
+      const source = await input.createSource(request.userContext, request.body || {});
       response.status(201).json({ source });
     } catch (error) {
       next(error);
@@ -1127,20 +1006,7 @@ function createApp({ config, store }) {
 
   app.patch("/api/content-sources/:sourceId", requireAuthenticated, async (request, response, next) => {
     try {
-      const parsed = contentSourceSchema.partial().parse(request.body || {});
-      const source = await store.updateContentSource(
-        request.userContext,
-        request.params.sourceId,
-        {
-          channel: parsed.channel,
-          type: parsed.type,
-          name: parsed.name,
-          url: parsed.url,
-          enabled: parsed.enabled,
-          sort_order: parsed.sortOrder,
-          parser_key: parsed.parserKey,
-        },
-      );
+      const source = await input.updateSource(request.userContext, request.params.sourceId, request.body || {});
       if (!source) {
         response.status(404).json({ error: "Source not found" });
         return;
@@ -1153,7 +1019,7 @@ function createApp({ config, store }) {
 
   app.delete("/api/content-sources/:sourceId", requireAuthenticated, async (request, response, next) => {
     try {
-      await store.deleteContentSource(request.userContext, request.params.sourceId);
+      await input.deleteSource(request.userContext, request.params.sourceId);
       response.status(204).send();
     } catch (error) {
       next(error);

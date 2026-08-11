@@ -267,6 +267,7 @@ export function createDemoStateRepository({ storage = globalThis.localStorage, n
         if (Number.isFinite(changes.displayOrder)) task.display_order = changes.displayOrder;
         if (typeof changes.archived === "boolean") task.archived = changes.archived;
         if ("archivedAt" in changes) task.archived_at = changes.archivedAt || "";
+        if (Array.isArray(changes.lifecycleEvents)) task.lifecycle_events = [...changes.lifecycleEvents];
         if (Array.isArray(changes.tags)) task.tags = [...changes.tags];
         if (typeof changes.icon === "string") task.icon = changes.icon;
       });

@@ -1,4 +1,4 @@
-import { fetchJson } from "./api-client";
+import { fetchJson } from "./api-client.js";
 
 export function fetchSyncBootstrap() {
   return fetchJson("/api/sync/bootstrap");

@@ -214,7 +214,7 @@ class SupabaseStore {
   async listTasks(scope = {}) {
     const { data, error } = await this.client
       .from("tasks")
-      .select("id, name, color, display_order, archived, archived_at, created_at, updated_at")
+      .select("id, name, color, display_order, archived, archived_at, lifecycle_events, created_at, updated_at")
       .eq("user_id", scope.userId || "")
       .order("display_order", { ascending: true });
 
@@ -229,7 +229,7 @@ class SupabaseStore {
     const { data, error } = await this.client
       .from("tasks")
       .insert({ ...task, user_id: scope.userId || "", updated_at: new Date().toISOString() })
-      .select("id, name, color, display_order, archived, archived_at, created_at, updated_at")
+      .select("id, name, color, display_order, archived, archived_at, lifecycle_events, created_at, updated_at")
       .single();
 
     if (error) {
@@ -257,6 +257,9 @@ class SupabaseStore {
     if (typeof patch.archived_at !== "undefined") {
       updatePayload.archived_at = patch.archived_at;
     }
+    if (typeof patch.lifecycle_events !== "undefined") {
+      updatePayload.lifecycle_events = patch.lifecycle_events;
+    }
     updatePayload.updated_at = new Date().toISOString();
 
     const { data, error } = await this.client
@@ -264,7 +267,7 @@ class SupabaseStore {
       .update(updatePayload)
       .eq("user_id", scope.userId || "")
       .eq("id", taskId)
-      .select("id, name, color, display_order, archived, archived_at, created_at, updated_at")
+      .select("id, name, color, display_order, archived, archived_at, lifecycle_events, created_at, updated_at")
       .single();
 
     if (error) {
@@ -448,7 +451,7 @@ class SupabaseStore {
   async listTasksUpdatedSince(scope = {}, since) {
     const { data, error } = await this.client
       .from("tasks")
-      .select("id, name, color, display_order, archived, archived_at, created_at, updated_at")
+      .select("id, name, color, display_order, archived, archived_at, lifecycle_events, created_at, updated_at")
       .eq("user_id", scope.userId || "")
       .gt("updated_at", since)
       .order("display_order", { ascending: true });
@@ -873,6 +876,7 @@ class SupabaseStore {
   async pruneExpiredContentItems(scope = {}, options = {}) {
     const cutoffIso = String(options.cutoffIso || "").trim();
     const channel = String(options.channel || "").trim();
+    const sourceIds = Array.isArray(options.sourceIds) ? options.sourceIds.map(String).filter(Boolean) : null;
     if (!cutoffIso || Number.isNaN(new Date(cutoffIso).getTime())) {
       return 0;
     }
@@ -885,6 +889,10 @@ class SupabaseStore {
 
     if (channel) {
       query = query.eq("channel", channel);
+    }
+    if (sourceIds) {
+      if (!sourceIds.length) return 0;
+      query = query.in("source_id", sourceIds);
     }
 
     const { data, error } = await query;

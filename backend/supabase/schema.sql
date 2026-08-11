@@ -24,6 +24,7 @@ create table if not exists public.tasks (
   display_order integer not null default 0,
   archived boolean not null default false,
   archived_at timestamptz,
+  lifecycle_events jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now()),
   primary key (user_id, id)

@@ -6,7 +6,7 @@ import {
   OFFLINE_SESSION_STORAGE_KEY,
   PREVIEW_MODE_STORAGE_KEY,
   SESSION_STORAGE_KEY,
-} from "../app/constants";
+} from "../app/constants.js";
 
 let resolvedApiBase = "";
 let apiBasePromise = null;
