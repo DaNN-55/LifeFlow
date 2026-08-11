@@ -22,8 +22,8 @@ let activeReview = null;
 function getReview() {
   const session = useSessionStore();
   const identity = session.previewMode
-    ? { id: "demo", mode: "demo", preferences: session.user?.preferences || {} }
-    : { id: session.user?.id, preferences: session.user?.preferences || {} };
+    ? { id: "demo", mode: "demo" }
+    : { id: session.user?.id };
   if (!identity.id) return null;
   const scope = stateContinuity.open(identity);
   if (activeReview && activeScope === scope) return activeReview;
@@ -108,14 +108,19 @@ export const useWeeklyStore = defineStore("weekly", {
       const summary = reviewProjection(state)?.data?.summary;
       return summary || { week: state.selectedWeek, content: "", rawUpdatedAt: "" };
     },
+    currentSummaryDraftKey(state) {
+      const session = useSessionStore();
+      const identity = session.previewMode ? "demo" : String(session.user?.id || "guest");
+      return `${identity}:${state.selectedWeek}`;
+    },
     currentSummaryDraft(state) {
-      return typeof state.summaryDrafts[state.selectedWeek] === "string"
-        ? state.summaryDrafts[state.selectedWeek]
+      return typeof state.summaryDrafts[this.currentSummaryDraftKey] === "string"
+        ? state.summaryDrafts[this.currentSummaryDraftKey]
         : this.currentSummary.content || "";
     },
     currentSummaryMode(state) {
-      return typeof state.summaryModes[state.selectedWeek] === "string"
-        ? state.summaryModes[state.selectedWeek]
+      return typeof state.summaryModes[this.currentSummaryDraftKey] === "string"
+        ? state.summaryModes[this.currentSummaryDraftKey]
         : (this.currentSummary.content ? "view" : "edit");
     },
     summaryMeta(state) {
@@ -155,21 +160,6 @@ export const useWeeklyStore = defineStore("weekly", {
     setSaveStatus(message) {
       this.saveStatus = message;
     },
-    async bootstrap() {
-      this.actionError = "";
-    },
-    async loadCurrentView() {
-      this.actionError = "";
-    },
-    async loadWeekReview() {
-      this.mode = "week";
-    },
-    async loadMonthReview() {
-      this.mode = "month";
-    },
-    async loadTimelineView() {
-      this.actionError = "";
-    },
     async setMode(mode) {
       this.mode = mode === "month" ? "month" : "week";
       this.syncTaskFilterSelection();
@@ -193,10 +183,10 @@ export const useWeeklyStore = defineStore("weekly", {
       }
     },
     updateSummaryDraft(value) {
-      this.summaryDrafts = { ...this.summaryDrafts, [this.selectedWeek]: value };
+      this.summaryDrafts = { ...this.summaryDrafts, [this.currentSummaryDraftKey]: value };
     },
     setSummaryMode(mode) {
-      this.summaryModes = { ...this.summaryModes, [this.selectedWeek]: mode };
+      this.summaryModes = { ...this.summaryModes, [this.currentSummaryDraftKey]: mode };
     },
     openSummaryDialog() {
       this.summaryDialogOpen = true;
@@ -211,8 +201,8 @@ export const useWeeklyStore = defineStore("weekly", {
       this.actionError = "";
       try {
         await review.saveWeeklySummary({ period: reviewPeriods.week(this.selectedWeek), content });
-        this.summaryDrafts = { ...this.summaryDrafts, [this.selectedWeek]: content };
-        this.summaryModes = { ...this.summaryModes, [this.selectedWeek]: content ? "view" : "edit" };
+        this.summaryDrafts = { ...this.summaryDrafts, [this.currentSummaryDraftKey]: content };
+        this.summaryModes = { ...this.summaryModes, [this.currentSummaryDraftKey]: content ? "view" : "edit" };
         this.summaryDialogOpen = false;
         this.setSaveStatus(`已保存 ${formatWeekRangeText(this.selectedWeek)} 的周总结`);
         return true;

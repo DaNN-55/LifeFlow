@@ -6,6 +6,7 @@ function createEmptyUserCache() {
     tasks: [],
     dailyRecords: {},
     weeklySummaries: {},
+    preferences: {},
     drafts: {
       todayNotesByDate: {},
     },
@@ -60,6 +61,7 @@ function normalizeUserCache(cache = {}) {
     tasks: Array.isArray(cache?.tasks) ? cache.tasks : [],
     dailyRecords: normalizeRecordMap(cache?.dailyRecords, "date"),
     weeklySummaries: normalizeRecordMap(cache?.weeklySummaries, "week"),
+    preferences: cache?.preferences && typeof cache.preferences === "object" ? { ...cache.preferences } : {},
     drafts: {
       todayNotesByDate: normalizeTodayDraftMap(cache?.drafts?.todayNotesByDate),
     },
@@ -210,6 +212,7 @@ export function replaceDashboardUserCache(userId, snapshot = {}, sync = {}) {
     tasks: Array.isArray(snapshot?.tasks) ? snapshot.tasks : [],
     dailyRecords: toRecordMap(snapshot?.dailyRecords || [], "date"),
     weeklySummaries: toRecordMap(snapshot?.weeklySummaries || [], "week"),
+    preferences: snapshot?.preferences && typeof snapshot.preferences === "object" ? snapshot.preferences : cache.preferences,
     drafts: cache.drafts,
     content: {
       items: toChannelRecordMap(snapshot?.content?.items || [], "id"),

@@ -109,11 +109,7 @@ async function loadWeeklyModule() {
   if (!isAuthenticated.value) {
     return;
   }
-  if (todayPanel.value === "timeline") {
-    await weeklyStore.loadTimelineView();
-    return;
-  }
-  await weeklyStore.setMode("week");
+  if (todayPanel.value !== "timeline") await weeklyStore.setMode("week");
 }
 
 function destroySortable() {
@@ -292,6 +288,9 @@ async function handleTimelineRestore(taskId) {
 }
 
 function buildTimelineSummary(entry) {
+  if (entry?.lifecycleType === "restore") {
+    return "已恢复";
+  }
   if (entry?.archived && Array.isArray(entry?.notes) && entry.notes.length) {
     return `已存档 · ${entry.notes.map((note) => note.text).filter(Boolean).join(" · ")}`;
   }

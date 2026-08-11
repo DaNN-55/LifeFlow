@@ -61,7 +61,7 @@ test("extractFeedItemImage resolves relative image urls from html content", () =
   assert.equal(imageUrl, "https://example.com/images/story-cover.webp");
 });
 
-test("refresh with no available sources clears items without advancing the sync cursor", async () => {
+test("refresh with no available sources clears items and emits reset sync semantics", async () => {
   const store = new MemoryStore();
   const user = await store.createUser({
     id: "user-news-empty-sources",
@@ -82,7 +82,104 @@ test("refresh with no available sources clears items without advancing the sync 
   await createInput(store).refresh({ userId: user.id }, { channel: "news" });
 
   assert.equal((await store.listContent({ userId: user.id }, { channel: "news" })).total, 0);
-  assert.deepEqual(await store.getUserSyncState(user.id), before);
+  const after = await store.getUserSyncState(user.id);
+  assert.equal(Boolean(after.dataResetAt), true);
+  assert.notEqual(after.dataUpdatedAt, before.dataUpdatedAt);
+});
+
+test("partial refresh only prunes successfully refreshed sources", async () => {
+  const store = new MemoryStore();
+  const user = await store.createUser({
+    id: "user-news-partial",
+    username: "news-partial-user",
+    password_hash: "hash",
+    recovery_code_hash: "recovery",
+    preferences: {},
+  });
+  const context = { userId: user.id };
+  for (const source of [
+    { id: "success-source", name: "Success" },
+    { id: "failed-source", name: "Failed" },
+  ]) {
+    await store.createContentSource(context, {
+      ...source,
+      channel: "news",
+      type: "rss",
+      url: `https://example.com/${source.id}.xml`,
+      enabled: true,
+      sort_order: 1,
+      parser_key: "",
+      created_at: "2026-03-01T00:00:00.000Z",
+      updated_at: "2026-03-01T00:00:00.000Z",
+    });
+  }
+  await store.upsertContentItems(context, [
+    { id: "success-old", channel: "news", source_id: "success-source", canonical_url: "https://example.com/success-old", published_at: "2026-03-01T00:00:00.000Z" },
+    { id: "failed-old", channel: "news", source_id: "failed-source", canonical_url: "https://example.com/failed-old", published_at: "2026-03-01T00:00:00.000Z" },
+  ]);
+  const input = createInformationInput({
+    persistence: createInformationInputPersistence(store),
+    collector: {
+      async fetchIncrement(source) {
+        if (source.id === "failed-source") throw new Error("source unavailable");
+        return [];
+      },
+    },
+    now: () => new Date("2026-03-30T12:00:00.000Z"),
+  });
+
+  const result = await input.refresh(context, { channel: "news" });
+  const remaining = await store.listContent(context, { channel: "news", page: 1, pageSize: 10 });
+
+  assert.equal(result.stats.failureCount, 1);
+  assert.deepEqual(result.items.map((item) => item.id), ["failed-old"]);
+  assert.deepEqual(remaining.items.map((item) => item.id), ["failed-old"]);
+});
+
+test("refresh confirmation returns the complete retained channel projection", async () => {
+  const store = new MemoryStore();
+  const user = await store.createUser({
+    id: "user-news-complete-refresh",
+    username: "news-complete-refresh-user",
+    password_hash: "hash",
+    recovery_code_hash: "recovery",
+    preferences: {},
+  });
+  const context = { userId: user.id };
+  await store.createContentSource(context, {
+    id: "complete-source",
+    channel: "news",
+    type: "rss",
+    name: "Complete",
+    url: "https://example.com/complete.xml",
+    enabled: true,
+    sort_order: 1,
+    parser_key: "",
+    created_at: "2026-03-30T00:00:00.000Z",
+    updated_at: "2026-03-30T00:00:00.000Z",
+  });
+  const input = createInformationInput({
+    persistence: createInformationInputPersistence(store),
+    collector: {
+      async fetchIncrement() {
+        return Array.from({ length: 12 }, (_, index) => ({
+          id: `item-${index + 1}`,
+          channel: "news",
+          source_id: "complete-source",
+          title: `Item ${index + 1}`,
+          canonical_url: `https://example.com/item-${index + 1}`,
+          published_at: `2026-03-30T${String(index).padStart(2, "0")}:00:00.000Z`,
+          fetched_at: "2026-03-30T12:00:00.000Z",
+        }));
+      },
+    },
+    now: () => new Date("2026-03-30T12:00:00.000Z"),
+  });
+
+  const result = await input.refresh(context, { channel: "news" });
+
+  assert.equal(result.stats.latestItemCount, 12);
+  assert.equal(result.items.length, 12);
 });
 
 test("refreshChannelContent normalizes nested feed categories to first-level tags", async () => {

@@ -45,7 +45,7 @@ export const useContentStore = defineStore("content", {
       const scope = stateContinuity.open(
         sessionStore.previewMode
           ? { mode: "demo" }
-          : { id: sessionStore.user.id, preferences: sessionStore.user.preferences || {} },
+          : { id: sessionStore.user.id },
       );
       if (scope !== inputScope) {
         inputScope = scope;

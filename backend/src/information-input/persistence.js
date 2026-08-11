@@ -38,7 +38,7 @@ function createInformationInputPersistence(store) {
     replaceItems: (userContext, channel, items) => store.replaceContentItems(userContext, channel, items),
     pruneExpiredItems: (userContext, options) => store.pruneExpiredContentItems?.(userContext, options),
     listItems: (userContext, filters) => store.listContent(userContext, filters),
-    listItemsUpdatedSince: (userContext, since) => store.listContentUpdatedSince(userContext, since),
+    listItemsUpdatedSince: (userContext, since, channel) => store.listContentUpdatedSince(userContext, since, channel),
     listItemFacets: (userContext, channel) => store.listContentFacets(userContext, channel),
     listFeaturedItems: (userContext, channel, limit) =>
       store.getFeaturedContent(userContext, channel, limit),
@@ -51,7 +51,7 @@ function createInformationInputPersistence(store) {
     deleteFavorite: (userContext, channel, canonicalUrl) =>
       store.deleteFavoriteContent(userContext, channel, canonicalUrl),
     getSyncState: (userId) => store.getUserSyncState(userId),
-    touchSyncState: (userId) => store.touchUserSyncState?.(userId),
+    touchSyncState: (userId, options) => store.touchUserSyncState?.(userId, options),
   };
 }
 

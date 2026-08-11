@@ -141,6 +141,7 @@ function createInformationInput({ persistence, collector, now = () => new Date(D
         cache.items = [];
         cache.refreshedAt = now().getTime();
         await persistence.replaceItems(userContext, channel, []);
+        await persistence.touchSyncState(userContext.userId, { reset: true });
         const stats = {
           totalSources: 0,
           successCount: 0,
@@ -190,18 +191,25 @@ function createInformationInput({ persistence, collector, now = () => new Date(D
         (count, result) => count + (result.ok ? Number(result.count || 0) : 0),
         0,
       );
-      await persistence.pruneExpiredItems(userContext, {
-        channel,
-        cutoffIso: getContentRetentionCutoffIso(now),
-      });
-      const preview = await persistence.listItems(userContext, {
-        channel,
-        page: 1,
-        pageSize: Number.isFinite(Number(limit)) && Number(limit) > 0
-          ? Math.max(1, Number(limit))
-          : DEFAULT_PAGE_SIZE,
-        sort: "latest",
-      });
+      const refreshedSourceIds = results.filter((result) => result.ok).map((result) => result.source.id);
+      if (refreshedSourceIds.length) {
+        await persistence.pruneExpiredItems(userContext, {
+          channel,
+          sourceIds: refreshedSourceIds,
+          cutoffIso: getContentRetentionCutoffIso(now),
+        });
+      }
+      const [preview, confirmedItems] = await Promise.all([
+        persistence.listItems(userContext, {
+          channel,
+          page: 1,
+          pageSize: Number.isFinite(Number(limit)) && Number(limit) > 0
+            ? Math.max(1, Number(limit))
+            : DEFAULT_PAGE_SIZE,
+          sort: "latest",
+        }),
+        persistence.listItemsUpdatedSince(userContext, "", channel),
+      ]);
       const items = Array.isArray(preview?.items) ? preview.items : [];
       const stats = {
         totalSources: sources.length,
@@ -217,7 +225,10 @@ function createInformationInput({ persistence, collector, now = () => new Date(D
       cache.refreshedAt = now().getTime();
       cache.lastRefreshStats = stats;
       await persistence.touchSyncState(userContext.userId);
-      return { items, stats };
+      return {
+        items: confirmedItems || [],
+        stats,
+      };
     })();
 
     refreshInFlight.set(cacheKey, job);
@@ -295,7 +306,6 @@ function createInformationInput({ persistence, collector, now = () => new Date(D
   }
 
   async function getFullSyncProjection(userContext) {
-    await persistence.pruneExpiredItems(userContext, { cutoffIso: getContentRetentionCutoffIso(now) });
     const [sources, items, favorites] = await Promise.all([
       persistence.listSources(userContext),
       persistence.listItemsUpdatedSince(userContext, ""),
@@ -305,7 +315,6 @@ function createInformationInput({ persistence, collector, now = () => new Date(D
   }
 
   async function getIncrementalSyncProjection(userContext, since) {
-    await persistence.pruneExpiredItems(userContext, { cutoffIso: getContentRetentionCutoffIso(now) });
     return Promise.all([
       persistence.listSourcesUpdatedSince(userContext, since),
       persistence.listItemsUpdatedSince(userContext, since),

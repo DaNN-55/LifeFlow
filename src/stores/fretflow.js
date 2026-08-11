@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 
-import { saveAccountPreferences } from "../services/today-api";
+import { stateContinuity, views } from "../services/state-continuity";
 import { useSessionStore } from "./session";
 
 const LOCAL_FRETFLOW_STORAGE_KEY = "lifeflow-private-dashboard-vue-fretflow";
@@ -160,7 +160,7 @@ export const useFretflowStore = defineStore("fretflow", {
       if (!force && this.hydratedFor === ownerKey) {
         return;
       }
-      const source = sessionStore.user?.preferences?.fretflow || loadLocalPreferences();
+      const source = sessionStore.preferences?.fretflow || loadLocalPreferences();
       this.applyPreferences(source);
       this.hydratedFor = ownerKey;
     },
@@ -177,13 +177,9 @@ export const useFretflowStore = defineStore("fretflow", {
         this.persistLocal();
         return;
       }
-      const nextPreferences = {
-        ...(sessionStore.user.preferences || {}),
-        fretflow: this.persistedSnapshot,
-      };
-      sessionStore.setPreferences(nextPreferences);
-      const response = await saveAccountPreferences(nextPreferences);
-      sessionStore.setPreferences(response?.preferences || nextPreferences);
+      const scope = stateContinuity.open({ id: sessionStore.user.id });
+      const response = await scope.change((catalog) => catalog.preferences.merge({ fretflow: this.persistedSnapshot }));
+      sessionStore.setPreferences(response?.preferences || scope.view(views.information()).data.preferences);
     },
     async setActiveTab(value) {
       this.ui.activeTab = value === "theory" ? "theory" : "practice";

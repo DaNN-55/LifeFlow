@@ -9,6 +9,10 @@ function itemTime(item = {}) {
   return new Date(item.published_at || item.fetched_at || item.created_at || 0).getTime() || 0;
 }
 
+function favoriteTime(item = {}) {
+  return new Date(item.favorited_at || 0).getTime() || 0;
+}
+
 function itemKey(item = {}) {
   const canonicalUrl = String(item.canonical_url || "").trim();
   if (canonicalUrl) {
@@ -29,20 +33,6 @@ function sourceKey(source = {}) {
 
 function contentValues(collection = {}, channel = CHANNEL) {
   return Object.values(collection?.[channel] || {});
-}
-
-function clonePreferences(preferences = {}) {
-  return JSON.parse(JSON.stringify(preferences || {}));
-}
-
-function withContentPreferences(preferences = {}) {
-  const next = clonePreferences(preferences);
-  next.content = {
-    ...(next.content || {}),
-    readItems: { ...(next.content?.readItems || {}) },
-    hiddenSources: { ...(next.content?.hiddenSources || {}) },
-  };
-  return next;
 }
 
 function toItem(item, favorite = false, read = false) {
@@ -160,7 +150,7 @@ export function attachInformationInput(continuityScope) {
 
   function findItem(itemRef) {
     const id = String(itemRef?.id || "");
-    return [...data().normalItems, ...data().favoriteItems].find((item) => itemKey(item) === id) || null;
+    return data().visibleItems.find((item) => itemKey(item) === id) || null;
   }
 
   function newsProjection() {
@@ -209,7 +199,12 @@ export function attachInformationInput(continuityScope) {
     const current = data();
     return readonly({
       summary: buildSummary(current.visibleItems),
-      favorites: current.visibleItems.filter((item) => item.is_favorite).slice(0, 3),
+      favorites: current.visibleItems
+        .filter((item) => item.is_favorite)
+        .sort((left, right) => favoriteTime(right) - favoriteTime(left)
+          || itemTime(right) - itemTime(left)
+          || String(left.id || "").localeCompare(String(right.id || "")))
+        .slice(0, 3),
       freshness: projection.freshness,
     });
   }
@@ -233,26 +228,17 @@ export function attachInformationInput(continuityScope) {
       },
       toggleRead(itemRef) {
         const item = findItem(itemRef);
-        const preferences = withContentPreferences(data().preferences);
         const id = String(itemRef?.id || "");
-        if (preferences.content.readItems[id]) delete preferences.content.readItems[id];
-        else preferences.content.readItems[id] = new Date().toISOString();
-        return catalog.information.toggleRead(id, String(item?.id || ""), preferences);
+        return catalog.information.toggleRead(id, String(item?.id || ""));
       },
       markRead(itemRef) {
         const item = findItem(itemRef);
-        const preferences = withContentPreferences(data().preferences);
         const id = String(itemRef?.id || "");
-        preferences.content.readItems[id] = new Date().toISOString();
-        return catalog.information.markRead(id, String(item?.id || ""), preferences);
+        return catalog.information.markRead(id, String(item?.id || ""));
       },
       setSourceHidden(sourceRef, hidden) {
-        const preferences = withContentPreferences(data().preferences);
         const id = String(sourceRef?.id || "");
-        const key = `${CHANNEL}:${id}`;
-        if (hidden) preferences.content.hiddenSources[key] = true;
-        else delete preferences.content.hiddenSources[key];
-        return catalog.information.setSourceHidden(id, Boolean(hidden), preferences);
+        return catalog.information.setSourceHidden(id, Boolean(hidden));
       },
       setSourceEnabled(sourceRef, enabled) {
         return catalog.information.sourceUpdate(String(sourceRef?.id || ""), { enabled: Boolean(enabled) });

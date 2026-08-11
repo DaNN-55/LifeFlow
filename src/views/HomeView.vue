@@ -45,17 +45,9 @@ async function loadTodayModule() {
   await todayStore.bootstrap();
 }
 
-async function loadWeeklyModule() {
-  if (!isAuthenticated.value) {
-    return;
-  }
-  await weeklyStore.bootstrap();
-}
-
 async function loadActivePanel() {
   if (homeTab.value === "weekly") {
     destroySortable();
-    await loadWeeklyModule();
     return;
   }
   await loadTodayModule();
@@ -415,8 +407,8 @@ watch(
           <MonthlyOverviewCard
             v-if="weeklyStore.mode === 'month'"
             :overview="weeklyStore.monthOverview"
-            :tags-by-task-id="sessionStore.user?.preferences?.tasks?.tagsByTaskId || {}"
-            :icon-by-task-id="sessionStore.user?.preferences?.tasks?.iconByTaskId || {}"
+            :tags-by-task-id="sessionStore.preferences?.tasks?.tagsByTaskId || {}"
+            :icon-by-task-id="sessionStore.preferences?.tasks?.iconByTaskId || {}"
           />
 
           <section
@@ -497,7 +489,7 @@ watch(
             :key="task.id"
             :task="task"
             :task-icon="todayStore.getTaskIcon(task.id, task.name)"
-            :tags="sessionStore.user?.preferences?.tasks?.tagsByTaskId?.[task.id] || []"
+            :tags="sessionStore.preferences?.tasks?.tagsByTaskId?.[task.id] || []"
             :completion-count="task.completionCount"
             :total-days="task.totalDays"
             :notes="task.notes"

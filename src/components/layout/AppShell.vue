@@ -50,7 +50,7 @@ const informationSidebar = computed(() => {
   }
   const scope = stateContinuity.open(sessionStore.previewMode
     ? { mode: "demo" }
-    : { id: sessionStore.user.id, preferences: sessionStore.user.preferences || {} });
+    : { id: sessionStore.user.id });
   return attachInformationInput(scope).sidebar();
 });
 
@@ -91,7 +91,7 @@ const lifeProgress = computed(() => {
   if (sessionStore.previewMode) {
     return null;
   }
-  const profile = sessionStore.user?.preferences?.profile || {};
+  const profile = sessionStore.preferences?.profile || {};
   const birthDate = String(profile.birthDate || "");
   const expectancy = Number(profile.lifeExpectancyYears || 80) || 80;
   if (!birthDate) {
@@ -110,12 +110,12 @@ const lifeProgress = computed(() => {
 });
 
 const sidebarPreferences = computed(() => ({
-  freshNews: sessionStore.user?.preferences?.sidebar?.freshNews !== false,
-  calendar: sessionStore.user?.preferences?.sidebar?.calendar !== false,
-  github: sessionStore.user?.preferences?.sidebar?.github !== false,
-  favorites: sessionStore.user?.preferences?.sidebar?.favorites !== false,
-  weather: sessionStore.user?.preferences?.sidebar?.weather !== false,
-  stock: sessionStore.user?.preferences?.sidebar?.stock !== false,
+  freshNews: sessionStore.preferences?.sidebar?.freshNews !== false,
+  calendar: sessionStore.preferences?.sidebar?.calendar !== false,
+  github: sessionStore.preferences?.sidebar?.github !== false,
+  favorites: sessionStore.preferences?.sidebar?.favorites !== false,
+  weather: sessionStore.preferences?.sidebar?.weather !== false,
+  stock: sessionStore.preferences?.sidebar?.stock !== false,
 }));
 
 const visibleTopTabs = computed(() => (
@@ -326,7 +326,7 @@ function openSidebarItem(itemRef) {
   if (!sessionStore.user?.id && !sessionStore.previewMode) return;
   const scope = stateContinuity.open(sessionStore.previewMode
     ? { mode: "demo" }
-    : { id: sessionStore.user.id, preferences: sessionStore.user.preferences || {} });
+    : { id: sessionStore.user.id });
   attachInformationInput(scope).open(itemRef);
 }
 
@@ -434,7 +434,7 @@ watch(
 );
 
 watch(
-  () => sessionStore.user?.preferences?.theme,
+  () => sessionStore.preferences?.theme,
   (theme) => {
     if (theme) {
       appStore.setTheme(theme);
@@ -656,7 +656,7 @@ watch(
         <StockWidget
           v-if="sidebarPreferences.stock"
           :stock="homeStore.stock"
-          :title="sessionStore.user?.preferences?.widgets?.stock?.title || 'A股概览'"
+          :title="sessionStore.preferences?.widgets?.stock?.title || 'A股概览'"
           :format-code="homeStore.formatDisplayStockCode"
           :sparkline-points="sparklinePoints"
           :format-date-time="homeStore.formatDateTime"

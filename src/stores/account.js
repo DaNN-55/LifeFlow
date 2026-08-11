@@ -4,23 +4,17 @@ import { defaultWidgets, SAFETY_BACKUP_STORAGE_KEY } from "../app/constants";
 import {
   changePassword,
   changeUsername,
-  clearAccountData,
-  deleteAccount,
   fetchAccountProfile,
   generateRecoveryCode,
   signOutAllAccounts,
 } from "../services/account-api";
 import { saveAuthConfig, saveSessionId } from "../services/config";
-import { createTask, deleteTask, fetchDailyRecord, listTasks, saveAccountPreferences, saveDailyRecord, updateTask } from "../services/today-api";
+import { stateContinuity } from "../services/state-continuity";
+import { createTask, deleteTask, fetchDailyRecord, listTasks, saveDailyRecord, updateTask } from "../services/today-api";
 import { fetchWeeklySummary, saveWeeklySummary } from "../services/weekly-api";
-import { clearDashboardSnapshot } from "../services/sync-service";
 import { addDays, formatDateKey, formatDateTime, formatWeekInputValue, getStartOfWeek, parseIsoDate } from "../utils/date";
 import { getUserFacingErrorMessage } from "../utils/error-message";
-import { useContentStore } from "./content";
-import { useHomeStore } from "./home";
 import { useSessionStore } from "./session";
-import { useTodayStore } from "./today";
-import { useWeeklyStore } from "./weekly";
 
 function createDefaultSidebarPreferences() {
   return {
@@ -144,6 +138,9 @@ function normalizeTaskForSnapshot(task = {}) {
     order: Number(task.order || task.display_order || 1),
     archived: Boolean(task.archived),
     archivedAt: task.archivedAt || task.archived_at || "",
+    lifecycleEvents: Array.isArray(task.lifecycleEvents || task.lifecycle_events)
+      ? (task.lifecycleEvents || task.lifecycle_events)
+      : [],
   };
 }
 
@@ -314,7 +311,7 @@ export const useAccountStore = defineStore("account", {
   getters: {
     syncNotices() {
       const sessionStore = useSessionStore();
-      const persisted = sessionStore.user?.preferences?.sync?.notices || [];
+      const persisted = sessionStore.preferences?.sync?.notices || [];
       return [this.syncFeedbackNotice, ...persisted].filter(Boolean).slice(0, 12);
     },
     syncCounts(state) {
@@ -377,7 +374,7 @@ export const useAccountStore = defineStore("account", {
         return;
       }
       this.closeMenu();
-      this.populateProfileForms(sessionStore.user.preferences || {}, sessionStore.user.username || "");
+      this.populateProfileForms(sessionStore.preferences || {}, sessionStore.user.username || "");
       this.widgetSettingsKey = widget;
       this.widgetSettingsOpen = true;
       this.widgetSettingsFeedback = "";
@@ -433,12 +430,12 @@ export const useAccountStore = defineStore("account", {
       this.closeMenu();
       this.profileOpen = true;
       this.profileLoading = true;
-      this.profileData = createLocalProfilePayload(sessionStore.user, this.syncProfileData);
+      this.profileData = createLocalProfilePayload({ ...sessionStore.user, preferences: sessionStore.preferences }, this.syncProfileData);
       this.recoveryCode = "";
       this.profileFeedback = "";
       this.securityFeedback = "";
       this.dangerFeedback = "";
-      this.populateProfileForms(sessionStore.user.preferences || {}, sessionStore.user.username || "");
+      this.populateProfileForms(sessionStore.preferences || {}, sessionStore.user.username || "");
       try {
         const payload = await this.refreshSyncProfile();
         if (this.profileRequestId !== requestId || !this.profileOpen) {
@@ -446,7 +443,7 @@ export const useAccountStore = defineStore("account", {
         }
         this.profileData = payload;
         this.populateProfileForms(
-          payload?.user?.preferences || sessionStore.user.preferences || {},
+          payload?.user?.preferences || sessionStore.preferences || {},
           payload?.user?.username || sessionStore.user.username || "",
         );
       } catch (error) {
@@ -484,11 +481,10 @@ export const useAccountStore = defineStore("account", {
       if (!user?.username || !sessionStore.user) {
         return;
       }
-      sessionStore.user = {
-        ...sessionStore.user,
-        username: user.username,
-        preferences: user.preferences || sessionStore.user.preferences || {},
-      };
+      sessionStore.user = { ...sessionStore.user, username: user.username };
+      if (user.preferences) {
+        sessionStore.setPreferences(user.preferences);
+      }
       if (this.profileData?.user) {
         this.profileData = {
           ...this.profileData,
@@ -504,26 +500,31 @@ export const useAccountStore = defineStore("account", {
     },
     async persistPreferences(reasonMessage = "设置已保存") {
       const sessionStore = useSessionStore();
-      const homeStore = useHomeStore();
       if (!sessionStore.user?.id) {
         return;
       }
 
       const nextPreferences = normalizePreferences({
-        ...(sessionStore.user.preferences || {}),
+        ...(sessionStore.preferences || {}),
         sidebar: this.forms.profile.sidebar,
         profile: this.forms.profile.profile,
         widgets: this.forms.profile.widgets,
         sync: {
-          ...(sessionStore.user.preferences?.sync || {}),
-          notices: appendSyncNotice(sessionStore.user.preferences?.sync?.notices, reasonMessage, "success"),
+          ...(sessionStore.preferences?.sync || {}),
+          notices: appendSyncNotice(sessionStore.preferences?.sync?.notices, reasonMessage, "success"),
           lastSuccessfulSyncAt: new Date().toISOString(),
           lastSyncAttemptAt: new Date().toISOString(),
         },
       });
-      const response = await saveAccountPreferences(nextPreferences);
+      const scope = stateContinuity.open({ id: sessionStore.user.id });
+      const response = await scope.change((catalog) => catalog.preferences.merge({
+        theme: nextPreferences.theme,
+        sidebar: nextPreferences.sidebar,
+        profile: nextPreferences.profile,
+        widgets: nextPreferences.widgets,
+        sync: nextPreferences.sync,
+      }));
       sessionStore.setPreferences(response?.preferences || nextPreferences);
-      await homeStore.bootstrap();
     },
     async saveProfile() {
       try {
@@ -624,29 +625,13 @@ export const useAccountStore = defineStore("account", {
         this.signOutAllBusy = false;
       }
     },
-    async resetAccountDataLocally() {
-      const sessionStore = useSessionStore();
-      clearDashboardSnapshot(sessionStore.user?.id);
-      const todayStore = useTodayStore();
-      const weeklyStore = useWeeklyStore();
-      const homeStore = useHomeStore();
-      const contentStore = useContentStore();
-      todayStore.$reset();
-      weeklyStore.$reset();
-      homeStore.$reset();
-      contentStore.$reset();
-      await Promise.allSettled([
-        todayStore.bootstrap(),
-        weeklyStore.bootstrap(),
-        homeStore.bootstrap(),
-      ]);
-    },
     async clearAllAccountData() {
       this.clearDataBusy = true;
       this.dangerFeedback = "正在清空当前账号数据...";
       try {
-        await clearAccountData();
-        await this.resetAccountDataLocally();
+        const sessionStore = useSessionStore();
+        const scope = stateContinuity.open({ id: sessionStore.user.id });
+        await scope.control.clearAccountData();
         await this.refreshSyncProfile().catch(() => null);
         this.dangerFeedback = "当前账号数据已清空";
       } catch (error) {
@@ -665,14 +650,12 @@ export const useAccountStore = defineStore("account", {
       this.dangerFeedback = "正在删除账号...";
       try {
         const sessionStore = useSessionStore();
-        const userId = sessionStore.user?.id;
-        await deleteAccount(password);
+        const scope = stateContinuity.open({ id: sessionStore.user.id });
+        await scope.control.deleteAccount(password);
         saveSessionId("");
-        sessionStore.applySession(null, "账号已删除");
-        clearDashboardSnapshot(userId);
+        sessionStore.applySession(null, "账号已删除", { purgePrevious: true });
         this.forms.account.deletePassword = "";
         this.closeAllModals();
-        await this.resetAccountDataLocally();
       } catch (error) {
         this.dangerFeedback = getUserFacingErrorMessage(error, "删除账号失败");
       } finally {
@@ -688,7 +671,7 @@ export const useAccountStore = defineStore("account", {
       const profile = this.syncProfileData?.user?.id === sessionStore.user.id
         ? this.syncProfileData
         : await this.refreshSyncProfile();
-      const snapshotData = createEmptySnapshotData(sessionStore.user?.preferences || {});
+      const snapshotData = createEmptySnapshotData(sessionStore.preferences || {});
       const createdAt = parseIsoDate(profile?.user?.createdAt) || new Date();
       const startDate = new Date(createdAt);
       const today = new Date();
@@ -814,10 +797,10 @@ export const useAccountStore = defineStore("account", {
 
       this.transferBusy = true;
       const sessionStore = useSessionStore();
-      const homeStore = useHomeStore();
+      const scope = stateContinuity.open({ id: sessionStore.user.id });
       try {
         const raw = JSON.parse(await file.text());
-        const normalized = normalizeImportPayload(raw?.data || raw, sessionStore.user?.preferences || {});
+        const normalized = normalizeImportPayload(raw?.data || raw, sessionStore.preferences || {});
         const currentSnapshot = await this.collectFullSnapshotData();
         saveSafetyBackup(currentSnapshot, strategy === "replace" ? "before-replace-import" : "before-merge-import");
         this.safetyBackup = loadSafetyBackup();
@@ -843,6 +826,9 @@ export const useAccountStore = defineStore("account", {
             displayOrder: task.order || task.display_order || 1,
             archived: Boolean(task.archived),
             archivedAt: task.archivedAt || task.archived_at || "",
+            lifecycleEvents: Array.isArray(task.lifecycleEvents || task.lifecycle_events)
+              ? (task.lifecycleEvents || task.lifecycle_events)
+              : [],
           };
           if (existingIds.has(String(task.id))) {
             await updateTask(task.id, payload);
@@ -867,7 +853,7 @@ export const useAccountStore = defineStore("account", {
           strategy === "replace"
             ? normalized.preferences
             : normalizePreferences({
-                ...(sessionStore.user?.preferences || {}),
+                ...(sessionStore.preferences || {}),
                 ...(normalized.preferences || {}),
               });
         mergedPreferences.sync = {
@@ -876,12 +862,10 @@ export const useAccountStore = defineStore("account", {
           lastSyncAttemptAt: new Date().toISOString(),
           notices: appendSyncNotice(mergedPreferences.sync?.notices, importMessage, "success"),
         };
-        const response = await saveAccountPreferences(mergedPreferences);
+        const response = await scope.change((catalog) => catalog.preferences.replace(mergedPreferences));
         sessionStore.setPreferences(response?.preferences || mergedPreferences);
-
-        const todayStore = useTodayStore();
-        const weeklyStore = useWeeklyStore();
-        await Promise.allSettled([todayStore.bootstrap(), weeklyStore.loadCurrentView(), homeStore.bootstrap(), this.refreshSyncProfile()]);
+        await scope.control.refresh();
+        await this.refreshSyncProfile();
         this.syncOpen = false;
       } finally {
         this.transferBusy = false;

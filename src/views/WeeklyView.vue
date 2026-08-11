@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, ref } from "vue";
 
 import ToolbarSelect from "../components/common/ToolbarSelect.vue";
 import TaskDialog from "../components/today/TaskDialog.vue";
@@ -39,20 +39,6 @@ function toggleReviewCard(taskId) {
   };
 }
 
-onMounted(async () => {
-  if (isAuthenticated.value) {
-    await weeklyStore.bootstrap();
-  }
-});
-
-watch(
-  () => sessionStore.user?.id,
-  async (userId) => {
-    if (userId) {
-      await weeklyStore.bootstrap();
-    }
-  },
-);
 </script>
 
 <template>
@@ -149,8 +135,8 @@ watch(
           <MonthlyOverviewCard
             v-if="weeklyStore.mode === 'month'"
             :overview="weeklyStore.monthOverview"
-            :tags-by-task-id="sessionStore.user?.preferences?.tasks?.tagsByTaskId || {}"
-            :icon-by-task-id="sessionStore.user?.preferences?.tasks?.iconByTaskId || {}"
+            :tags-by-task-id="sessionStore.preferences?.tasks?.tagsByTaskId || {}"
+            :icon-by-task-id="sessionStore.preferences?.tasks?.iconByTaskId || {}"
           />
 
           <section
@@ -231,7 +217,7 @@ watch(
                 :key="task.id"
                 :task="task"
                 :task-icon="todayStore.getTaskIcon(task.id, task.name)"
-                :tags="sessionStore.user?.preferences?.tasks?.tagsByTaskId?.[task.id] || []"
+                :tags="sessionStore.preferences?.tasks?.tagsByTaskId?.[task.id] || []"
             :completion-count="task.completionCount"
             :total-days="task.totalDays"
             :notes="task.notes"

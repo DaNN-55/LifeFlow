@@ -462,6 +462,7 @@ class MemoryStore {
     const cutoffIso = String(options.cutoffIso || "").trim();
     const cutoffTime = new Date(cutoffIso).getTime();
     const channel = String(options.channel || "").trim();
+    const sourceIds = Array.isArray(options.sourceIds) ? new Set(options.sourceIds.map(String)) : null;
 
     if (Number.isNaN(cutoffTime)) {
       return 0;
@@ -470,6 +471,9 @@ class MemoryStore {
     let removedCount = 0;
     for (const [itemId, item] of contentItems.entries()) {
       if (channel && item.channel !== channel) {
+        continue;
+      }
+      if (sourceIds && !sourceIds.has(String(item.source_id || ""))) {
         continue;
       }
       const itemTime = new Date(item.published_at || item.fetched_at || item.created_at || 0).getTime();

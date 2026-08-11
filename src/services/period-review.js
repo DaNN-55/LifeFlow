@@ -34,6 +34,13 @@ function normalizeTask(task = {}, index = 0) {
     order: Number(task.display_order ?? task.displayOrder ?? index + 1),
     archived: Boolean(task.archived),
     archivedAt: String(task.archived_at || task.archivedAt || ""),
+    lifecycleEvents: Array.isArray(task.lifecycle_events || task.lifecycleEvents)
+      ? (task.lifecycle_events || task.lifecycleEvents).map((event) => ({
+          taskId: String(event?.taskId || task.id || ""),
+          type: event?.type === "restore" ? "restore" : "archive",
+          changedAt: String(event?.changedAt || ""),
+        })).filter((event) => event.changedAt)
+      : [],
     tags: Array.isArray(task.tags) ? task.tags : [],
     icon: String(task.icon || ""),
   };
@@ -93,6 +100,13 @@ function dateKeysBetween(start, end) {
 function dateKeysForPeriod(period) {
   const range = period.kind === "week" ? getWeekRangeFromWeekValue(period.key) : getMonthRange(period.key);
   return dateKeysBetween(range.start, range.end);
+}
+
+function dateKeysForMonth(month, now) {
+  const keys = dateKeysForPeriod(reviewPeriods.month(month));
+  return month === formatMonthValue(now)
+    ? keys.filter((date) => date <= formatDateKey(now))
+    : keys;
 }
 
 function monthWeekValues(month) {
@@ -168,8 +182,22 @@ function buildAggregation(facts, dateKeys, totalDays = dateKeys.length) {
 
   for (const task of tasks) {
     aggregation.notesByTask[task.id].sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+    for (const event of task.lifecycleEvents) {
+      const eventDate = timestampDateKey(event.changedAt);
+      if (!eventDate || !dateKeys.includes(eventDate)) continue;
+      aggregation.eventsByTask[task.id].push({
+        dateKey: eventDate,
+        dateLabel: formatMonthDay(parseLocalDate(eventDate)),
+        completed: false,
+        notes: [],
+        archived: event.type === "archive",
+        lifecycleType: event.type,
+        changedAt: event.changedAt,
+      });
+    }
     const archiveDate = timestampDateKey(task.archivedAt);
-    if (task.archived && archiveDate) {
+    const hasPersistedArchiveEvent = aggregation.eventsByTask[task.id].some((entry) => entry.lifecycleType === "archive");
+    if (archiveDate && !hasPersistedArchiveEvent) {
       const existing = aggregation.eventsByTask[task.id].find((entry) => entry.dateKey === archiveDate);
       if (existing) existing.archived = true;
       else aggregation.eventsByTask[task.id].push({
@@ -180,7 +208,10 @@ function buildAggregation(facts, dateKeys, totalDays = dateKeys.length) {
         archived: true,
       });
     }
-    aggregation.eventsByTask[task.id].sort((left, right) => right.dateKey.localeCompare(left.dateKey));
+    aggregation.eventsByTask[task.id].sort((left, right) => (
+      right.dateKey.localeCompare(left.dateKey)
+      || String(right.changedAt || "").localeCompare(String(left.changedAt || ""))
+    ));
   }
   return aggregation;
 }
@@ -188,11 +219,19 @@ function buildAggregation(facts, dateKeys, totalDays = dateKeys.length) {
 function hasHistory(aggregation, taskId) {
   return Number(aggregation.presenceCounts[taskId] || 0) > 0
     || Number(aggregation.completionCounts[taskId] || 0) > 0
-    || (aggregation.notesByTask[taskId] || []).length > 0;
+    || (aggregation.notesByTask[taskId] || []).length > 0
+    || (aggregation.eventsByTask[taskId] || []).length > 0;
 }
 
 function archivedInPeriod(task, dateKeys) {
-  return task.archived && dateKeys.includes(timestampDateKey(task.archivedAt));
+  return dateKeys.includes(timestampDateKey(task.archivedAt));
+}
+
+function compareReviewTasks(aggregation) {
+  return (left, right) => Number(left.archived) - Number(right.archived)
+    || aggregation.completionCounts[right.id] - aggregation.completionCounts[left.id]
+    || aggregation.notesByTask[right.id].length - aggregation.notesByTask[left.id].length
+    || left.order - right.order;
 }
 
 function applyFilters(tasks, aggregation, filters = {}, dateKeys = []) {
@@ -256,15 +295,12 @@ function monthDenominator(month, now) {
 
 function buildMonthOverview(facts, month, now) {
   const period = reviewPeriods.month(month);
-  const dateKeys = dateKeysForPeriod(period);
+  const dateKeys = dateKeysForMonth(month, now);
   const denominator = monthDenominator(month, now);
   const aggregation = buildAggregation(facts, dateKeys, denominator ?? 0);
   const visibleTasks = aggregation.tasks
     .filter((task) => hasHistory(aggregation, task.id) || archivedInPeriod(task, dateKeys))
-    .sort((left, right) => Number(left.archived) - Number(right.archived)
-      || aggregation.completionCounts[right.id] - aggregation.completionCounts[left.id]
-      || aggregation.notesByTask[right.id].length - aggregation.notesByTask[left.id].length
-      || left.order - right.order);
+    .sort(compareReviewTasks(aggregation));
   const summaryEntries = monthWeekValues(month).map((week) => summaryEntry(facts, week, now));
   const written = summaryEntries.filter((entry) => entry.status === "written");
 
@@ -303,18 +339,27 @@ function buildMonthOverview(facts, month, now) {
 
 function project(selector, facts, now) {
   if (selector.type === "timeline") {
-    const dateKeys = Object.keys(facts.dailyRecords || {}).sort();
+    const dateKeys = [...new Set([
+      ...Object.keys(facts.dailyRecords || {}),
+      ...(facts.tasks || []).flatMap((task) => [
+        timestampDateKey(task.archived_at || task.archivedAt),
+        ...(task.lifecycle_events || task.lifecycleEvents || []).map((event) => timestampDateKey(event?.changedAt)),
+      ]),
+    ].filter(Boolean))].sort();
     const aggregation = buildAggregation(facts, dateKeys, Math.max(dateKeys.length, 1));
     return { tasks: taskRows(aggregation.tasks, aggregation).filter((task) => task.events.length) };
   }
   if (selector.type === "statusOverview") {
     return buildMonthOverview(facts, selector.period.key, now);
   }
-  const dateKeys = dateKeysForPeriod(selector.period);
+  const dateKeys = selector.type === "month"
+    ? dateKeysForMonth(selector.period.key, now)
+    : dateKeysForPeriod(selector.period);
   const denominator = selector.type === "month" ? monthDenominator(selector.period.key, now) : 7;
   const aggregation = buildAggregation(facts, dateKeys, denominator ?? 0);
   const visibleTasks = taskRows(
-    applyFilters(aggregation.tasks, aggregation, selector.filters || {}, dateKeys),
+    applyFilters(aggregation.tasks, aggregation, selector.filters || {}, dateKeys)
+      .sort(compareReviewTasks(aggregation)),
     aggregation,
   );
   const result = {

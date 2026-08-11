@@ -117,3 +117,83 @@ test("周期复盘事实 projection 不向 caller 提供写权限", () => {
 
   assert.equal(isReadonly(facts.data.tasks), true);
 });
+
+test("当前月进度不计入用户本地今天之后的记录", () => {
+  const futureSnapshot = structuredClone(snapshot);
+  futureSnapshot.dailyRecords["2026-08-20"] = {
+    date: "2026-08-20",
+    payload: { tasks: { active: { completed: true, notes: [{ text: "未来备注" }] } } },
+  };
+  const { review } = createReview(futureSnapshot);
+  const month = review.view(reviewViews.month(reviewPeriods.month("2026-08"))).data;
+  const active = month.visibleTasks.find((task) => task.id === "active");
+
+  assert.equal(active.completionCount, 2);
+  assert.equal(active.noteCount, 0);
+  assert.equal(month.overview.completionDays, 3);
+});
+
+test("周月投影统一使用未归档、完成数、备注数、手工顺序的排序", () => {
+  const ordered = {
+    tasks: [
+      { id: "archived-many", display_order: 1, archived: true, archived_at: "2026-08-05T08:00:00+08:00" },
+      { id: "active-note", display_order: 3, archived: false },
+      { id: "active-complete", display_order: 4, archived: false },
+      { id: "active-order", display_order: 2, archived: false },
+    ],
+    dailyRecords: {
+      "2026-08-05": { payload: { tasks: {
+        "archived-many": { completed: true, notes: [{ text: "a" }, { text: "b" }] },
+        "active-note": { completed: true, notes: [{ text: "note" }] },
+        "active-complete": { completed: true, notes: [] },
+        "active-order": { completed: true, notes: [] },
+      } } },
+      "2026-08-06": { payload: { tasks: {
+        "archived-many": { completed: true, notes: [] },
+        "active-complete": { completed: true, notes: [] },
+      } } },
+    },
+    weeklySummaries: {},
+  };
+  const { review } = createReview(ordered);
+  const expected = ["active-complete", "active-note", "active-order", "archived-many"];
+
+  assert.deepEqual(review.view(reviewViews.week(reviewPeriods.week("2026-W32"))).data.visibleTasks.map((task) => task.id), expected);
+  assert.deepEqual(review.view(reviewViews.month(reviewPeriods.month("2026-08"))).data.visibleTasks.map((task) => task.id), expected);
+});
+
+test("任务恢复后仍保留 Timeline 的历史归档事件", () => {
+  const restored = {
+    tasks: [{ id: "restored", name: "已恢复", archived: false, archived_at: "2026-08-05T08:00:00+08:00" }],
+    dailyRecords: {},
+    weeklySummaries: {},
+  };
+  const { review } = createReview(restored);
+  const timeline = review.view(reviewViews.timeline()).data;
+
+  assert.equal(timeline.tasks[0].events[0].dateKey, "2026-08-05");
+  assert.equal(timeline.tasks[0].events[0].archived, true);
+});
+
+test("Timeline 保留任务多次归档与恢复的完整生命周期", () => {
+  const facts = {
+    tasks: [{
+      id: "cycled",
+      name: "多次归档",
+      archived: false,
+      archived_at: "2026-08-09T08:00:00+08:00",
+      lifecycle_events: [
+        { taskId: "cycled", type: "archive", changedAt: "2026-08-05T08:00:00+08:00" },
+        { taskId: "cycled", type: "restore", changedAt: "2026-08-05T09:00:00+08:00" },
+        { taskId: "cycled", type: "archive", changedAt: "2026-08-09T08:00:00+08:00" },
+        { taskId: "cycled", type: "restore", changedAt: "2026-08-09T09:00:00+08:00" },
+      ],
+    }],
+    dailyRecords: {},
+    weeklySummaries: {},
+  };
+  const { review } = createReview(facts);
+  const events = review.view(reviewViews.timeline()).data.tasks[0].events;
+
+  assert.deepEqual(events.map((event) => event.lifecycleType), ["restore", "archive", "restore", "archive"]);
+});

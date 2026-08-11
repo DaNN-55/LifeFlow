@@ -32,6 +32,11 @@ const taskSchema = z.object({
   displayOrder: z.number().int().positive().optional(),
   archived: z.boolean().optional(),
   archivedAt: z.string().datetime().nullable().optional(),
+  lifecycleEvents: z.array(z.object({
+    taskId: z.string().min(1).max(64),
+    type: z.enum(["archive", "restore"]),
+    changedAt: z.string().datetime(),
+  })).optional(),
 });
 
 const dailyRecordSchema = z.object({
@@ -745,6 +750,7 @@ function createApp({ config, store, informationInput: input }) {
         display_order: parsed.displayOrder || existingTasks.length + 1,
         archived: Boolean(parsed.archived),
         archived_at: parsed.archivedAt || null,
+        lifecycle_events: parsed.lifecycleEvents || [],
       };
       const created = await store.createTask(request.userContext, task);
       response.status(201).json({ task: created });
@@ -762,6 +768,7 @@ function createApp({ config, store, informationInput: input }) {
         display_order: parsed.displayOrder,
         archived: parsed.archived,
         archived_at: parsed.archivedAt,
+        lifecycle_events: parsed.lifecycleEvents,
       });
 
       if (!updated) {
@@ -946,6 +953,7 @@ function createApp({ config, store, informationInput: input }) {
       response.json({
         ok: true,
         count: Number(result?.stats?.syncedItemCount || 0),
+        items: Array.isArray(result?.items) ? result.items : [],
         refresh: result.stats,
         cache: input.getCacheStatus(request.userContext.userId, parsed.channel),
       });

@@ -1,12 +1,7 @@
 import { defineStore } from "pinia";
 
 import { defaultWidgets } from "../app/constants";
-import {
-  applyDashboardMutation,
-  hasDashboardSnapshotData,
-  loadDashboardSnapshot,
-  syncDashboardSnapshot,
-} from "../services/sync-service";
+import { stateContinuity, views } from "../services/state-continuity";
 import {
   createEmptyHomeState,
   createEmptyWeatherState,
@@ -16,7 +11,6 @@ import {
   formatDisplayStockCode,
   normalizeSymbols,
 } from "../services/home-api";
-import { demoState } from "../services/demo-state";
 import {
   addDays,
   formatDateKey,
@@ -30,6 +24,9 @@ import { formatMonthDayLabel, formatWeekday, formatWeekdayShortEn } from "../uti
 import { loadSessionId } from "../services/config";
 import { useSessionStore } from "./session";
 import { useTodayStore } from "./today";
+
+let observedScope = null;
+let stopObserving = null;
 
 function countExecutionDensity(record) {
   const tasks = record?.payload?.tasks;
@@ -114,19 +111,19 @@ export const useHomeStore = defineStore("home", {
   getters: {
     githubProfileUrl() {
       const sessionStore = useSessionStore();
-      return String(sessionStore.user?.preferences?.widgets?.github?.profileUrl || defaultWidgets.github.profileUrl || "").trim();
+      return String(sessionStore.preferences?.widgets?.github?.profileUrl || defaultWidgets.github.profileUrl || "").trim();
     },
     favoritesChannel() {
       const sessionStore = useSessionStore();
-      return String(sessionStore.user?.preferences?.widgets?.favorites?.channel || defaultWidgets.favorites.channel || "all");
+      return String(sessionStore.preferences?.widgets?.favorites?.channel || defaultWidgets.favorites.channel || "all");
     },
     weatherLocationQuery() {
       const sessionStore = useSessionStore();
-      return String(sessionStore.user?.preferences?.widgets?.weather?.locationQuery || defaultWidgets.weather.locationQuery || "").trim();
+      return String(sessionStore.preferences?.widgets?.weather?.locationQuery || defaultWidgets.weather.locationQuery || "").trim();
     },
     stockSymbolsInput() {
       const sessionStore = useSessionStore();
-      return String(sessionStore.user?.preferences?.widgets?.stock?.symbols || defaultWidgets.stock.symbols);
+      return String(sessionStore.preferences?.widgets?.stock?.symbols || defaultWidgets.stock.symbols);
     },
     todaySummary() {
       const todayStore = useTodayStore();
@@ -138,26 +135,39 @@ export const useHomeStore = defineStore("home", {
     },
   },
   actions: {
+    getContinuityScope() {
+      const sessionStore = useSessionStore();
+      if (sessionStore.previewMode) return stateContinuity.open({ mode: "demo" });
+      if (!sessionStore.user?.id) return null;
+      return stateContinuity.open({ id: sessionStore.user.id });
+    },
+    observeContinuity(scope) {
+      if (!scope || observedScope === scope) return;
+      stopObserving?.();
+      observedScope = scope;
+      stopObserving = scope.observe(() => {
+        const data = scope.view(views.home()).data;
+        this.applyCachedHome(pickSupplementalHomeState(data.supplemental));
+        this.loadCalendar(this.calendarSelectedDate, data);
+      });
+    },
     applyCachedHome(home = {}) {
-      if (home.github && typeof home.github === "object") {
-        this.github = home.github;
-      }
-      if (home.weather && typeof home.weather === "object") {
-        this.weather = {
-          ...createEmptyWeatherState(),
-          ...home.weather,
-        };
-      }
-      if (home.stock && typeof home.stock === "object") {
-        this.stock = home.stock;
-      }
+      const empty = createEmptyHomeState();
+      this.github = home.github && typeof home.github === "object" ? home.github : empty.github;
+      this.weather = {
+        ...createEmptyWeatherState(),
+        ...(home.weather && typeof home.weather === "object" ? home.weather : {}),
+      };
+      this.stock = home.stock && typeof home.stock === "object" ? home.stock : empty.stock;
     },
     async bootstrap() {
       const sessionStore = useSessionStore();
+      const scope = this.getContinuityScope();
+      this.observeContinuity(scope);
       if (sessionStore.previewMode) {
-        const snapshot = demoState.ensure();
+        const projection = scope.view(views.home());
         this.applyCachedHome({
-          ...pickSupplementalHomeState(snapshot.home || {}),
+          ...pickSupplementalHomeState(projection.data.supplemental),
         });
         this.weather = {
           ...this.weather,
@@ -168,7 +178,7 @@ export const useHomeStore = defineStore("home", {
             dateLabel: formatMonthDayLabel(item.date),
           })),
         };
-        await this.loadCalendar(this.calendarSelectedDate, snapshot);
+        await this.loadCalendar(this.calendarSelectedDate, projection.data);
         this.loaded = true;
         return;
       }
@@ -178,40 +188,39 @@ export const useHomeStore = defineStore("home", {
         return;
       }
 
-      const cachedSnapshot = loadDashboardSnapshot(sessionStore.user.id);
+      const cachedSnapshot = scope.view(views.home()).data;
       const cachedHome = {
-        ...pickSupplementalHomeState(cachedSnapshot?.home || {}),
+        ...pickSupplementalHomeState(cachedSnapshot?.supplemental || {}),
       };
       this.applyCachedHome(cachedHome);
       const currentSessionId = loadSessionId();
       const lastSidebarRefreshSessionId = String(cachedHome.sidebarRefreshSessionId || "");
       const shouldAutoRefreshSidebar = Boolean(currentSessionId && currentSessionId !== lastSidebarRefreshSessionId);
-      if (hasDashboardSnapshotData(cachedSnapshot)) {
-        await this.loadCalendar(this.calendarSelectedDate, cachedSnapshot);
-      }
+      await this.loadCalendar(this.calendarSelectedDate, cachedSnapshot);
 
-      const remoteSnapshot = await syncDashboardSnapshot(sessionStore.user.id);
+      await scope.control.sync();
+      const remoteSnapshot = scope.view(views.home()).data;
       this.applyCachedHome({
-        ...pickSupplementalHomeState(remoteSnapshot?.home || {}),
+        ...pickSupplementalHomeState(remoteSnapshot?.supplemental || {}),
       });
 
       const jobs = [this.loadCalendar(this.calendarSelectedDate, remoteSnapshot)];
       if (shouldAutoRefreshSidebar) {
-        jobs.push(this.refreshSidebarAfterLogin(currentSessionId));
+        jobs.push(this.refreshSidebarAfterLogin(currentSessionId, scope));
       }
 
       await Promise.allSettled(jobs);
       this.loaded = true;
     },
-    async refreshSidebarAfterLogin(sessionId = loadSessionId()) {
+    async refreshSidebarAfterLogin(sessionId = loadSessionId(), scope = this.getContinuityScope()) {
+      const commitHome = scope?.supplemental.beginHomeUpdate();
       await Promise.allSettled([
-        this.refreshGitHub(),
-        this.refreshWeather(),
-        this.refreshStocks(),
+        this.refreshGitHub(scope),
+        this.refreshWeather(scope),
+        this.refreshStocks(scope),
       ]);
 
-      const sessionStore = useSessionStore();
-      applyDashboardMutation(sessionStore.user?.id, {
+      commitHome?.({
         sidebarRefreshSessionId: String(sessionId || ""),
       });
     },
@@ -224,7 +233,7 @@ export const useHomeStore = defineStore("home", {
       const todayKey = getTodayDateString();
       const selectedMonth = parseLocalDate(this.calendarSelectedDate).getMonth();
       const selectedYear = parseLocalDate(this.calendarSelectedDate).getFullYear();
-      const resolvedSnapshot = snapshot || loadDashboardSnapshot(useSessionStore().user?.id);
+      const resolvedSnapshot = snapshot || this.getContinuityScope()?.view(views.home()).data || {};
       const records = dates.map((date) => {
         const key = formatDateKey(date);
         return resolvedSnapshot?.dailyRecords?.[key] || { date: key, payload: { tasks: {} } };
@@ -248,27 +257,26 @@ export const useHomeStore = defineStore("home", {
     async selectCalendarDate(dateString) {
       await this.loadCalendar(dateString);
     },
-    async refreshGitHub() {
+    async refreshGitHub(scope = this.getContinuityScope()) {
       if (useSessionStore().previewMode) {
         return;
       }
-      this.github = await fetchGitHubPreview(this.githubProfileUrl).catch(() => ({
+      const commitHome = scope?.supplemental.beginHomeUpdate();
+      const github = await fetchGitHubPreview(this.githubProfileUrl).catch(() => ({
         status: "error",
         repos: [],
         url: this.githubProfileUrl,
         message: "GitHub 预览暂时不可用",
       }));
-      const sessionStore = useSessionStore();
-      applyDashboardMutation(sessionStore.user?.id, {
-        github: this.github,
-      });
+      if (commitHome?.({ github })) this.github = github;
     },
-    async refreshWeather() {
+    async refreshWeather(scope = this.getContinuityScope()) {
       if (useSessionStore().previewMode) {
         return;
       }
+      const commitHome = scope?.supplemental.beginHomeUpdate();
       const weather = await fetchWeatherWidget(this.weatherLocationQuery).catch(() => createEmptyWeatherState());
-      this.weather = {
+      const nextWeather = {
         ...createEmptyWeatherState(),
         ...weather,
         forecast: Array.isArray(weather?.forecast)
@@ -281,20 +289,15 @@ export const useHomeStore = defineStore("home", {
           : [],
         status: weather?.location ? "ready" : "error",
       };
-      const sessionStore = useSessionStore();
-      applyDashboardMutation(sessionStore.user?.id, {
-        weather: this.weather,
-      });
+      if (commitHome?.({ weather: nextWeather })) this.weather = nextWeather;
     },
-    async refreshStocks() {
+    async refreshStocks(scope = this.getContinuityScope()) {
       if (useSessionStore().previewMode) {
         return;
       }
-      this.stock = await fetchStockWidget(this.stockSymbolsInput);
-      const sessionStore = useSessionStore();
-      applyDashboardMutation(sessionStore.user?.id, {
-        stock: this.stock,
-      });
+      const commitHome = scope?.supplemental.beginHomeUpdate();
+      const stock = await fetchStockWidget(this.stockSymbolsInput);
+      if (commitHome?.({ stock })) this.stock = stock;
     },
     formatDateTime,
     formatMonthDay,
