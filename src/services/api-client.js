@@ -1,6 +1,6 @@
-import { API_PROBE_TIMEOUT_MS } from "./config";
-import { loadSessionId, resolveApiBase } from "./config";
-import { getUserFacingErrorMessage, isLikelyNetworkError } from "../utils/error-message";
+import { API_PROBE_TIMEOUT_MS } from "./config.js";
+import { loadSessionId, resolveApiBase } from "./config.js";
+import { getUserFacingErrorMessage, isLikelyNetworkError } from "../utils/error-message.js";
 
 function joinApiPath(baseUrl, path) {
   return `${String(baseUrl || "").replace(/\/+$/, "")}${path}`;

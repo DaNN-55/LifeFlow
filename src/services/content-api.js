@@ -1,4 +1,4 @@
-import { fetchJson } from "./api-client";
+import { fetchJson } from "./api-client.js";
 
 function buildContentSearch(params) {
   const search = new URLSearchParams();

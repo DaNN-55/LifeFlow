@@ -4,8 +4,8 @@ import {
   mergeDashboardUserCache,
   replaceDashboardUserCache,
   updateDashboardUserCache,
-} from "./dashboard-cache";
-import { fetchSyncBootstrap, fetchSyncChanges } from "./sync-api";
+} from "./dashboard-cache.js";
+import { fetchSyncBootstrap, fetchSyncChanges } from "./sync-api.js";
 
 const syncStateByUser = new Map();
 const RESERVED_MUTATION_KEYS = new Set([
@@ -145,11 +145,7 @@ export async function syncDashboardSnapshot(userId, options = {}) {
 }
 
 export function primeDashboardSync(userId) {
-  const resolvedUserId = String(userId || "").trim();
-  if (!resolvedUserId) {
-    return Promise.resolve(loadDashboardUserCache(""));
-  }
-  return syncDashboardSnapshot(resolvedUserId).catch(() => loadDashboardUserCache(resolvedUserId));
+  return Promise.resolve(loadDashboardUserCache(userId));
 }
 
 export function applyDashboardMutation(userId, mutation = {}) {

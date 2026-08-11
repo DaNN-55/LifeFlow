@@ -498,12 +498,12 @@ watch(
             :task="task"
             :task-icon="todayStore.getTaskIcon(task.id, task.name)"
             :tags="sessionStore.user?.preferences?.tasks?.tagsByTaskId?.[task.id] || []"
-            :completion-count="weeklyStore.aggregation.completionCounts[task.id] || 0"
-            :total-days="weeklyStore.aggregation.totalDays"
-            :notes="weeklyStore.aggregation.notesByTask[task.id] || []"
+            :completion-count="task.completionCount"
+            :total-days="task.totalDays"
+            :notes="task.notes"
             :expanded="isReviewExpanded(task.id)"
             @toggle="toggleReviewCard"
-            @restore-task="weeklyStore.restoreTask"
+            @restore-task="todayStore.restoreTask"
           />
         </div>
       </template>

@@ -20,6 +20,8 @@ import { useHomeStore } from "../../stores/home";
 import { useSessionStore } from "../../stores/session";
 import { useTodayStore } from "../../stores/today";
 import { demoState } from "../../services/demo-state";
+import { attachInformationInput } from "../../services/information-input.js";
+import { stateContinuity } from "../../services/state-continuity.js";
 import { buildWeatherAxis, buildWeatherHotspots, buildWeatherPolyline, sparklinePoints } from "../../utils/home";
 
 const route = useRoute();
@@ -41,6 +43,16 @@ const topTabIndicatorStyle = ref({
   opacity: "0",
 });
 const isPwaPhoneShell = ref(false);
+
+const informationSidebar = computed(() => {
+  if (!sessionStore.user?.id && !sessionStore.previewMode) {
+    return { news: [], favorites: { status: "empty", items: [], message: "当前还没有收藏资讯。" } };
+  }
+  const scope = stateContinuity.open(sessionStore.previewMode
+    ? { mode: "demo" }
+    : { id: sessionStore.user.id, preferences: sessionStore.user.preferences || {} });
+  return attachInformationInput(scope).sidebar();
+});
 
 const PWA_PHONE_MIN_WIDTH = 380;
 const PWA_PHONE_MAX_WIDTH = 430;
@@ -308,6 +320,14 @@ async function openCalendarDate(date) {
 
 function openFavoritesChannel(channel) {
   router.push("/content");
+}
+
+function openSidebarItem(itemRef) {
+  if (!sessionStore.user?.id && !sessionStore.previewMode) return;
+  const scope = stateContinuity.open(sessionStore.previewMode
+    ? { mode: "demo" }
+    : { id: sessionStore.user.id, preferences: sessionStore.user.preferences || {} });
+  attachInformationInput(scope).open(itemRef);
 }
 
 function handleDocumentPointerDown(event) {
@@ -609,8 +629,9 @@ watch(
           icon="newspaper"
           channel="news"
           link-to="/content"
-          :items="homeStore.freshNewsFeed"
+          :items="informationSidebar.news"
           :format-date-time="homeStore.formatDateTime"
+          @open="openSidebarItem"
         />
       </aside>
 
@@ -645,7 +666,7 @@ watch(
         />
         <FavoritesWidget
           v-if="sidebarPreferences.favorites"
-          :favorites="homeStore.favorites"
+          :favorites="informationSidebar.favorites"
           :format-date-time="homeStore.formatDateTime"
           @jump="openFavoritesChannel"
           @configure="accountStore.openWidgetSettings('favorites')"
