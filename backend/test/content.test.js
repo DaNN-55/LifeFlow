@@ -61,6 +61,32 @@ test("extractFeedItemImage resolves relative image urls from html content", () =
   assert.equal(imageUrl, "https://example.com/images/story-cover.webp");
 });
 
+test("网站信源优先采集文章标题链接，而非行内操作链接", async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async () => new Response(`
+    <article>
+      <a href="/login">Star</a>
+      <h2><a href="/openai/codex">openai / codex</a></h2>
+      <p>Lightweight coding agent</p>
+    </article>
+  `, { status: 200 });
+
+  try {
+    const items = await createProductionContentCollector().fetchIncrement({
+      id: "github-trending",
+      name: "GitHub Trending",
+      type: "site",
+      url: "https://github.com/trending",
+    }, "news");
+    assert.deepEqual(items.map((item) => ({ title: item.title, url: item.canonical_url })), [{
+      title: "openai / codex",
+      url: "https://github.com/openai/codex",
+    }]);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test("refresh with no available sources clears items and emits reset sync semantics", async () => {
   const store = new MemoryStore();
   const user = await store.createUser({
