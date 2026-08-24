@@ -70,6 +70,31 @@ test("状态概览集中归档可见性、排行和当前月进度规则", () =>
   assert.equal(overview.rankedTasks[1].archived, true);
 });
 
+test("月度概览不把每日记录的空任务状态当作任务活动", () => {
+  const withEmptyTaskStates = {
+    tasks: [
+      { id: "acted", name: "有操作", archived: false },
+      { id: "untouched", name: "未操作", archived: false },
+    ],
+    dailyRecords: {
+      "2026-08-11": {
+        date: "2026-08-11",
+        payload: {
+          tasks: {
+            acted: { completed: true, notes: [] },
+            untouched: { completed: false, notes: [] },
+          },
+        },
+      },
+    },
+    weeklySummaries: {},
+  };
+  const { review } = createReview(withEmptyTaskStates);
+  const overview = review.view(reviewViews.statusOverview(reviewPeriods.month("2026-08"))).data;
+
+  assert.deepEqual(overview.rankedTasks.map((task) => task.id), ["acted"]);
+});
+
 test("空白周总结只在下一周开始后成为待补", () => {
   const { review } = createReview(snapshot);
   const month = review.view(reviewViews.month(reviewPeriods.month("2026-08"))).data;

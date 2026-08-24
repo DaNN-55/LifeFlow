@@ -84,7 +84,9 @@ function saveCachedQuote(nextQuote) {
 }
 
 const isAuthenticated = computed(() => Boolean(sessionStore.user?.id) || sessionStore.previewMode);
-const displayedRankedTasks = computed(() => weeklyStore.monthOverview.rankedTasks || []);
+const displayedRankedTasks = computed(() => (weeklyStore.monthOverview.rankedTasks || []).filter(
+  (task) => task.completionCount > 0 || task.noteCount > 0,
+));
 const activeNotesTask = computed(() => displayedRankedTasks.value.find((task) => task.id === activeNotesTaskId.value) || null);
 const currentWeekPendingSummary = computed(() => weeklyStore.monthOverview.pendingSummary || null);
 const pulseStats = computed(() => ([
