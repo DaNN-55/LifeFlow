@@ -87,6 +87,30 @@ test("网站信源优先采集文章标题链接，而非行内操作链接", as
   }
 });
 
+test("单个 RSS 信源最多采集 50 条", async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async () => new Response(
+    buildRssFeed(Array.from({ length: 51 }, (_, index) => buildRssItem({
+      title: `Story ${index + 1}`,
+      link: `https://example.com/story-${index + 1}`,
+      pubDate: "Fri, 28 Mar 2026 09:00:00 GMT",
+    }))),
+    { status: 200 },
+  );
+
+  try {
+    const items = await createProductionContentCollector().fetchIncrement({
+      id: "example-feed",
+      name: "Example Feed",
+      type: "rss",
+      url: "https://example.com/feed.xml",
+    }, "news");
+    assert.equal(items.length, 50);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test("refresh with no available sources clears items and emits reset sync semantics", async () => {
   const store = new MemoryStore();
   const user = await store.createUser({

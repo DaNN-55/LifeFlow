@@ -13,6 +13,7 @@ const parser = new Parser({
 });
 
 const FETCH_TIMEOUT_MS = 10000;
+const MAX_ITEMS_PER_SOURCE = 50;
 const DEFAULT_RSSHUB_INSTANCE = "https://rsshub.zhsh.me";
 
 function createContentId(channel, canonicalUrl) {
@@ -46,7 +47,7 @@ async function fetchRssSource(source, channel, options = {}) {
   const feed = await parser.parseString(xml);
   const entries = Array.isArray(feed.items) ? feed.items : [];
   const normalized = [];
-  for (const entry of entries) {
+  for (const entry of entries.slice(0, MAX_ITEMS_PER_SOURCE)) {
     const publishedAt = normalizeDateString(entry?.isoDate || entry?.pubDate || "");
     if (stopAtPublishedAt && publishedAt && publishedAt < stopAtPublishedAt) {
       break;
@@ -71,6 +72,9 @@ async function fetchSiteSource(source, channel, options = {}) {
 
   const items = [];
   $("article, .article, .post, .story").each((index, element) => {
+    if (items.length >= MAX_ITEMS_PER_SOURCE) {
+      return false;
+    }
     const root = $(element);
     const headingLink = root.find("h2 a[href], h3 a[href]").first();
     const link = headingLink.length ? headingLink : root.find("a[href]").first();
