@@ -18,6 +18,15 @@ const routes = [
     },
   },
   {
+    path: "/demo",
+    name: "demo",
+    component: TodayView,
+    meta: {
+      requiresAuth: false,
+      demo: true,
+    },
+  },
+  {
     path: "/",
     redirect: {
       name: "pulse",
