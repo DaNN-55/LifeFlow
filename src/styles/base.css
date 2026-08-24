@@ -284,6 +284,11 @@ a {
   justify-content: center;
 }
 
+.auth-gate-actions .auth-preview-action {
+  margin-left: 24px;
+  padding-inline: 12px;
+}
+
 .auth-gate-actions .auth-login-button {
   border-color: #111111;
   background: #111111;
@@ -8959,6 +8964,10 @@ body:not([data-theme="light"]) .weekly-mode-toggle .task-cancel-action:hover {
   }
 
   .auth-gate-actions .auth-recover-action {
+    margin-left: 0;
+  }
+
+  .auth-gate-actions .auth-preview-action {
     margin-left: 0;
   }
 

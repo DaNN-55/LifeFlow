@@ -1,5 +1,6 @@
 import { createApp } from "vue";
 import { createPinia } from "pinia";
+import { registerSW } from "virtual:pwa-register";
 
 import App from "./App.vue";
 import { AUTH_GATE_ENABLED } from "./app/constants";
@@ -26,15 +27,6 @@ async function ensureSessionBootstrapped() {
   }
   await sessionBootstrapPromise;
   return sessionStore;
-}
-
-function registerServiceWorker() {
-  if (!import.meta.env.PROD || !("serviceWorker" in navigator)) {
-    return;
-  }
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js");
-  }, { once: true });
 }
 
 function syncNetworkStatus() {
@@ -97,5 +89,19 @@ syncNetworkStatus();
 if (typeof window !== "undefined") {
   window.addEventListener("online", syncNetworkStatus);
   window.addEventListener("offline", syncNetworkStatus);
+  window.addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault();
+    appStore.setInstallPrompt(event);
+  });
 }
-registerServiceWorker();
+const updateServiceWorker = registerSW({
+  onOfflineReady() {
+    appStore.notifyOfflineReady();
+  },
+  onNeedRefresh() {
+    appStore.notifyUpdateReady(updateServiceWorker);
+  },
+  onRegisterError() {
+    appStore.setPwaFeedback("PWA 预览启动失败，请刷新页面重试。");
+  },
+});

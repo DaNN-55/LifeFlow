@@ -136,14 +136,12 @@ function normalizeNotes(notes, date) {
 function createAggregation(tasks, totalDays) {
   const aggregation = {
     tasks,
-    presenceCounts: {},
     completionCounts: {},
     notesByTask: {},
     eventsByTask: {},
     totalDays,
   };
   tasks.forEach((task) => {
-    aggregation.presenceCounts[task.id] = 0;
     aggregation.completionCounts[task.id] = 0;
     aggregation.notesByTask[task.id] = [];
     aggregation.eventsByTask[task.id] = [];
@@ -161,7 +159,6 @@ function buildAggregation(facts, dateKeys, totalDays = dateKeys.length) {
       const taskState = taskStates[task.id];
       if (!taskState) continue;
       const notes = normalizeNotes(taskState.notes, date);
-      aggregation.presenceCounts[task.id] += 1;
       if (taskState.completed) aggregation.completionCounts[task.id] += 1;
       notes.forEach((note) => aggregation.notesByTask[task.id].push({
         dateLabel: formatMonthDay(parseLocalDate(date)),
@@ -217,8 +214,7 @@ function buildAggregation(facts, dateKeys, totalDays = dateKeys.length) {
 }
 
 function hasHistory(aggregation, taskId) {
-  return Number(aggregation.presenceCounts[taskId] || 0) > 0
-    || Number(aggregation.completionCounts[taskId] || 0) > 0
+  return Number(aggregation.completionCounts[taskId] || 0) > 0
     || (aggregation.notesByTask[taskId] || []).length > 0
     || (aggregation.eventsByTask[taskId] || []).length > 0;
 }

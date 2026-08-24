@@ -564,13 +564,6 @@ onBeforeUnmount(() => {
         登录后你的任务、备注和周总结会接入现有后端。首次使用可先创建账号，并妥善保存系统生成的恢复码；如果忘记密码，可用恢复码重置。
       </p>
 
-      <button v-if="AUTH_PREVIEW_ENABLED" type="button" class="auth-button" @click="enterDemo">
-        体验安全 Demo
-      </button>
-      <p v-if="AUTH_PREVIEW_ENABLED" class="settings-copy">
-        使用合成数据，不连接生产 API 或外部数据服务。
-      </p>
-
       <div v-if="isFileProtocol" class="auth-inline-note">
         当前页面是通过 <code>file://</code> 打开的。正式使用请改用本地或部署后的 HTTP 地址访问。
       </div>
@@ -674,6 +667,9 @@ onBeforeUnmount(() => {
         </div>
 
         <p class="auth-feedback">{{ feedback }}</p>
+        <p v-if="AUTH_PREVIEW_ENABLED" class="settings-copy">
+          使用合成数据，不连接生产 API 或外部数据服务。
+        </p>
 
         <div class="auth-gate-actions">
           <button type="submit" class="settings-save auth-login-button" :disabled="busy || (!isChallengeDisabled && isChallengeBusy)">
@@ -681,6 +677,9 @@ onBeforeUnmount(() => {
           </button>
           <button type="button" class="auth-button" :disabled="busy" @click="openSignupModal">
             创建账号
+          </button>
+          <button v-if="AUTH_PREVIEW_ENABLED" type="button" class="auth-button auth-preview-action" @click="enterDemo">
+            体验Demo
           </button>
           <button type="button" class="auth-button auth-recover-action" :disabled="busy || (!isChallengeDisabled && isChallengeBusy)" @click="submitAuth('recover')">
             {{ busy && authMode === "recover" ? "重置中..." : "重置密码" }}
