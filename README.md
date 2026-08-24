@@ -37,29 +37,14 @@ npm run dev
 4. 回到 Pulse，查看由任务、记录和周总结派生的状态摘要。
 5. 用顶部的“重置 Demo”恢复初始合成数据。
 
-## 它为什么可信
+## 可验证的实现
 
-不是用静态页面演示概念，而是把关键边界做成可操作、可检查的产品行为：
+关键能力都可以直接操作和核对：
 
 - **安全 Demo 与真实模式隔离**：Demo 不发出远端同步或真实信源管理请求；其状态单独持久化并可重置。
 - **记录与回顾共用数据**：Today 的任务和备注可在复盘中查看；Pulse 只做摘要与跳转，不另存一份复盘记录。
 - **真实模式有账号边界**：Express 负责用户名/密码、Session Cookie 与输入校验；存储查询按当前用户范围限定。
 - **存储可替换**：本地开发可用易失的 Memory Store 验证完整流程；配置 Supabase 后可持久化并跨进程保存。
-
-<details>
-<summary>查看安全 Demo 的真实界面证据</summary>
-
-<br>
-
-| Today：完成任务与执行备注 | 周总结：保存并确认 |
-| --- | --- |
-| ![Today 安全 Demo：提交执行记录并完成任务](docs/portfolio/01-today-execution.png) | ![Review 安全 Demo：保存周总结](docs/portfolio/02-weekly-review.png) |
-
-| News：合成资讯状态 | Pulse：聚合后的状态摘要 |
-| --- | --- |
-| ![News 安全 Demo：标记合成资讯为已读并收藏](docs/portfolio/03-news-input.png) | ![Pulse 安全 Demo：查看任务、记录和周总结聚合](docs/portfolio/04-pulse-overview.png) |
-
-</details>
 
 ## 本地运行真实模式
 
