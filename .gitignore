@@ -8,5 +8,4 @@ backend/.vercel/
 .DS_Store
 *.log
 *.local
-docs/personal/
-docs/plans/
+docs/
