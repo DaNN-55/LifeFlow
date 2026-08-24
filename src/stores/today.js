@@ -7,6 +7,9 @@ import { getUserFacingErrorMessage } from "../utils/error-message";
 import { getTaskIcon as resolveTaskIcon } from "../utils/task-icons";
 import { useSessionStore } from "./session";
 
+let observedScope = null;
+let stopObserving = null;
+
 function normalizeTask(task = {}, index = 0) {
   return {
     id: String(task.id || ""),
@@ -15,6 +18,9 @@ function normalizeTask(task = {}, index = 0) {
     order: Number(task.display_order || index + 1),
     archived: Boolean(task.archived),
     archivedAt: task.archived_at || "",
+    lifecycleEvents: Array.isArray(task.lifecycle_events || task.lifecycleEvents)
+      ? (task.lifecycle_events || task.lifecycleEvents).map(normalizeLifecycleEvent)
+      : [],
     tags: Array.isArray(task.tags) ? task.tags : [],
     icon: String(task.icon || ""),
   };
@@ -32,6 +38,14 @@ function normalizeTaskState(taskState = {}) {
   return {
     completed: Boolean(taskState.completed),
     notes: Array.isArray(taskState.notes) ? taskState.notes.map(normalizeNote) : [],
+  };
+}
+
+function normalizeLifecycleEvent(event = {}) {
+  return {
+    taskId: String(event.taskId || ""),
+    type: event.type === "restore" ? "restore" : "archive",
+    changedAt: String(event.changedAt || ""),
   };
 }
 
@@ -148,11 +162,11 @@ export const useTodayStore = defineStore("today", {
     },
     tagsByTaskId() {
       const sessionStore = useSessionStore();
-      return sessionStore.user?.preferences?.tasks?.tagsByTaskId || {};
+      return sessionStore.preferences?.tasks?.tagsByTaskId || {};
     },
     iconByTaskId() {
       const sessionStore = useSessionStore();
-      return sessionStore.user?.preferences?.tasks?.iconByTaskId || {};
+      return sessionStore.preferences?.tasks?.iconByTaskId || {};
     },
   },
   actions: {
@@ -169,6 +183,12 @@ export const useTodayStore = defineStore("today", {
     getTodayProjection() {
       const scope = this.getContinuityScope();
       return scope ? scope.view(views.today({ date: this.selectedDate })) : null;
+    },
+    observeContinuity(scope) {
+      if (!scope || observedScope === scope) return;
+      stopObserving?.();
+      observedScope = scope;
+      stopObserving = scope.observe(() => this.applyProjection(scope.view(views.today({ date: this.selectedDate }))));
     },
     applyProjection(projection) {
       const data = projection?.data || {};
@@ -213,6 +233,7 @@ export const useTodayStore = defineStore("today", {
 
       this.loading = true;
       this.error = "";
+      this.observeContinuity(scope);
 
       try {
         const initialProjection = this.getTodayProjection();
@@ -340,6 +361,18 @@ export const useTodayStore = defineStore("today", {
         return false;
       }
     },
+    async restoreTask(taskId) {
+      const task = this.tasks.find((item) => String(item.id) === String(taskId));
+      if (!task) return false;
+      const changedAt = new Date().toISOString();
+      const lifecycleEvents = [...task.lifecycleEvents, normalizeLifecycleEvent({ taskId: task.id, type: "restore", changedAt })];
+      const restored = await this.persistTask(
+        task.id,
+        { archived: false, lifecycleEvents },
+        `已恢复任务：${task.name}`,
+      );
+      return restored;
+    },
     async persistTaskPreferences(taskId, { tags, icon } = {}) {
       const sessionStore = useSessionStore();
       if (sessionStore.previewMode) {
@@ -355,42 +388,10 @@ export const useTodayStore = defineStore("today", {
         return false;
       }
 
-      const nextTagsByTaskId = {
-        ...(sessionStore.user.preferences?.tasks?.tagsByTaskId || {}),
-      };
-      const nextIconByTaskId = {
-        ...(sessionStore.user.preferences?.tasks?.iconByTaskId || {}),
-      };
-
-      if (Array.isArray(tags)) {
-        if (tags.length) {
-          nextTagsByTaskId[taskId] = tags;
-        } else {
-          delete nextTagsByTaskId[taskId];
-        }
-      }
-
-      if (typeof icon === "string") {
-        if (icon) {
-          nextIconByTaskId[taskId] = icon;
-        } else {
-          delete nextIconByTaskId[taskId];
-        }
-      }
-
-      const nextPreferences = {
-        ...(sessionStore.user.preferences || {}),
-        tasks: {
-          ...(sessionStore.user.preferences?.tasks || {}),
-          tagsByTaskId: nextTagsByTaskId,
-          iconByTaskId: nextIconByTaskId,
-        },
-      };
-
       try {
         const scope = this.getContinuityScope();
-        const response = await scope.change((writes) => writes.today.savePreferences(nextPreferences));
-        sessionStore.setPreferences(response?.preferences || nextPreferences);
+        const response = await scope.change((writes) => writes.today.updateTaskPreferences(taskId, { tags, icon }));
+        sessionStore.setPreferences(response?.preferences || scope.view(views.information()).data.preferences);
         return true;
       } catch (error) {
         this.handleActionError(error, "任务偏好同步失败");
@@ -606,11 +607,13 @@ export const useTodayStore = defineStore("today", {
         this.closeArchiveDialog();
         return;
       }
+      const changedAt = new Date().toISOString();
       task.archived = true;
-      task.archivedAt = new Date().toISOString();
-      await this.persistTask(
+      task.archivedAt = changedAt;
+      const lifecycleEvents = [...task.lifecycleEvents, normalizeLifecycleEvent({ taskId: task.id, type: "archive", changedAt })];
+      const archived = await this.persistTask(
         task.id,
-        { archived: true, archivedAt: task.archivedAt },
+        { archived: true, archivedAt: task.archivedAt, lifecycleEvents },
         `已存档任务：${task.name}`,
       );
       this.closeArchiveDialog();
@@ -645,20 +648,8 @@ export const useTodayStore = defineStore("today", {
         this.applyProjection(this.getTodayProjection());
         await deleted;
         this.applyProjection(this.getTodayProjection());
-        const nextTagsByTaskId = { ...(sessionStore.user?.preferences?.tasks?.tagsByTaskId || {}) };
-        const nextIconByTaskId = { ...(sessionStore.user?.preferences?.tasks?.iconByTaskId || {}) };
-        delete nextTagsByTaskId[taskId];
-        delete nextIconByTaskId[taskId];
-        const nextPreferences = {
-          ...(sessionStore.user?.preferences || {}),
-          tasks: {
-            ...(sessionStore.user?.preferences?.tasks || {}),
-            tagsByTaskId: nextTagsByTaskId,
-            iconByTaskId: nextIconByTaskId,
-          },
-        };
-        const response = await scope.change((writes) => writes.today.savePreferences(nextPreferences));
-        sessionStore.setPreferences(response?.preferences || nextPreferences);
+        const response = await scope.change((writes) => writes.today.updateTaskPreferences(taskId, { tags: [], icon: "" }));
+        sessionStore.setPreferences(response?.preferences || scope.view(views.information()).data.preferences);
         this.setSaveState(`已删除任务：${taskName}`, "success");
         this.closeDeleteDialog();
       } catch (error) {

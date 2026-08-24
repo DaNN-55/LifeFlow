@@ -1,6 +1,6 @@
-import { DEFAULT_REMOTE_API_BASE } from "../app/constants";
-import { fetchJson } from "./api-client";
-import { loadApiBase } from "./config";
+import { DEFAULT_REMOTE_API_BASE } from "../app/constants.js";
+import { fetchJson } from "./api-client.js";
+import { loadApiBase } from "./config.js";
 
 export function fetchAccountProfile() {
   return fetchJson("/api/account/profile", {

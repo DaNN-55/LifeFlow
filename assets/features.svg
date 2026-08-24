@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 720" role="img" aria-labelledby="title desc">
+  <title id="title">LifeFlow 活动时间线</title>
+  <desc id="desc">信息输入、每日执行和周期复盘在一条持续更新的活动时间线上形成工作闭环。</desc>
+  <defs>
+    <linearGradient id="line" x1="0" x2="1">
+      <stop stop-color="#c99a4b" stop-opacity=".2"/>
+      <stop offset=".5" stop-color="#e5c47b"/>
+      <stop offset="1" stop-color="#c99a4b" stop-opacity=".2"/>
+    </linearGradient>
+    <filter id="glow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="10" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="1600" height="720" fill="#050505"/>
+  <circle cx="800" cy="390" r="330" fill="none" stroke="#c99a4b" stroke-opacity=".09"/>
+  <text x="800" y="104" fill="#e8e5df" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="24" font-weight="600" letter-spacing="6" text-anchor="middle">L I F E F L O W</text>
+  <text x="800" y="148" fill="#8d8a83" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="22" text-anchor="middle">让每次行动成为可回看的活动时间线</text>
+  <text x="180" y="248" fill="#c99a4b" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="19" font-weight="700" letter-spacing="3">活动时间线</text>
+  <path d="M180 395H1420" fill="none" stroke="url(#line)" stroke-width="3"/>
+  <path d="M1384 385l18 10-18 10z" fill="#e5c47b"/>
+
+  <g transform="translate(240 325)">
+    <circle cx="0" cy="70" r="24" fill="#11100e" stroke="#c99a4b" stroke-width="3"/>
+    <circle cx="0" cy="70" r="9" fill="#c99a4b"/>
+    <rect x="44" width="294" height="140" rx="18" fill="#11100e" stroke="#4b4438"/>
+    <text x="76" y="43" fill="#a9a39a" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="18" letter-spacing="2">08:30 · 新输入</text>
+    <text x="76" y="82" fill="#f1eee8" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="31" font-weight="700">阅读一条信号</text>
+    <text x="76" y="113" fill="#a9a39a" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="19">收藏、标注，留给下一步</text>
+  </g>
+
+  <g transform="translate(650 278)">
+    <circle cx="0" cy="117" r="38" fill="#c99a4b" fill-opacity=".2" filter="url(#glow)"/>
+    <circle cx="0" cy="117" r="24" fill="#e5c47b" filter="url(#glow)"/>
+    <circle cx="0" cy="117" r="8" fill="#050505"/>
+    <rect x="52" width="350" height="188" rx="20" fill="#18140d" stroke="#b68b45" stroke-width="2"/>
+    <text x="86" y="47" fill="#e5c47b" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="18" font-weight="700" letter-spacing="2">14:10 · 正在发生</text>
+    <text x="86" y="91" fill="#f8f3e9" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="34" font-weight="700">完成今日任务</text>
+    <path d="M86 121h265" stroke="#6a5940" stroke-width="2"/>
+    <text x="86" y="155" fill="#c3b9aa" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="19">进度、记录与结果即时沉淀</text>
+  </g>
+
+  <g transform="translate(1390 325)">
+    <circle cx="0" cy="70" r="24" fill="#11100e" stroke="#c99a4b" stroke-width="3"/>
+    <circle cx="0" cy="70" r="9" fill="#c99a4b"/>
+    <rect x="-300" width="260" height="140" rx="18" fill="#11100e" stroke="#4b4438"/>
+    <text x="-268" y="43" fill="#a9a39a" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="18" letter-spacing="2">周日 · 自动聚合</text>
+    <text x="-268" y="82" fill="#f1eee8" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="31" font-weight="700">形成一次复盘</text>
+    <text x="-268" y="113" fill="#a9a39a" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="19">用真实活动决定下一步</text>
+  </g>
+
+  <path d="M1250 495c-10 66-92 104-180 104H502c-118 0-202-39-213-104" fill="none" stroke="#c99a4b" stroke-opacity=".46" stroke-width="2" stroke-dasharray="8 10"/>
+  <path d="M302 494l-10 16 18-1z" fill="#c99a4b" opacity=".75"/>
+  <text x="800" y="647" fill="#8d8a83" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="20" text-anchor="middle">输入、执行、复盘都成为同一条连续活动记录</text>
+</svg>

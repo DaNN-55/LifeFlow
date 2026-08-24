@@ -1,7 +1,7 @@
 import { defineStore } from "pinia";
 
 import { APP_THEME_STORAGE_KEY } from "../app/constants";
-import { saveAccountPreferences } from "../services/today-api";
+import { stateContinuity, views } from "../services/state-continuity";
 import { getUserFacingErrorMessage } from "../utils/error-message";
 import { useSessionStore } from "./session";
 
@@ -57,12 +57,9 @@ export const useAppStore = defineStore("app", {
 
       this.themeBusy = true;
       try {
-        const nextPreferences = {
-          ...(sessionStore.user.preferences || {}),
-          theme: nextTheme,
-        };
-        const response = await saveAccountPreferences(nextPreferences);
-        sessionStore.setPreferences(response?.preferences || nextPreferences);
+        const scope = stateContinuity.open({ id: sessionStore.user.id });
+        const response = await scope.change((catalog) => catalog.preferences.merge({ theme: nextTheme }));
+        sessionStore.setPreferences(response?.preferences || scope.view(views.information()).data.preferences);
         this.themeFeedback = "主题已保存到账号偏好";
       } catch (error) {
         this.setTheme(previousTheme);

@@ -13,18 +13,7 @@ const parser = new Parser({
 });
 
 const FETCH_TIMEOUT_MS = 10000;
-const DEFAULT_PAGE_SIZE = 10;
-const CACHE_TTL_MS = 15 * 60 * 1000;
-const CONTENT_RETENTION_DAYS = 7;
 const DEFAULT_RSSHUB_INSTANCE = "https://rsshub.zhsh.me";
-const MAX_SOURCE_FETCH_CONCURRENCY = 4;
-const CHANNELS = ["news"];
-const cacheByChannel = new Map();
-const refreshInFlight = new Map();
-
-function getCacheKey(userId, channel) {
-  return `${userId}:${channel}`;
-}
 
 function createContentId(channel, canonicalUrl) {
   return crypto
@@ -33,174 +22,27 @@ function createContentId(channel, canonicalUrl) {
     .digest("hex");
 }
 
-function createEmptyChannelCache() {
+function createProductionContentCollector(
+  { now = () => new Date(Date.now()), fetchTimeoutMs = FETCH_TIMEOUT_MS } = {},
+) {
   return {
-    items: [],
-    refreshedAt: 0,
-    lastRefreshStats: null,
+    fetchIncrement(source, channel) {
+      return fetchSourceIncrement(source, channel, { now, fetchTimeoutMs });
+    },
   };
 }
 
-function getChannelCache(userId, channel) {
-  const key = getCacheKey(userId, channel);
-  if (!cacheByChannel.has(key)) {
-    cacheByChannel.set(key, createEmptyChannelCache());
-  }
-  return cacheByChannel.get(key);
-}
-
-function setCachedChannelItems(userId, channel, items) {
-  const cache = getChannelCache(userId, channel);
-  cache.items = items;
-  cache.refreshedAt = Date.now();
-}
-
-function setChannelRefreshStats(userId, channel, stats) {
-  const cache = getChannelCache(userId, channel);
-  cache.lastRefreshStats = stats || null;
-}
-
-function getContentRetentionCutoffIso(days = CONTENT_RETENTION_DAYS) {
-  const retentionDays = Math.max(1, Number(days || CONTENT_RETENTION_DAYS));
-  return new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
-}
-
-function getChannelCacheStatus(userId, channel) {
-  const cache = getChannelCache(userId, channel);
-  return {
-    refreshedAt: cache.refreshedAt || 0,
-    isFresh: Date.now() - (cache.refreshedAt || 0) < CACHE_TTL_MS,
-    count: Array.isArray(cache.items) ? cache.items.length : 0,
-    lastRefreshStats: cache.lastRefreshStats || null,
-  };
-}
-
-async function refreshChannelContent({ store, userId, channel, limit }) {
-  const cacheKey = getCacheKey(userId, channel);
-  if (refreshInFlight.has(cacheKey)) {
-    return refreshInFlight.get(cacheKey);
-  }
-
-  const job = (async () => {
-    const sources = (await store.listContentSources({ userId }, channel)).filter((source) => source.enabled);
-    if (sources.length === 0) {
-      setCachedChannelItems(userId, channel, []);
-      await store.replaceContentItems({ userId }, channel, []);
-      const stats = {
-        totalSources: 0,
-        successCount: 0,
-        failureCount: 0,
-        failures: [],
-        refreshedAt: new Date().toISOString(),
-      };
-      setChannelRefreshStats(userId, channel, stats);
-      return { items: [], stats };
-    }
-    const failures = [];
-    let successCount = 0;
-    let syncedItemCount = 0;
-    const sourceResults = await mapWithConcurrency(
-      sources,
-      Math.min(MAX_SOURCE_FETCH_CONCURRENCY, sources.length),
-      async (source) => {
-        const syncedAt = new Date().toISOString();
-        try {
-          const items = await fetchSourceIncrement(source, channel);
-          const deduped = dedupeContentItems(items);
-          if (deduped.length) {
-            await store.upsertContentItems({ userId }, deduped);
-          }
-          await store.updateContentSourceSync?.({ userId }, source.id, {
-            last_synced_at: syncedAt,
-            last_success_at: syncedAt,
-            last_error: "",
-            latest_published_at: pickLatestPublishedAt(source.latest_published_at, deduped),
-          });
-          return { source, ok: true, count: deduped.length };
-        } catch (error) {
-          console.warn("[content] failed to refresh source", source.name, error.message);
-          await store.updateContentSourceSync?.({ userId }, source.id, {
-            last_synced_at: syncedAt,
-            last_failure_at: syncedAt,
-            last_error: String(error.message || "Unknown error"),
-          });
-          return {
-            source,
-            ok: false,
-            error,
-          };
-        }
-      },
-    );
-
-    sourceResults.forEach((result) => {
-        if (result.ok) {
-          successCount += 1;
-          syncedItemCount += Number(result.count || 0);
-          return;
-        }
-      failures.push({
-        sourceId: result.source.id,
-        sourceName: result.source.name,
-        message: result.error.message,
-      });
-    });
-
-    await store.pruneExpiredContentItems?.(
-      { userId },
-      {
-        channel,
-        cutoffIso: getContentRetentionCutoffIso(),
-      },
-    );
-
-    const previewPageSize = Number.isFinite(Number(limit)) && Number(limit) > 0
-      ? Math.max(1, Number(limit))
-      : DEFAULT_PAGE_SIZE;
-    const preview = await store.listContent(
-      { userId },
-      {
-        channel,
-        page: 1,
-        pageSize: previewPageSize,
-        sort: "latest",
-      },
-    );
-    const latestItems = Array.isArray(preview?.items) ? preview.items : [];
-    setCachedChannelItems(userId, channel, latestItems);
-    const stats = {
-      totalSources: sources.length,
-      successCount,
-      failureCount: failures.length,
-      failures,
-      syncedItemCount,
-      latestItemCount: Number(preview?.total || latestItems.length || 0),
-      refreshedAt: new Date().toISOString(),
-    };
-    setChannelRefreshStats(userId, channel, stats);
-    await store.touchUserSyncState?.(userId);
-    return { items: latestItems, stats };
-  })();
-
-  refreshInFlight.set(cacheKey, job);
-  try {
-    return await job;
-  } finally {
-    refreshInFlight.delete(cacheKey);
-  }
-}
-
-async function fetchSourceIncrement(source, channel) {
+async function fetchSourceIncrement(source, channel, options = {}) {
   const stopAtPublishedAt = normalizeDateString(source.latest_published_at || "");
   return source.type === "site"
-    ? fetchSiteSource(source, channel, { stopAtPublishedAt })
-    : fetchRssSource(source, channel, { stopAtPublishedAt });
+    ? fetchSiteSource(source, channel, { ...options, stopAtPublishedAt })
+    : fetchRssSource(source, channel, { ...options, stopAtPublishedAt });
 }
 
 async function fetchRssSource(source, channel, options = {}) {
   const stopAtPublishedAt = normalizeDateString(options.stopAtPublishedAt || "");
   const feedUrl = resolveSourceFeedUrl(source);
-  const xml = await fetchText(feedUrl);
+  const xml = await fetchText(feedUrl, options.fetchTimeoutMs);
   const feed = await parser.parseString(xml);
   const entries = Array.isArray(feed.items) ? feed.items : [];
   const normalized = [];
@@ -209,7 +51,7 @@ async function fetchRssSource(source, channel, options = {}) {
     if (stopAtPublishedAt && publishedAt && publishedAt < stopAtPublishedAt) {
       break;
     }
-    const item = await normalizeFeedItem(entry, source, channel);
+    const item = await normalizeFeedItem(entry, source, channel, options.now);
     if (item?.canonical_url) {
       normalized.push(item);
     }
@@ -219,12 +61,12 @@ async function fetchRssSource(source, channel, options = {}) {
 
 async function fetchSiteSource(source, channel, options = {}) {
   const stopAtPublishedAt = normalizeDateString(options.stopAtPublishedAt || "");
-  const html = await fetchText(source.url);
+  const html = await fetchText(source.url, options.fetchTimeoutMs);
   const $ = cheerio.load(html);
   const alternateFeed = $('link[type="application/rss+xml"], link[type="application/atom+xml"]').first().attr("href");
   if (alternateFeed) {
     const feedUrl = new URL(alternateFeed, source.url).toString();
-    return fetchRssSource({ ...source, url: feedUrl }, channel, { stopAtPublishedAt });
+    return fetchRssSource({ ...source, url: feedUrl }, channel, { ...options, stopAtPublishedAt });
   }
 
   const items = [];
@@ -264,11 +106,11 @@ async function fetchSiteSource(source, channel, options = {}) {
       lang: inferLanguage(title, summaryRaw),
     });
   });
-  const normalized = await Promise.all(items.map((item) => normalizeContentItem(item, source, channel)));
+  const normalized = await Promise.all(items.map((item) => normalizeContentItem(item, source, channel, options.now)));
   return normalized.filter(Boolean);
 }
 
-async function normalizeFeedItem(item, source, channel) {
+async function normalizeFeedItem(item, source, channel, now) {
   const canonicalUrl = String(item.link || item.guid || "").trim();
   const summaryRaw = cleanText(
     item.contentSnippet ||
@@ -292,14 +134,15 @@ async function normalizeFeedItem(item, source, channel) {
     },
     source,
     channel,
+    now,
   );
 }
 
-async function normalizeContentItem(item, source, channel) {
+async function normalizeContentItem(item, source, channel, now = () => new Date(Date.now())) {
   if (!item.title || !item.canonicalUrl) {
     return null;
   }
-  const fetchedAt = new Date().toISOString();
+  const fetchedAt = now().toISOString();
   const summaryRaw = String(item.summaryRaw || "").trim();
   const summaryZh = localizeSummary(summaryRaw, item.title);
   const bodyRaw = truncate(summaryRaw || item.title || "", 320);
@@ -622,13 +465,7 @@ async function fetchText(url, timeoutMs = FETCH_TIMEOUT_MS) {
 }
 
 module.exports = {
-  CHANNELS,
-  DEFAULT_PAGE_SIZE,
-  CACHE_TTL_MS,
-  CONTENT_RETENTION_DAYS,
-  refreshChannelContent,
-  getChannelCacheStatus,
-  getContentRetentionCutoffIso,
+  createProductionContentCollector,
   createContentId,
   extractFeedItemImage,
 };

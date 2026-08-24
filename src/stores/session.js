@@ -22,9 +22,29 @@ export const useSessionStore = defineStore("session", {
     lastCheckedAt: "",
     feedback: "",
   }),
+  getters: {
+    preferences(state) {
+      if (state.previewMode) {
+        return stateContinuity.open({ mode: "demo" }).view(views.information()).data.preferences;
+      }
+      if (!state.user?.id) {
+        return {};
+      }
+      return stateContinuity.open({ id: state.user.id }).view(views.information()).data.preferences;
+    },
+  },
   actions: {
-    applySession(payload, feedback = "") {
-      this.user = payload?.user || null;
+    applySession(payload, feedback = "", options = {}) {
+      const previousUserId = this.user?.id || "";
+      const nextUser = payload?.user || null;
+      const nextUserId = nextUser?.id || "";
+      const identityChanged = Boolean(previousUserId && previousUserId !== nextUserId);
+      const identityLost = Boolean(previousUserId && !nextUserId);
+      const scope = stateContinuity.transition(
+        nextUserId ? { id: nextUserId, preferences: nextUser.preferences || {} } : null,
+        { purgePrevious: options.purgePrevious ?? (identityChanged || identityLost) },
+      );
+      this.user = nextUser;
       this.previewMode = false;
       savePreviewMode(false);
       saveSessionId(payload?.session?.id || "");
@@ -33,14 +53,15 @@ export const useSessionStore = defineStore("session", {
       if (this.user) {
         this.apiStatus = "ready";
       }
-      if (this.user?.id) {
-        stateContinuity.open({ id: this.user.id }).control.sync().catch(() => {});
+      if (scope) {
+        scope.control.sync().catch(() => {});
       }
       this.feedback = feedback || (this.user ? `已识别 ${this.user.username}` : "当前未登录");
     },
     restoreOfflineSession(payload, feedback = "当前离线，已显示最近一次同步内容") {
       const restoredUser = payload?.user || null;
       if (!restoredUser?.id) {
+        stateContinuity.transition(null);
         this.user = null;
         this.status = "offline";
         this.apiStatus = "offline";
@@ -52,13 +73,13 @@ export const useSessionStore = defineStore("session", {
       this.previewMode = false;
       this.status = "ready";
       this.apiStatus = "offline";
-      const scope = stateContinuity.open({ id: restoredUser.id });
+      const scope = stateContinuity.transition({ id: restoredUser.id, preferences: restoredUser.preferences || {} });
       const hasOfflineSnapshot = scope.view(views.today()).freshness === "cached";
       this.feedback = hasOfflineSnapshot ? feedback : "当前离线，会话已保留，待服务恢复后继续同步";
       return true;
     },
     startPreviewSession() {
-      stateContinuity.open({ mode: "demo" }).control.sync();
+      stateContinuity.transition({ mode: "demo" }, { purgePrevious: Boolean(this.user?.id) }).control.sync();
       this.user = null;
       this.previewMode = true;
       this.status = "ready";
@@ -130,6 +151,7 @@ export const useSessionStore = defineStore("session", {
         ...this.user,
         preferences: preferences && typeof preferences === "object" ? preferences : {},
       };
+      stateContinuity.transition({ id: this.user.id, preferences: this.user.preferences });
       saveOfflineSession(this.user);
     },
     async signOut() {
@@ -149,10 +171,8 @@ export const useSessionStore = defineStore("session", {
       this.previewMode = false;
       this.status = "guest";
       this.feedback = "已退出登录";
-      if (wasPreviewMode) {
-        stateContinuity.open({ mode: "demo" }).control.close({ purge: true });
-      } else if (previousUserId) {
-        stateContinuity.open({ id: previousUserId }).control.close({ purge: true });
+      if (wasPreviewMode || previousUserId) {
+        stateContinuity.transition(null, { purgePrevious: true });
       }
     },
   },

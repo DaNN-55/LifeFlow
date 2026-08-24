@@ -8,7 +8,6 @@ export const APP_THEME_STORAGE_KEY = "lifeflow-private-dashboard-vue-theme";
 export const PREVIEW_MODE_STORAGE_KEY = "lifeflow-private-dashboard-vue-preview-mode";
 export const API_PROBE_TIMEOUT_MS = 12000;
 export const SAFETY_BACKUP_STORAGE_KEY = "lifeflow-private-dashboard-vue-safety-backup";
-export const LOCAL_CONTENT_CACHE_STORAGE_KEY = "lifeflow-private-dashboard-vue-local-content";
 export const AUTH_GATE_ENABLED = true;
 export const ACCOUNT_CONTROLS_ENABLED = true;
 export const AUTH_CHALLENGE_ENABLED = true;

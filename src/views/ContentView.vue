@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, nextTick, ref } from "vue";
 
 import ToolbarSelect from "../components/common/ToolbarSelect.vue";
 import ContentCard from "../components/content/ContentCard.vue";
@@ -20,10 +20,7 @@ const sessionStore = useSessionStore();
 const contentStore = useContentStore();
 
 const isAuthenticated = computed(() => Boolean(sessionStore.user?.id));
-const isLocalMode = computed(() => contentState.value?.mode === "local");
 const isDemoMode = computed(() => contentState.value?.mode === "demo");
-const showSourceControls = computed(() => isLocalMode.value || isAuthenticated.value);
-const importInputRef = ref(null);
 const confirmDialog = ref({
   type: "",
   sourceId: "",
@@ -69,12 +66,6 @@ const confirmDialogTitle = computed(() => {
   if (confirmDialog.value.type === "delete-source") {
     return "删除信源";
   }
-  if (confirmDialog.value.type === "clear-local-marks") {
-    return "清空本地标记";
-  }
-  if (confirmDialog.value.type === "reset-local-cache") {
-    return "重置频道缓存";
-  }
   return "";
 });
 
@@ -83,24 +74,12 @@ const confirmDialogCopy = computed(() => {
     const source = getSourceById(confirmDialog.value.sourceId);
     return source ? `确认删除信源 ${source.name} 吗？` : "确认删除这个信源吗？";
   }
-  if (confirmDialog.value.type === "clear-local-marks") {
-    return "确认清空当前频道的本地已读和收藏标记吗？";
-  }
-  if (confirmDialog.value.type === "reset-local-cache") {
-    return "确认重置当前频道缓存吗？这会清空本地资讯和本地信源。";
-  }
   return "";
 });
 
 const confirmDialogLabel = computed(() => {
   if (confirmDialog.value.type === "delete-source") {
     return "确认删除";
-  }
-  if (confirmDialog.value.type === "clear-local-marks") {
-    return "确认清空";
-  }
-  if (confirmDialog.value.type === "reset-local-cache") {
-    return "确认重置";
   }
   return "确认";
 });
@@ -149,29 +128,8 @@ async function confirmDangerAction() {
   const { type, sourceId } = confirmDialog.value;
   if (type === "delete-source" && sourceId) {
     await contentStore.deleteSource(sourceId);
-  } else if (type === "clear-local-marks") {
-    await contentStore.clearLocalChannelMarks(props.channel);
-  } else if (type === "reset-local-cache") {
-    await contentStore.resetLocalChannelCache(props.channel);
   }
   closeConfirmDialog();
-}
-
-function openLocalCacheImport() {
-  importInputRef.value?.click();
-}
-
-async function handleLocalCacheImport(event) {
-  const file = event.target?.files?.[0];
-  if (!file) {
-    return;
-  }
-  await contentStore.importLocalCache(file, props.channel);
-  event.target.value = "";
-}
-
-async function loadContentChannel() {
-  await contentStore.loadChannel(props.channel);
 }
 
 async function scrollPageToTop() {
@@ -189,26 +147,6 @@ async function loadChannelFromTop(overrides = {}) {
   await contentStore.loadChannel(props.channel, overrides);
   await scrollPageToTop();
 }
-
-onMounted(async () => {
-  await loadContentChannel();
-  await scrollPageToTop();
-});
-
-watch(
-  () => props.channel,
-  async () => {
-    await loadContentChannel();
-    await scrollPageToTop();
-  },
-);
-watch(
-  () => sessionStore.user?.id,
-  async () => {
-    await loadContentChannel();
-    await scrollPageToTop();
-  },
-);
 </script>
 
 <template>
@@ -227,10 +165,19 @@ watch(
             {{ contentStore.getMetaText(channel) }}
           </div>
           <button
+            v-if="isAuthenticated"
+            type="button"
+            class="task-cancel-action"
+            @click="contentStore.openSourceModal(channel)"
+          >
+            管理信源
+          </button>
+          <button
             type="button"
             class="content-stage-refresh"
-            :class="{ 'is-spinning': contentState.loading }"
-            :aria-label="isAuthenticated ? '刷新资讯' : '刷新本地缓存'"
+            :class="{ 'is-spinning': contentState.refreshing }"
+            :aria-label="isAuthenticated ? '刷新资讯' : '查看资讯需要登录'"
+            :disabled="!isAuthenticated && !isDemoMode"
             @click="contentStore.refreshChannel(channel)"
           >
             <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
@@ -242,32 +189,6 @@ watch(
             当前为安全 Demo，资讯、收藏和已读状态均为合成数据，并保存在独立的本地空间。
             当前页已读 {{ readCount }} / {{ contentState.items.length }}。
           </p>
-        </div>
-
-        <div v-else-if="isLocalMode" class="local-mode-strip">
-          <p class="local-mode-copy">
-            未登录时已切到本地模式，你可以直接用本地缓存测试 News 页面，筛选状态也会保留在本地。
-            当前页已读 {{ readCount }} / {{ contentState.items.length }}。
-          </p>
-          <div class="local-mode-actions">
-            <button type="button" class="task-cancel-action" @click="contentStore.exportLocalCache()">导出本地缓存</button>
-            <button type="button" class="task-cancel-action" @click="openLocalCacheImport">导入本地缓存</button>
-            <button type="button" class="task-cancel-action" @click="contentStore.markCurrentPageAsRead(channel)">本页标记已读</button>
-            <button type="button" class="task-cancel-action" @click="openConfirmDialog('clear-local-marks')">清空本地标记</button>
-            <button type="button" class="task-cancel-action" @click="openConfirmDialog('reset-local-cache')">重置频道缓存</button>
-          </div>
-        </div>
-
-        <input
-          ref="importInputRef"
-          class="visually-hidden"
-          type="file"
-          accept="application/json"
-          @change="handleLocalCacheImport"
-        />
-
-        <div v-if="isLocalMode && contentStore.localModeFeedback?.message" class="content-local-feedback" :data-tone="contentStore.localModeFeedback.tone || 'default'">
-          {{ contentStore.localModeFeedback.message }}
         </div>
 
         <div v-if="hasFilters" class="content-quick-strip">
@@ -329,8 +250,8 @@ watch(
           </label>
         </div>
 
-        <div v-if="contentState.loading && contentState.items.length === 0" class="content-empty-state">
-          正在加载资讯...
+        <div v-if="!isAuthenticated && !isDemoMode" class="content-empty-state">
+          News 仅支持已登录账号或安全 Demo。
         </div>
         <div v-else-if="contentState.error && contentState.items.length === 0" class="content-empty-state">
           {{ contentState.error }}

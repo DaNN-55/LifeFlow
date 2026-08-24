@@ -13,6 +13,8 @@ const props = defineProps({
   formatDateTime: { type: Function, required: true },
 });
 
+const emit = defineEmits(["open"]);
+
 const cardId = computed(() => `${props.channel}-feed-title`);
 const targetPath = computed(() => props.linkTo || `/content/${props.channel}`);
 
@@ -41,7 +43,7 @@ function getTypeLabel(item = {}) {
     <div class="feed-list">
       <article v-for="item in items" :key="item.id" class="feed-item">
         <h3>
-          <a :href="item.canonical_url || item.source_url || '#'" target="_blank" rel="noreferrer">
+          <a :href="item.canonical_url || item.source_url || '#'" target="_blank" rel="noreferrer" @click="emit('open', item.ref)">
             {{ item.title }}
           </a>
         </h3>

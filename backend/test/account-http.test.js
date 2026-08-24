@@ -4,6 +4,9 @@ const { createServer } = require("node:http");
 const { once } = require("node:events");
 
 const { createApp } = require("../src/app");
+const { createInformationInput } = require("../src/information-input");
+const { createMemoryContentCollector } = require("../src/information-input/memoryCollector");
+const { createInformationInputPersistence } = require("../src/information-input/persistence");
 const { MemoryStore } = require("../src/store/memoryStore");
 
 function createTestConfig() {
@@ -17,9 +20,14 @@ function createTestConfig() {
 }
 
 async function startTestServer() {
+  const store = new MemoryStore();
   const app = createApp({
     config: createTestConfig(),
-    store: new MemoryStore(),
+    store,
+    informationInput: createInformationInput({
+      persistence: createInformationInputPersistence(store),
+      collector: createMemoryContentCollector(),
+    }),
   });
   const server = createServer(app);
   server.listen(0, "127.0.0.1");

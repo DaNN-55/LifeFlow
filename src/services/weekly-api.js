@@ -1,5 +1,5 @@
-import { fetchJson } from "./api-client";
-import { fetchDailyRecord, listTasks } from "./today-api";
+import { fetchJson } from "./api-client.js";
+import { fetchDailyRecord, listTasks } from "./today-api.js";
 
 export function fetchWeeklyReview(week) {
   return fetchJson(`/api/weekly-review/${week}`);
