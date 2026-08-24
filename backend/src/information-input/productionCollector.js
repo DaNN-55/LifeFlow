@@ -72,7 +72,8 @@ async function fetchSiteSource(source, channel, options = {}) {
   const items = [];
   $("article, .article, .post, .story").each((index, element) => {
     const root = $(element);
-    const link = root.find("a[href]").first();
+    const headingLink = root.find("h2 a[href], h3 a[href]").first();
+    const link = headingLink.length ? headingLink : root.find("a[href]").first();
     const href = link.attr("href");
     const title = cleanText(link.text()) || cleanText(root.find("h2, h3").first().text());
     if (!href || !title) {
