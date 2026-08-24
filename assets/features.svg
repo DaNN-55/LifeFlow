@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 720" role="img" aria-labelledby="title desc">
+  <title id="title">LifeFlow 工作闭环</title>
+  <desc id="desc">每日执行、周期复盘与信息输入形成连续工作闭环。</desc>
+  <defs>
+    <linearGradient id="line" x1="0" x2="1">
+      <stop stop-color="#c99a4b" stop-opacity=".25"/>
+      <stop offset=".5" stop-color="#e5c47b"/>
+      <stop offset="1" stop-color="#c99a4b" stop-opacity=".25"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-50%" width="140%" height="200%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="1600" height="720" fill="#050505"/>
+  <circle cx="800" cy="360" r="300" fill="none" stroke="#c99a4b" stroke-opacity=".1"/>
+  <text x="800" y="104" fill="#e8e5df" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="24" font-weight="600" letter-spacing="6" text-anchor="middle">L I F E F L O W</text>
+  <text x="800" y="148" fill="#8d8a83" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="22" text-anchor="middle">让每天的行动成为下一次判断的依据</text>
+  <path d="M430 360H1170" fill="none" stroke="url(#line)" stroke-width="2"/>
+  <path d="M612 360l-14-9v18zM1016 360l-14-9v18z" fill="#e5c47b"/>
+  <g transform="translate(156 210)">
+    <rect width="400" height="300" rx="20" fill="#11100e" stroke="#4b4438"/>
+    <circle cx="52" cy="58" r="17" fill="#c99a4b" filter="url(#glow)"/>
+    <text x="86" y="52" fill="#f1eee8" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="33" font-weight="700">每日执行</text>
+    <text x="86" y="84" fill="#a9a39a" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="19">任务 · 记录 · 完成</text>
+    <path d="M52 138h296M52 182h250M52 226h204" stroke="#5a554c" stroke-width="6" stroke-linecap="round"/>
+    <circle cx="52" cy="138" r="10" fill="#c99a4b"/><circle cx="52" cy="182" r="10" fill="none" stroke="#8d8578" stroke-width="3"/><circle cx="52" cy="226" r="10" fill="none" stroke="#8d8578" stroke-width="3"/>
+  </g>
+  <g transform="translate(600 210)">
+    <rect width="400" height="300" rx="20" fill="#15120d" stroke="#9b7940"/>
+    <circle cx="52" cy="58" r="17" fill="#e5c47b" filter="url(#glow)"/>
+    <text x="86" y="52" fill="#f8f3e9" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="33" font-weight="700">周期复盘</text>
+    <text x="86" y="84" fill="#c3b9aa" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="19">聚合事实 · 总结 · 回看</text>
+    <path d="M52 226v-52c0-20 16-36 36-36h52c20 0 36 16 36 36v52" fill="none" stroke="#e5c47b" stroke-width="6" stroke-linecap="round"/>
+    <path d="M188 226v-88c0-13 11-24 24-24h52c13 0 24 11 24 24v88" fill="none" stroke="#8d8578" stroke-width="6" stroke-linecap="round"/>
+    <path d="M52 226h236" stroke="#e5c47b" stroke-width="6" stroke-linecap="round"/>
+  </g>
+  <g transform="translate(1044 210)">
+    <rect width="400" height="300" rx="20" fill="#11100e" stroke="#4b4438"/>
+    <circle cx="52" cy="58" r="17" fill="#c99a4b" filter="url(#glow)"/>
+    <text x="86" y="52" fill="#f1eee8" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="33" font-weight="700">信息输入</text>
+    <text x="86" y="84" fill="#a9a39a" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="19">信源 · 阅读 · 收藏</text>
+    <path d="M52 150h296M52 196h252M52 242h218" stroke="#5a554c" stroke-width="6" stroke-linecap="round"/>
+    <path d="M52 150h122M52 196h90" stroke="#c99a4b" stroke-width="6" stroke-linecap="round"/>
+  </g>
+  <text x="800" y="620" fill="#8d8a83" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="20" text-anchor="middle">同一份事实，在不同时间点服务执行、判断与下一步行动</text>
+</svg>
