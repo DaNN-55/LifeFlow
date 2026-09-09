@@ -2,8 +2,8 @@ import {
   loadDashboardUserCache,
   mergeDashboardUserCache,
   replaceDashboardUserCache,
-} from "./dashboard-cache.js";
-import { fetchSyncBootstrap, fetchSyncChanges } from "./sync-api.js";
+} from "./account-cache.js";
+import { fetchSyncBootstrap, fetchSyncChanges } from "../sync-api.js";
 
 function isInvalidSyncCursor(value = "") {
   const raw = String(value || "").trim();

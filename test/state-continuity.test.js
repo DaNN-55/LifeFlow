@@ -704,24 +704,85 @@ test("mutation 前启动的旧 sync 不会撤销已确认收藏", async () => {
 });
 
 test("Demo scope 不发远端同步请求", async () => {
-  let syncCalls = 0;
-  const continuity = createStateContinuity({
-    adapter: createMemoryAdapter({
+  const previousStorage = globalThis.localStorage;
+  const previousFetch = globalThis.fetch;
+  let remoteCalls = 0;
+  globalThis.localStorage = createMemoryStorage();
+  globalThis.fetch = async () => {
+    remoteCalls += 1;
+    throw new Error("network should not run");
+  };
+
+  try {
+    const scope = createStateContinuity().open({ mode: "demo" });
+    await scope.control.sync();
+
+    assert.equal(remoteCalls, 0);
+    assert.equal(scope.view(views.today({ date: "2026-08-11" })).freshness, "demo");
+  } finally {
+    globalThis.localStorage = previousStorage;
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("状态连续性在 open 时选择 Demo 或账户 adapter，caller interface 保持不变", () => {
+  const selected = [];
+  const createAdapter = (name, taskId) => ({
+    ...createMemoryAdapter({
       snapshots: {
-        demo: { tasks: [{ id: "demo-task", name: "Demo 任务" }], dailyRecords: {}, drafts: {} },
-      },
-      sync: async () => {
-        syncCalls += 1;
-        throw new Error("network should not run");
+        demo: { tasks: [{ id: taskId }], dailyRecords: {}, drafts: {} },
+        alice: { tasks: [{ id: taskId }], dailyRecords: {}, drafts: {} },
       },
     }),
+    begin(identity) {
+      selected.push(`${name}:${identity.id}`);
+    },
   });
-  const scope = continuity.open({ mode: "demo" });
+  const continuity = createStateContinuity({
+    adapters: {
+      demo: createAdapter("demo", "demo-task"),
+      account: createAdapter("account", "account-task"),
+    },
+  });
 
-  await scope.control.sync();
+  const demo = continuity.open({ mode: "demo" });
+  assert.deepEqual(demo.view(views.today()).data.tasks.map((task) => task.id), ["demo-task"]);
 
-  assert.equal(syncCalls, 0);
-  assert.equal(scope.view(views.today({ date: "2026-08-11" })).freshness, "demo");
+  const account = continuity.open({ id: "alice" });
+  assert.deepEqual(account.view(views.today()).data.tasks.map((task) => task.id), ["account-task"]);
+  assert.deepEqual(selected, ["demo:demo", "account:alice"]);
+});
+
+test("安全 Demo 的偏好确认留在 Demo adapter，不穿透账户远端", async () => {
+  const previousStorage = globalThis.localStorage;
+  const previousWindow = globalThis.window;
+  const previousFetch = globalThis.fetch;
+  let remoteCalls = 0;
+  globalThis.localStorage = createMemoryStorage();
+  globalThis.window = {
+    setTimeout,
+    clearTimeout,
+    location: { hostname: "state-continuity.test", protocol: "http:" },
+  };
+  globalThis.fetch = async () => {
+    remoteCalls += 1;
+    return new Response(JSON.stringify({ preferences: {} }), { status: 200 });
+  };
+
+  try {
+    const scope = createStateContinuity().open({ mode: "demo" });
+    await scope.change((catalog) => catalog.information.setSourceHidden("demo-source-product", true));
+
+    assert.equal(remoteCalls, 0);
+    assert.equal(
+      scope.view(views.information()).data.preferences.content.hiddenSources["news:demo-source-product"],
+      true,
+    );
+  } finally {
+    globalThis.localStorage = previousStorage;
+    globalThis.window = previousWindow;
+    globalThis.fetch = previousFetch;
+  }
 });
 
 test("关闭并 purge 身份 scope 会清除确认快照与 Today 草稿", () => {

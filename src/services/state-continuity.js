@@ -1,38 +1,7 @@
 import { reactive, readonly, toRaw } from "vue";
 
-import {
-  clearAccountData as clearRemoteAccountData,
-  deleteAccount as deleteRemoteAccount,
-} from "./account-api.js";
-import {
-  clearDashboardUserCache,
-  loadCachedTodayNoteDrafts,
-  loadDashboardUserCache,
-  saveCachedTodayNoteDrafts,
-  updateDashboardUserCache,
-} from "./dashboard-cache.js";
-import { demoState } from "./demo-state.js";
-import {
-  addContentFavorite,
-  createContentSource,
-  deleteContentSource,
-  refreshContent,
-  removeContentFavorite,
-  updateContentSource,
-} from "./content-api.js";
-import {
-  commitDashboardSyncResult,
-  fetchDashboardSyncResult,
-  hasDashboardSnapshotData,
-} from "./sync-service.js";
-import {
-  createTask,
-  deleteTask,
-  saveAccountPreferences,
-  saveDailyRecord,
-  updateTask,
-} from "./today-api.js";
-import { saveWeeklySummary } from "./weekly-api.js";
+import { createAccountStateAdapter } from "./state-continuity/account-adapter.js";
+import { createDemoStateAdapter } from "./state-continuity/demo-adapter.js";
 
 function clone(value) {
   return structuredClone(toRaw(value));
@@ -54,187 +23,6 @@ function normalizeIdentity(identity = {}) {
     id: demo ? "demo" : id,
     demo,
     preferences: clone(identity?.preferences || {}),
-  };
-}
-
-function createBrowserAdapter() {
-  const demoDrafts = new Map();
-
-  return {
-    load(identity) {
-      return identity.demo ? demoState.ensure() : loadDashboardUserCache(identity.id);
-    },
-    hasData(snapshot) {
-      return hasDashboardSnapshotData(snapshot);
-    },
-    async sync(identity, { force } = {}) {
-      if (identity.demo) {
-        return demoState.ensure();
-      }
-      return fetchDashboardSyncResult(identity.id, { force });
-    },
-    commitSync(identity, result) {
-      return commitDashboardSyncResult(identity.id, result);
-    },
-    saveConfirmed(identity, snapshot) {
-      if (identity.demo) {
-        return;
-      }
-      updateDashboardUserCache(identity.id, (cache) => ({
-        ...cache,
-        tasks: snapshot.tasks,
-        dailyRecords: snapshot.dailyRecords,
-        weeklySummaries: snapshot.weeklySummaries,
-        preferences: snapshot.preferences,
-        content: snapshot.content,
-      }));
-    },
-    loadDrafts(identity, date) {
-      if (identity.demo) {
-        return clone(demoDrafts.get(date) || {});
-      }
-      return loadCachedTodayNoteDrafts(identity.id, date);
-    },
-    saveDrafts(identity, date, drafts) {
-      if (identity.demo) {
-        demoDrafts.set(date, clone(drafts));
-        return;
-      }
-      saveCachedTodayNoteDrafts(identity.id, date, drafts);
-    },
-    saveSupplemental(identity, patch) {
-      if (identity.demo) {
-        return;
-      }
-      updateDashboardUserCache(identity.id, (cache) => ({
-        ...cache,
-        home: { ...(cache.home || {}), ...(patch || {}) },
-      }));
-    },
-    purge(identity) {
-      if (identity.demo) {
-        demoDrafts.clear();
-        demoState.clear();
-        return;
-      }
-      clearDashboardUserCache(identity.id);
-    },
-    async clearAccountData(identity) {
-      if (identity.demo) {
-        return;
-      }
-      return clearRemoteAccountData();
-    },
-    async deleteAccount(identity, password) {
-      if (identity.demo) {
-        return;
-      }
-      return deleteRemoteAccount(password);
-    },
-    async write(identity, command) {
-      if (identity.demo) {
-        if (command.type === "today.createTask") {
-          return { snapshot: demoState.createTask(command.payload) };
-        }
-        if (command.type === "today.updateTask") {
-          return { snapshot: demoState.updateTask(command.taskId, command.payload) };
-        }
-        if (command.type === "today.deleteTask") {
-          return { snapshot: demoState.deleteTask(command.taskId) };
-        }
-        if (command.type === "today.saveRecord") {
-          return { snapshot: demoState.updateDailyRecord(command.date, command.payload) };
-        }
-      if (command.type === "today.updateTaskPreferences") {
-        return { preferences: command.preferences };
-      }
-      if (command.type === "preferences.replace") {
-        return { preferences: command.preferences };
-      }
-      if (command.type === "preferences.merge") {
-        return { preferences: command.preferences };
-      }
-        if (command.type === "periodReview.saveWeeklySummary") {
-          return { snapshot: demoState.saveWeeklySummary(command.week, command.content) };
-        }
-        if (command.type === "information.toggleFavorite") {
-          return { snapshot: demoState.toggleFavorite(command.itemId) };
-        }
-        if (command.type === "information.toggleRead") {
-          return { snapshot: demoState.toggleRead(command.internalItemId) };
-        }
-        if (command.type === "information.markRead") {
-          return { snapshot: demoState.markRead([command.internalItemId]) };
-        }
-        if (command.type.startsWith("information.source")) {
-          throw new Error("安全 Demo 不支持真实信源管理");
-        }
-        if (command.type === "information.refresh") {
-          return {
-            snapshot: demoState.load(),
-            report: { channel: "news", successCount: 0, failureCount: 0, failures: [], demo: true },
-          };
-        }
-      }
-
-      if (command.type === "today.createTask") {
-        return createTask(command.payload);
-      }
-      if (command.type === "today.updateTask") {
-        return updateTask(command.taskId, command.payload);
-      }
-      if (command.type === "today.deleteTask") {
-        return deleteTask(command.taskId);
-      }
-      if (command.type === "today.saveRecord") {
-        return saveDailyRecord(command.date, command.payload);
-      }
-      if (command.type === "today.updateTaskPreferences") {
-        return saveAccountPreferences(command.preferences);
-      }
-      if (command.type === "preferences.replace") {
-        return saveAccountPreferences(command.preferences);
-      }
-      if (command.type === "preferences.merge") {
-        return saveAccountPreferences(command.preferences);
-      }
-      if (command.type === "periodReview.saveWeeklySummary") {
-        return saveWeeklySummary(command.week, command.content);
-      }
-      if (command.type === "information.toggleFavorite") {
-        if (command.favorited) {
-          await removeContentFavorite("news", command.canonicalUrl);
-          return { removedFavorite: true };
-        } else {
-          const response = await addContentFavorite(command.item);
-          return { favorite: response?.item || command.item };
-        }
-      }
-      if (command.type === "information.toggleRead" || command.type === "information.markRead" || command.type === "information.setSourceHidden") {
-        const response = await saveAccountPreferences(command.preferences);
-        return { preferences: response?.preferences || command.preferences };
-      }
-      if (command.type === "information.sourceCreate") {
-        const response = await createContentSource(command.source);
-        return { source: response?.source || null };
-      }
-      if (command.type === "information.sourceUpdate") {
-        const response = await updateContentSource(command.sourceId, command.source);
-        return { source: response?.source || null };
-      }
-      if (command.type === "information.sourceDelete") {
-        await deleteContentSource(command.sourceId);
-        return { deletedSourceId: command.sourceId };
-      }
-      if (command.type === "information.refresh") {
-        const response = await refreshContent("news");
-        return {
-          items: Array.isArray(response?.items) ? response.items : null,
-          report: response?.refresh || response?.cache?.lastRefreshStats || {},
-        };
-      }
-      throw new Error("Unknown state continuity operation");
-    },
   };
 }
 
@@ -533,9 +321,24 @@ export const views = {
   },
 };
 
-export function createStateContinuity({ adapter = createBrowserAdapter() } = {}) {
+export function createStateContinuity({ adapter: fixedAdapter, adapters = null } = {}) {
+  const selectedAdapters = adapters || (fixedAdapter ? null : {
+    demo: createDemoStateAdapter(),
+    account: createAccountStateAdapter(),
+  });
+  const fallbackAdapter = fixedAdapter || null;
   let current = null;
   let generation = 0;
+
+  function selectAdapter(identity) {
+    const selected = selectedAdapters
+      ? (identity.demo ? selectedAdapters.demo : selectedAdapters.account)
+      : fallbackAdapter;
+    if (!selected) {
+      throw new Error(`Missing ${identity.demo ? "Demo" : "account"} state continuity adapter`);
+    }
+    return selected;
+  }
 
   function closeCurrent({ purge = false } = {}) {
     if (!current) {
@@ -546,7 +349,7 @@ export function createStateContinuity({ adapter = createBrowserAdapter() } = {})
     generation += 1;
     current = null;
     if (purge) {
-      adapter.purge(record.identity);
+      record.adapter.purge(record.identity);
     }
   }
 
@@ -560,6 +363,8 @@ export function createStateContinuity({ adapter = createBrowserAdapter() } = {})
     }
 
     closeCurrent();
+
+    const adapter = selectAdapter(normalizedIdentity);
 
     adapter.begin?.(normalizedIdentity);
 
@@ -580,6 +385,7 @@ export function createStateContinuity({ adapter = createBrowserAdapter() } = {})
     });
     const record = {
       identity: normalizedIdentity,
+      adapter,
       generation,
       state,
       closed: false,
@@ -591,9 +397,8 @@ export function createStateContinuity({ adapter = createBrowserAdapter() } = {})
       listeners: new Set(),
       scope: null,
     };
-    state.freshness = normalizedIdentity.demo
-      ? "demo"
-      : (adapter.hasData(state.snapshot) ? "cached" : "empty");
+    state.freshness = adapter.freshness
+      || (adapter.hasData(state.snapshot) ? "cached" : "empty");
     record.confirmedSnapshot = clone(state.snapshot);
 
     function isCurrent() {
@@ -638,12 +443,6 @@ export function createStateContinuity({ adapter = createBrowserAdapter() } = {})
         return record.syncPromise;
       }
 
-      if (record.identity.demo) {
-        record.synced = true;
-        state.freshness = "demo";
-        return state.snapshot;
-      }
-
       state.issue = null;
       const operationGeneration = record.generation;
       let queued;
@@ -665,7 +464,7 @@ export function createStateContinuity({ adapter = createBrowserAdapter() } = {})
           };
           delete record.confirmedSnapshot.home;
           applyPendingChanges();
-          state.freshness = record.identity.demo ? "demo" : "confirmed";
+          state.freshness = adapter.freshness || "confirmed";
           state.issue = null;
           record.synced = true;
           return state.snapshot;
@@ -772,10 +571,8 @@ export function createStateContinuity({ adapter = createBrowserAdapter() } = {})
           record.confirmedSnapshot = applyCommand(record.confirmedSnapshot, command, response);
           record.pendingChanges = record.pendingChanges.filter((change) => change !== pendingChange);
           applyPendingChanges();
-          state.freshness = record.identity.demo ? "demo" : "confirmed";
-          if (!record.identity.demo) {
-            adapter.saveConfirmed(record.identity, record.confirmedSnapshot);
-          }
+          state.freshness = adapter.freshness || "confirmed";
+          adapter.saveConfirmed?.(record.identity, record.confirmedSnapshot);
           if (command.type.startsWith("information.")) {
             record.synced = false;
           }
@@ -813,7 +610,7 @@ export function createStateContinuity({ adapter = createBrowserAdapter() } = {})
       };
       state.snapshot = clone(record.confirmedSnapshot);
       state.supplemental = {};
-      state.freshness = record.identity.demo ? "demo" : "empty";
+      state.freshness = adapter.freshness || "empty";
       state.activity = "idle";
       state.issue = null;
       state.draftRevision += 1;
