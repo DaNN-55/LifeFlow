@@ -1,6 +1,6 @@
 const { createClient } = require("@supabase/supabase-js");
 
-const USER_SELECT_FIELDS = "id, username, password_hash, recovery_code_hash, preferences, created_at, data_updated_at, data_reset_at";
+const USER_SELECT_FIELDS = "id, username, password_hash, recovery_code_hash, preferences, created_at, data_updated_at, data_reset_at, data_sync_version, data_reset_version";
 const CONTENT_SOURCE_SELECT_FIELDS = [
   "id",
   "channel",
@@ -105,6 +105,16 @@ function normalizeContentItem(item = {}) {
   };
 }
 
+function applySyncVersionRange(query, since = null, upperVersion = null) {
+  if (Number.isSafeInteger(since) && since >= 0) {
+    query = query.gt("sync_version", since);
+  }
+  if (Number.isSafeInteger(upperVersion) && upperVersion >= 0) {
+    query = query.lte("sync_version", upperVersion);
+  }
+  return query;
+}
+
 function formatSupabaseErrorText(error) {
   return [error?.message, error?.details, error?.hint]
     .filter((value) => typeof value === "string" && value.trim())
@@ -175,9 +185,19 @@ class SupabaseStore {
   async init() {
     await Promise.all([
       this.assertTableAvailable("users"),
+      this.assertTableAvailable("tasks"),
+      this.assertTableAvailable("daily_records"),
+      this.assertTableAvailable("weekly_summaries"),
       this.assertTableAvailable("content_sources"),
       this.assertTableAvailable("content_items"),
       this.assertTableAvailable("content_favorites"),
+      this.assertColumnsAvailable("users", "data_sync_version,data_reset_version"),
+      this.assertColumnsAvailable("tasks", "sync_version"),
+      this.assertColumnsAvailable("daily_records", "sync_version"),
+      this.assertColumnsAvailable("weekly_summaries", "sync_version"),
+      this.assertColumnsAvailable("content_sources", "sync_version"),
+      this.assertColumnsAvailable("content_items", "sync_version"),
+      this.assertColumnsAvailable("content_favorites", "sync_version"),
     ]);
     return this;
   }
@@ -192,31 +212,23 @@ class SupabaseStore {
     throw nextError;
   }
 
-  async touchUserSyncState(userId, options = {}) {
-    const payload = {
-      data_updated_at: new Date().toISOString(),
-    };
-
-    if (options.reset) {
-      payload.data_reset_at = payload.data_updated_at;
-    }
-
-    const { error } = await this.client
-      .from("users")
-      .update(payload)
-      .eq("id", userId);
-
-    if (error) {
-      throw error;
-    }
+  async assertColumnsAvailable(tableName, columns) {
+    const { error } = await this.client.from(tableName).select(columns, { head: true, count: "exact" }).limit(1);
+    if (!error) return;
+    const detail = formatSupabaseErrorText(error) || "未知错误";
+    const nextError = new Error(`Supabase 表 ${tableName} 缺少同步版本字段，请先执行 2026-09-09-add-opaque-sync-cursors.sql：${detail}`);
+    nextError.cause = error;
+    throw nextError;
   }
 
-  async listTasks(scope = {}) {
-    const { data, error } = await this.client
+  async listTasks(scope = {}, { upperVersion = null } = {}) {
+    const query = applySyncVersionRange(this.client
       .from("tasks")
       .select("id, name, color, display_order, archived, archived_at, lifecycle_events, created_at, updated_at")
       .eq("user_id", scope.userId || "")
-      .order("display_order", { ascending: true });
+      .order("display_order", { ascending: true })
+      .order("id", { ascending: true }), null, upperVersion);
+    const { data, error } = await query;
 
     if (error) {
       throw error;
@@ -236,7 +248,6 @@ class SupabaseStore {
       throw error;
     }
 
-    await this.touchUserSyncState(scope.userId);
     return data;
   }
 
@@ -274,7 +285,6 @@ class SupabaseStore {
       throw error;
     }
 
-    await this.touchUserSyncState(scope.userId);
     return data;
   }
 
@@ -289,7 +299,6 @@ class SupabaseStore {
       throw error;
     }
 
-    await this.touchUserSyncState(scope.userId, { reset: true });
   }
 
   async getDailyRecord(scope = {}, date) {
@@ -334,7 +343,6 @@ class SupabaseStore {
       throw error;
     }
 
-    await this.touchUserSyncState(scope.userId);
     return {
       date: data.record_date,
       payload: data.payload,
@@ -342,12 +350,13 @@ class SupabaseStore {
     };
   }
 
-  async listDailyRecords(scope = {}) {
-    const { data, error } = await this.client
+  async listDailyRecords(scope = {}, { upperVersion = null } = {}) {
+    const query = applySyncVersionRange(this.client
       .from("daily_records")
       .select("record_date, payload, updated_at")
       .eq("user_id", scope.userId || "")
-      .order("record_date", { ascending: true });
+      .order("record_date", { ascending: true }), null, upperVersion);
+    const { data, error } = await query;
 
     if (error) {
       throw error;
@@ -422,7 +431,6 @@ class SupabaseStore {
       throw error;
     }
 
-    await this.touchUserSyncState(scope.userId);
     return {
       week: data.week_key,
       content: data.content || "",
@@ -430,12 +438,13 @@ class SupabaseStore {
     };
   }
 
-  async listWeeklySummaries(scope = {}) {
-    const { data, error } = await this.client
+  async listWeeklySummaries(scope = {}, { upperVersion = null } = {}) {
+    const query = applySyncVersionRange(this.client
       .from("weekly_summaries")
       .select("week_key, content, updated_at")
       .eq("user_id", scope.userId || "")
-      .order("week_key", { ascending: true });
+      .order("week_key", { ascending: true }), null, upperVersion);
+    const { data, error } = await query;
 
     if (error) {
       throw error;
@@ -448,13 +457,14 @@ class SupabaseStore {
     }));
   }
 
-  async listTasksUpdatedSince(scope = {}, since) {
-    const { data, error } = await this.client
+  async listTasksUpdatedSince(scope = {}, since, upperVersion = null) {
+    const query = applySyncVersionRange(this.client
       .from("tasks")
       .select("id, name, color, display_order, archived, archived_at, lifecycle_events, created_at, updated_at")
       .eq("user_id", scope.userId || "")
-      .gt("updated_at", since)
-      .order("display_order", { ascending: true });
+      .order("display_order", { ascending: true })
+      .order("id", { ascending: true }), since, upperVersion);
+    const { data, error } = await query;
 
     if (error) {
       throw error;
@@ -463,13 +473,13 @@ class SupabaseStore {
     return data || [];
   }
 
-  async listDailyRecordsUpdatedSince(scope = {}, since) {
-    const { data, error } = await this.client
+  async listDailyRecordsUpdatedSince(scope = {}, since, upperVersion = null) {
+    const query = applySyncVersionRange(this.client
       .from("daily_records")
       .select("record_date, payload, updated_at")
       .eq("user_id", scope.userId || "")
-      .gt("updated_at", since)
-      .order("record_date", { ascending: true });
+      .order("record_date", { ascending: true }), since, upperVersion);
+    const { data, error } = await query;
 
     if (error) {
       throw error;
@@ -482,13 +492,13 @@ class SupabaseStore {
     }));
   }
 
-  async listWeeklySummariesUpdatedSince(scope = {}, since) {
-    const { data, error } = await this.client
+  async listWeeklySummariesUpdatedSince(scope = {}, since, upperVersion = null) {
+    const query = applySyncVersionRange(this.client
       .from("weekly_summaries")
       .select("week_key, content, updated_at")
       .eq("user_id", scope.userId || "")
-      .gt("updated_at", since)
-      .order("week_key", { ascending: true });
+      .order("week_key", { ascending: true }), since, upperVersion);
+    const { data, error } = await query;
 
     if (error) {
       throw error;
@@ -658,12 +668,14 @@ class SupabaseStore {
     return data;
   }
 
-  async listContentSources(scope = {}, channel = "") {
-    let query = this.client
+  async listContentSources(scope = {}, channel = "", { upperVersion = null } = {}) {
+    let query = applySyncVersionRange(this.client
       .from("content_sources")
       .select(CONTENT_SOURCE_SELECT_FIELDS)
       .eq("user_id", scope.userId || "")
-      .order("sort_order", { ascending: true });
+      .order("sort_order", { ascending: true })
+      .order("name", { ascending: true })
+      .order("id", { ascending: true }), null, upperVersion);
 
     if (channel) {
       query = query.eq("channel", channel);
@@ -728,7 +740,6 @@ class SupabaseStore {
       }
       throw error;
     }
-    await this.touchUserSyncState(scope.userId);
     return data;
   }
 
@@ -744,7 +755,6 @@ class SupabaseStore {
     if (error) {
       throw error;
     }
-    await this.touchUserSyncState(scope.userId);
     return data;
   }
 
@@ -776,15 +786,14 @@ class SupabaseStore {
     return data;
   }
 
-  async listContentSourcesUpdatedSince(scope = {}, since) {
-    let query = this.client
+  async listContentSourcesUpdatedSince(scope = {}, since, upperVersion = null) {
+    let query = applySyncVersionRange(this.client
       .from("content_sources")
       .select(CONTENT_SOURCE_SELECT_FIELDS)
       .eq("user_id", scope.userId || "")
-      .order("updated_at", { ascending: false });
-    if (!Number.isNaN(new Date(since).getTime())) {
-      query = query.gt("updated_at", since);
-    }
+      .order("sort_order", { ascending: true })
+      .order("name", { ascending: true })
+      .order("id", { ascending: true }), since, upperVersion);
     const { data, error } = await query;
     if (error) {
       throw error;
@@ -836,7 +845,6 @@ class SupabaseStore {
     if (error) {
       throw error;
     }
-    await this.touchUserSyncState(scope.userId, { reset: true });
   }
 
   async upsertContentItems(scope = {}, items = []) {
@@ -915,21 +923,18 @@ class SupabaseStore {
       throw deleteError;
     }
 
-    await this.touchUserSyncState(scope.userId, { reset: true });
     return staleIds.length;
   }
 
-  async listContentUpdatedSince(scope = {}, since, channel = "") {
-    let query = this.client
+  async listContentUpdatedSince(scope = {}, since, channel = "", upperVersion = null) {
+    let query = applySyncVersionRange(this.client
       .from("content_items")
       .select(CONTENT_ITEM_LIST_SELECT_FIELDS)
       .eq("user_id", scope.userId || "")
-      .order("updated_at", { ascending: false });
+      .order("updated_at", { ascending: false })
+      .order("id", { ascending: true }), since, upperVersion);
     if (channel) {
       query = query.eq("channel", channel);
-    }
-    if (!Number.isNaN(new Date(since).getTime())) {
-      query = query.gt("updated_at", since);
     }
     const { data, error } = await query;
     if (error) {
@@ -1096,17 +1101,15 @@ class SupabaseStore {
     };
   }
 
-  async listFavoriteContentUpdatedSince(scope = {}, since, channel = "") {
-    let query = this.client
+  async listFavoriteContentUpdatedSince(scope = {}, since, channel = "", upperVersion = null) {
+    let query = applySyncVersionRange(this.client
       .from("content_favorites")
       .select("id, channel, source_id, title, summary_zh, summary_raw, author, published_at, content_type, source_name, source_url, canonical_url, tags, lang, image_url, favorited_at, created_at, updated_at")
       .eq("user_id", scope.userId || "")
-      .order("updated_at", { ascending: false });
+      .order("updated_at", { ascending: false })
+      .order("id", { ascending: true }), since, upperVersion);
     if (channel) {
       query = query.eq("channel", channel);
-    }
-    if (!Number.isNaN(new Date(since).getTime())) {
-      query = query.gt("updated_at", since);
     }
     const { data, error } = await query;
     if (error) {
@@ -1168,7 +1171,6 @@ class SupabaseStore {
     if (error) {
       throw error;
     }
-    await this.touchUserSyncState(scope.userId);
     return data ? { ...normalizeContentItem(data), is_favorite: true } : null;
   }
 
@@ -1202,7 +1204,6 @@ class SupabaseStore {
     if (error) {
       throw error;
     }
-    await this.touchUserSyncState(scope.userId, { reset: true });
   }
 
   async createSession(session) {
@@ -1262,40 +1263,34 @@ class SupabaseStore {
   }
 
   async clearUserData(userId) {
-    const [tasksResult, recordsResult, summariesResult, contentItemsResult, contentSourcesResult, favoritesResult] = await Promise.all([
-      this.client.from("tasks").delete().eq("user_id", userId),
-      this.client.from("daily_records").delete().eq("user_id", userId),
-      this.client.from("weekly_summaries").delete().eq("user_id", userId),
-      this.client.from("content_items").delete().eq("user_id", userId),
-      this.client.from("content_sources").delete().eq("user_id", userId),
-      this.client.from("content_favorites").delete().eq("user_id", userId),
-    ]);
+    const { error } = await this.client.rpc("clear_lifeflow_user_data", { target_user_id: userId });
+    if (error) throw error;
+  }
 
-    if (
-      tasksResult.error ||
-      recordsResult.error ||
-      summariesResult.error ||
-      contentItemsResult.error ||
-      contentSourcesResult.error ||
-      favoritesResult.error
-    ) {
-      throw (
-        tasksResult.error ||
-        recordsResult.error ||
-        summariesResult.error ||
-        contentItemsResult.error ||
-        contentSourcesResult.error ||
-        favoritesResult.error
-      );
-    }
-
-    await this.touchUserSyncState(userId, { reset: true });
+  async readStateContinuityProjection(userId, { since = null } = {}) {
+    const { data, error } = await this.client.rpc("read_lifeflow_sync_projection", {
+      target_user_id: userId,
+      since_version: since,
+    });
+    if (error) throw error;
+    const projection = data || {};
+    return {
+      syncState: {
+        dataSyncVersion: Number(projection.data_sync_version || 0),
+        dataResetVersion: Number(projection.data_reset_version || 0),
+        dataUpdatedAt: projection.data_updated_at || "",
+        dataResetAt: projection.data_reset_at || "",
+      },
+      upperVersion: Number(projection.data_sync_version || 0),
+      snapshot: projection.snapshot || { tasks: [], dailyRecords: [], weeklySummaries: [], content: { sources: [], items: [], favorites: [] } },
+      changes: projection.changes || { tasks: [], dailyRecords: [], weeklySummaries: [], content: { sources: [], items: [], favorites: [] } },
+    };
   }
 
   async getUserSyncState(userId) {
     const { data, error } = await this.client
       .from("users")
-      .select("data_updated_at, data_reset_at, created_at")
+      .select("data_updated_at, data_reset_at, created_at, data_sync_version, data_reset_version")
       .eq("id", userId)
       .maybeSingle();
 
@@ -1310,6 +1305,8 @@ class SupabaseStore {
     return {
       dataUpdatedAt: data.data_updated_at || data.created_at || "",
       dataResetAt: data.data_reset_at || "",
+      dataSyncVersion: Number(data.data_sync_version || 0),
+      dataResetVersion: Number(data.data_reset_version || 0),
     };
   }
 
@@ -1322,4 +1319,4 @@ class SupabaseStore {
   }
 }
 
-module.exports = { SupabaseStore, buildTableAvailabilityError };
+module.exports = { SupabaseStore, buildTableAvailabilityError, applySyncVersionRange };

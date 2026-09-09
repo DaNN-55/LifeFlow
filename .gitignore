@@ -1,6 +1,7 @@
 .history/
 node_modules/
 dist/
+dev-dist/
 backend/node_modules/
 backend/.env
 backend/.vercel/
@@ -8,4 +9,6 @@ backend/.vercel/
 .DS_Store
 *.log
 *.local
-docs/
+docs/*
+!docs/adr/
+!docs/adr/*.md

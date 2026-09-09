@@ -30,7 +30,8 @@ function normalizeContentItem(item = {}) {
 }
 
 class MemoryStore {
-  constructor() {
+  constructor({ now = () => new Date().toISOString() } = {}) {
+    this.now = now;
     this.tasksByUser = new Map();
     this.dailyRecordsByUser = new Map();
     this.weeklySummariesByUser = new Map();
@@ -39,27 +40,60 @@ class MemoryStore {
     this.contentFavoritesByUser = new Map();
     this.usersByUsername = new Map();
     this.sessionsById = new Map();
+    this.syncVersionQueuesByUser = new Map();
     this.schemaMode = "user-scoped";
   }
 
   getNowIso() {
-    return new Date().toISOString();
+    return this.now();
   }
 
   async touchUserSyncState(userId, options = {}) {
+    return this.confirmUserFact(userId, options, (state) => state);
+  }
+
+  async confirmUserFact(userId, options = {}, confirm = () => undefined) {
+    return this.runInUserSyncQueue(userId, async () => {
+      const state = await this.advanceUserSyncState(userId, options);
+      return confirm(state);
+    });
+  }
+
+  async runInUserSyncQueue(userId, operation) {
+    const previous = this.syncVersionQueuesByUser.get(userId) || Promise.resolve();
+    const queued = previous.catch(() => undefined).then(operation);
+    this.syncVersionQueuesByUser.set(userId, queued);
+    try {
+      return await queued;
+    } finally {
+      if (this.syncVersionQueuesByUser.get(userId) === queued) {
+        this.syncVersionQueuesByUser.delete(userId);
+      }
+    }
+  }
+
+  async advanceUserSyncState(userId, options = {}) {
     const user = await this.getUserById(userId);
     if (!user) {
-      return null;
+      return { dataSyncVersion: 0, dataResetVersion: 0 };
     }
 
     const now = this.getNowIso();
+    const nextVersion = Number(user.data_sync_version || 0) + 1;
     const next = {
       ...user,
       data_updated_at: now,
       data_reset_at: options.reset ? now : user.data_reset_at || "",
+      data_sync_version: nextVersion,
+      data_reset_version: options.reset ? nextVersion : Number(user.data_reset_version || 0),
     };
     this.usersByUsername.set(next.username, next);
-    return next;
+    return { dataSyncVersion: nextVersion, dataResetVersion: next.data_reset_version };
+  }
+
+  isWithinSyncRange(value, since = null, upper = null) {
+    const version = Number(value || 0);
+    return (since === null || version > since) && (upper === null || version <= upper);
   }
 
   async init() {
@@ -96,9 +130,11 @@ class MemoryStore {
     };
   }
 
-  async listTasks(scope = {}) {
+  async listTasks(scope = {}, { upperVersion = null } = {}) {
     const { tasks } = this.ensureUserScope(scope.userId);
-    return [...tasks.values()].sort((left, right) => left.display_order - right.display_order);
+    return [...tasks.values()]
+      .filter((task) => this.isWithinSyncRange(task.sync_version, null, upperVersion))
+      .sort((left, right) => (left.display_order - right.display_order) || String(left.id).localeCompare(String(right.id)));
   }
 
   async createTask(scope = {}, task) {
@@ -107,9 +143,11 @@ class MemoryStore {
       ...task,
       updated_at: task.updated_at || this.getNowIso(),
     };
-    tasks.set(next.id, next);
-    await this.touchUserSyncState(scope.userId);
-    return next;
+    return this.confirmUserFact(scope.userId, {}, (state) => {
+      next.sync_version = state.dataSyncVersion;
+      tasks.set(next.id, next);
+      return next;
+    });
   }
 
   async updateTask(scope = {}, taskId, patch) {
@@ -125,21 +163,24 @@ class MemoryStore {
       }
     });
     next.updated_at = this.getNowIso();
-    tasks.set(taskId, next);
-    await this.touchUserSyncState(scope.userId);
-    return next;
+    return this.confirmUserFact(scope.userId, {}, (state) => {
+      next.sync_version = state.dataSyncVersion;
+      tasks.set(taskId, next);
+      return next;
+    });
   }
 
   async deleteTask(scope = {}, taskId) {
     const { tasks, dailyRecords } = this.ensureUserScope(scope.userId);
-    tasks.delete(taskId);
-    for (const [date, record] of dailyRecords.entries()) {
-      if (record.payload?.tasks?.[taskId]) {
-        delete record.payload.tasks[taskId];
-        dailyRecords.set(date, { ...record, updatedAt: this.getNowIso() });
+    return this.confirmUserFact(scope.userId, { reset: true }, () => {
+      tasks.delete(taskId);
+      for (const [date, record] of dailyRecords.entries()) {
+        if (record.payload?.tasks?.[taskId]) {
+          delete record.payload.tasks[taskId];
+          dailyRecords.set(date, { ...record, updatedAt: this.getNowIso() });
+        }
       }
-    }
-    await this.touchUserSyncState(scope.userId, { reset: true });
+    });
   }
 
   async getDailyRecord(scope = {}, date) {
@@ -156,9 +197,11 @@ class MemoryStore {
       payload,
       updatedAt: this.getNowIso(),
     };
-    dailyRecords.set(key, record);
-    await this.touchUserSyncState(scope.userId);
-    return record;
+    return this.confirmUserFact(scope.userId, {}, (state) => {
+      record.sync_version = state.dataSyncVersion;
+      dailyRecords.set(key, record);
+      return record;
+    });
   }
 
   async listDailyRecordsBetween(scope = {}, startDate, endDate) {
@@ -170,9 +213,11 @@ class MemoryStore {
       .sort((left, right) => left.date.localeCompare(right.date));
   }
 
-  async listDailyRecords(scope = {}) {
+  async listDailyRecords(scope = {}, { upperVersion = null } = {}) {
     const { dailyRecords } = this.ensureUserScope(scope.userId);
-    return [...dailyRecords.values()].sort((left, right) => left.date.localeCompare(right.date));
+    return [...dailyRecords.values()]
+      .filter((record) => this.isWithinSyncRange(record.sync_version, null, upperVersion))
+      .sort((left, right) => left.date.localeCompare(right.date));
   }
 
   async getWeeklySummary(scope = {}, week) {
@@ -187,41 +232,36 @@ class MemoryStore {
       content: payload.content || "",
       updatedAt: this.getNowIso(),
     };
-    weeklySummaries.set(week, summary);
-    await this.touchUserSyncState(scope.userId);
-    return summary;
+    return this.confirmUserFact(scope.userId, {}, (state) => {
+      summary.sync_version = state.dataSyncVersion;
+      weeklySummaries.set(week, summary);
+      return summary;
+    });
   }
 
-  async listWeeklySummaries(scope = {}) {
+  async listWeeklySummaries(scope = {}, { upperVersion = null } = {}) {
     const { weeklySummaries } = this.ensureUserScope(scope.userId);
-    return [...weeklySummaries.values()].sort((left, right) => left.week.localeCompare(right.week));
+    return [...weeklySummaries.values()]
+      .filter((summary) => this.isWithinSyncRange(summary.sync_version, null, upperVersion))
+      .sort((left, right) => left.week.localeCompare(right.week));
   }
 
-  async listTasksUpdatedSince(scope = {}, since) {
-    const threshold = new Date(since).getTime();
-    if (Number.isNaN(threshold)) {
-      return this.listTasks(scope);
-    }
-    const tasks = await this.listTasks(scope);
-    return tasks.filter((task) => new Date(task.updated_at || task.created_at || 0).getTime() > threshold);
+  async listTasksUpdatedSince(scope = {}, since, upperVersion = null) {
+    return (await this.listTasks(scope, { upperVersion })).filter((task) =>
+      this.isWithinSyncRange(task.sync_version, since, upperVersion),
+    );
   }
 
-  async listDailyRecordsUpdatedSince(scope = {}, since) {
-    const threshold = new Date(since).getTime();
-    if (Number.isNaN(threshold)) {
-      return this.listDailyRecords(scope);
-    }
-    const records = await this.listDailyRecords(scope);
-    return records.filter((record) => new Date(record.updatedAt || 0).getTime() > threshold);
+  async listDailyRecordsUpdatedSince(scope = {}, since, upperVersion = null) {
+    return (await this.listDailyRecords(scope, { upperVersion })).filter((record) =>
+      this.isWithinSyncRange(record.sync_version, since, upperVersion),
+    );
   }
 
-  async listWeeklySummariesUpdatedSince(scope = {}, since) {
-    const threshold = new Date(since).getTime();
-    if (Number.isNaN(threshold)) {
-      return this.listWeeklySummaries(scope);
-    }
-    const summaries = await this.listWeeklySummaries(scope);
-    return summaries.filter((summary) => new Date(summary.updatedAt || 0).getTime() > threshold);
+  async listWeeklySummariesUpdatedSince(scope = {}, since, upperVersion = null) {
+    return (await this.listWeeklySummaries(scope, { upperVersion })).filter((summary) =>
+      this.isWithinSyncRange(summary.sync_version, since, upperVersion),
+    );
   }
 
   async findUserByUsername(username) {
@@ -238,6 +278,8 @@ class MemoryStore {
       preferences: user.preferences && typeof user.preferences === "object" ? user.preferences : {},
       data_updated_at: user.data_updated_at || this.getNowIso(),
       data_reset_at: user.data_reset_at || "",
+      data_sync_version: Number(user.data_sync_version || 0),
+      data_reset_version: Number(user.data_reset_version || 0),
     };
     this.usersByUsername.set(next.username, next);
     return next;
@@ -321,16 +363,17 @@ class MemoryStore {
     }));
   }
 
-  async listContentSources(scope = {}, channel = "") {
+  async listContentSources(scope = {}, channel = "", { upperVersion = null } = {}) {
     const { contentSources } = this.ensureUserScope(scope.userId);
     return [...contentSources.values()]
       .filter((source) => (!channel ? true : source.channel === channel))
+      .filter((source) => this.isWithinSyncRange(source.sync_version, null, upperVersion))
       .sort((left, right) => {
         const byOrder = Number(left.sort_order || 0) - Number(right.sort_order || 0);
         if (byOrder !== 0) {
           return byOrder;
         }
-        return String(left.name || "").localeCompare(String(right.name || ""), "zh-CN");
+        return String(left.name || "").localeCompare(String(right.name || ""), "zh-CN") || String(left.id).localeCompare(String(right.id));
       });
   }
 
@@ -353,9 +396,11 @@ class MemoryStore {
       latest_published_at: "",
       ...source,
     };
-    contentSources.set(next.id, next);
-    await this.touchUserSyncState(scope.userId);
-    return next;
+    return this.confirmUserFact(scope.userId, {}, (state) => {
+      next.sync_version = state.dataSyncVersion;
+      contentSources.set(next.id, next);
+      return next;
+    });
   }
 
   async updateContentSource(scope = {}, sourceId, patch) {
@@ -371,9 +416,11 @@ class MemoryStore {
       }
     });
     next.updated_at = new Date().toISOString();
-    contentSources.set(sourceId, next);
-    await this.touchUserSyncState(scope.userId);
-    return next;
+    return this.confirmUserFact(scope.userId, {}, (state) => {
+      next.sync_version = state.dataSyncVersion;
+      contentSources.set(sourceId, next);
+      return next;
+    });
   }
 
   async updateContentSourceSync(scope = {}, sourceId, patch = {}) {
@@ -387,8 +434,11 @@ class MemoryStore {
       ...patch,
       updated_at: new Date().toISOString(),
     };
-    contentSources.set(sourceId, next);
-    return next;
+    return this.confirmUserFact(scope.userId, {}, (state) => {
+      next.sync_version = state.dataSyncVersion;
+      contentSources.set(sourceId, next);
+      return next;
+    });
   }
 
   async deleteContentSource(scope = {}, sourceId) {
@@ -405,15 +455,12 @@ class MemoryStore {
         String(entry.parser_key || "") === String(targetSource.parser_key || ""),
       )
       .map((entry) => entry.id);
-    for (const id of sourceIds) {
-      contentSources.delete(id);
-    }
-    for (const [itemId, item] of contentItems.entries()) {
-      if (sourceIds.includes(item.source_id)) {
-        contentItems.delete(itemId);
+    return this.confirmUserFact(scope.userId, { reset: true }, () => {
+      for (const id of sourceIds) contentSources.delete(id);
+      for (const [itemId, item] of contentItems.entries()) {
+        if (sourceIds.includes(item.source_id)) contentItems.delete(itemId);
       }
-    }
-    await this.touchUserSyncState(scope.userId, { reset: true });
+    });
   }
 
   async getContentSource(scope = {}, sourceId) {
@@ -421,39 +468,33 @@ class MemoryStore {
     return contentSources.get(sourceId) || null;
   }
 
-  async listContentSourcesUpdatedSince(scope = {}, since) {
-    const threshold = new Date(since).getTime();
-    const sources = await this.listContentSources(scope);
-    if (Number.isNaN(threshold)) {
-      return sources;
-    }
-    return sources.filter((source) => new Date(source.updated_at || source.created_at || 0).getTime() > threshold);
+  async listContentSourcesUpdatedSince(scope = {}, since, upperVersion = null) {
+    return (await this.listContentSources(scope, "", { upperVersion })).filter((source) =>
+      this.isWithinSyncRange(source.sync_version, since, upperVersion),
+    );
   }
 
   async upsertContentItems(scope = {}, items = []) {
     const { contentItems } = this.ensureUserScope(scope.userId);
-    const persisted = [];
-    for (const item of items) {
+    if (!items.length) return [];
+    return this.confirmUserFact(scope.userId, {}, (state) => items.map((item) => {
       const dedupeKey = `${item.channel}::${item.canonical_url}`;
-      const existing = [...contentItems.values()].find(
-        (entry) => `${entry.channel}::${entry.canonical_url}` === dedupeKey,
-      );
+      const existing = [...contentItems.values()].find((entry) => `${entry.channel}::${entry.canonical_url}` === dedupeKey);
       const next = existing
         ? normalizeContentItem({ ...existing, ...item, id: existing.id, updated_at: new Date().toISOString() })
         : normalizeContentItem(item);
+      next.sync_version = state.dataSyncVersion;
       contentItems.set(next.id, next);
-      persisted.push(next);
-    }
-    return persisted;
+      return next;
+    }));
   }
 
   async replaceContentItems(scope = {}, channel = "", items = []) {
     const { contentItems } = this.ensureUserScope(scope.userId);
-    for (const [itemId, item] of contentItems.entries()) {
-      if (!channel || item.channel === channel) {
-        contentItems.delete(itemId);
-      }
-    }
+    const removed = [...contentItems.values()].some((item) => !channel || item.channel === channel);
+    if (removed) await this.confirmUserFact(scope.userId, { reset: true }, () => {
+      for (const [itemId, item] of contentItems.entries()) if (!channel || item.channel === channel) contentItems.delete(itemId);
+    });
     return this.upsertContentItems(scope, items);
   }
 
@@ -468,7 +509,7 @@ class MemoryStore {
       return 0;
     }
 
-    let removedCount = 0;
+    const removableIds = [];
     for (const [itemId, item] of contentItems.entries()) {
       if (channel && item.channel !== channel) {
         continue;
@@ -480,15 +521,12 @@ class MemoryStore {
       if (Number.isNaN(itemTime) || itemTime >= cutoffTime) {
         continue;
       }
-      contentItems.delete(itemId);
-      removedCount += 1;
+      removableIds.push(itemId);
     }
-
-    if (removedCount > 0) {
-      await this.touchUserSyncState(scope.userId, { reset: true });
-    }
-
-    return removedCount;
+    if (removableIds.length) await this.confirmUserFact(scope.userId, { reset: true }, () => {
+      removableIds.forEach((itemId) => contentItems.delete(itemId));
+    });
+    return removableIds.length;
   }
 
   async listContent(scope = {}, filters = {}) {
@@ -536,21 +574,18 @@ class MemoryStore {
     };
   }
 
-  async listContentUpdatedSince(scope = {}, since, channel = "") {
+  async listContentUpdatedSince(scope = {}, since, channel = "", upperVersion = null) {
     const { contentItems } = this.ensureUserScope(scope.userId);
-    const threshold = new Date(since).getTime();
     const items = [...contentItems.values()]
       .filter((item) => (!channel ? true : item.channel === channel))
+      .filter((item) => this.isWithinSyncRange(item.sync_version, since, upperVersion))
       .map((item) => normalizeContentItem(item))
       .sort((left, right) => {
         const leftTime = new Date(left.updated_at || left.fetched_at || left.created_at || 0).getTime();
         const rightTime = new Date(right.updated_at || right.fetched_at || right.created_at || 0).getTime();
-        return rightTime - leftTime;
+        return (rightTime - leftTime) || String(left.id).localeCompare(String(right.id));
       });
-    if (Number.isNaN(threshold)) {
-      return items;
-    }
-    return items.filter((item) => new Date(item.updated_at || item.fetched_at || item.created_at || 0).getTime() > threshold);
+    return items;
   }
 
   async listContentFacets(scope = {}, channel = "") {
@@ -624,21 +659,18 @@ class MemoryStore {
     };
   }
 
-  async listFavoriteContentUpdatedSince(scope = {}, since, channel = "") {
+  async listFavoriteContentUpdatedSince(scope = {}, since, channel = "", upperVersion = null) {
     const { contentFavorites } = this.ensureUserScope(scope.userId);
-    const threshold = new Date(since).getTime();
     const items = [...contentFavorites.values()]
       .filter((item) => (!channel ? true : item.channel === channel))
+      .filter((item) => this.isWithinSyncRange(item.sync_version, since, upperVersion))
       .map((item) => ({ ...normalizeContentItem(item), is_favorite: true }))
       .sort((left, right) => {
         const leftTime = new Date(left.updated_at || left.favorited_at || left.created_at || 0).getTime();
         const rightTime = new Date(right.updated_at || right.favorited_at || right.created_at || 0).getTime();
-        return rightTime - leftTime;
+        return (rightTime - leftTime) || String(left.id).localeCompare(String(right.id));
       });
-    if (Number.isNaN(threshold)) {
-      return items;
-    }
-    return items.filter((item) => new Date(item.updated_at || item.favorited_at || item.created_at || 0).getTime() > threshold);
+    return items;
   }
 
   async listFavoriteContentFacets(scope = {}, channel = "") {
@@ -680,19 +712,20 @@ class MemoryStore {
       updated_at: new Date().toISOString(),
       is_favorite: true,
     };
-    contentFavorites.set(next.id, next);
-    await this.touchUserSyncState(scope.userId);
-    return next;
+    return this.confirmUserFact(scope.userId, {}, (state) => {
+      next.sync_version = state.dataSyncVersion;
+      contentFavorites.set(next.id, next);
+      return next;
+    });
   }
 
   async deleteFavoriteContent(scope = {}, channel, canonicalUrl) {
     const { contentFavorites } = this.ensureUserScope(scope.userId);
-    for (const [itemId, item] of contentFavorites.entries()) {
-      if (item.channel === channel && item.canonical_url === canonicalUrl) {
-        contentFavorites.delete(itemId);
+    return this.confirmUserFact(scope.userId, { reset: true }, () => {
+      for (const [itemId, item] of contentFavorites.entries()) {
+        if (item.channel === channel && item.canonical_url === canonicalUrl) contentFavorites.delete(itemId);
       }
-    }
-    await this.touchUserSyncState(scope.userId, { reset: true });
+    });
   }
 
   async createSession(session) {
@@ -728,13 +761,48 @@ class MemoryStore {
   }
 
   async clearUserData(userId) {
-    this.tasksByUser.set(userId, new Map());
-    this.dailyRecordsByUser.set(userId, new Map());
-    this.weeklySummariesByUser.set(userId, new Map());
-    this.contentSourcesByUser.set(userId, new Map());
-    this.contentItemsByUser.set(userId, new Map());
-    this.contentFavoritesByUser.set(userId, new Map());
-    await this.touchUserSyncState(userId, { reset: true });
+    return this.confirmUserFact(userId, { reset: true }, () => {
+      const scope = this.ensureUserScope(userId);
+      scope.tasks.clear();
+      scope.dailyRecords.clear();
+      scope.weeklySummaries.clear();
+      scope.contentSources.clear();
+      scope.contentItems.clear();
+      scope.contentFavorites.clear();
+    });
+  }
+
+  async readStateContinuityProjection(userId, { since = null } = {}) {
+    return this.runInUserSyncQueue(userId, async () => {
+      const syncState = await this.getUserSyncState(userId);
+      const upperVersion = Number(syncState?.dataSyncVersion || 0);
+      const full = Promise.all([
+          this.listTasks({ userId }, { upperVersion }),
+          this.listDailyRecords({ userId }, { upperVersion }),
+          this.listWeeklySummaries({ userId }, { upperVersion }),
+          this.listContentSources({ userId }, "", { upperVersion }),
+          this.listContentUpdatedSince({ userId }, null, "", upperVersion),
+          this.listFavoriteContentUpdatedSince({ userId }, null, "", upperVersion),
+      ]);
+      const changed = since === null ? full : Promise.all([
+          this.listTasksUpdatedSince({ userId }, since, upperVersion),
+          this.listDailyRecordsUpdatedSince({ userId }, since, upperVersion),
+          this.listWeeklySummariesUpdatedSince({ userId }, since, upperVersion),
+          this.listContentSourcesUpdatedSince({ userId }, since, upperVersion),
+          this.listContentUpdatedSince({ userId }, since, "", upperVersion),
+          this.listFavoriteContentUpdatedSince({ userId }, since, "", upperVersion),
+      ]);
+      const [fullFacts, changedFacts] = await Promise.all([full, changed]);
+      const clean = (item) => {
+        const copy = { ...item };
+        delete copy.sync_version;
+        delete copy.user_id;
+        return copy;
+      };
+      const asProjection = ([tasks, dailyRecords, weeklySummaries, sources, items, favorites]) =>
+        ({ tasks: tasks.map(clean), dailyRecords: dailyRecords.map(clean), weeklySummaries: weeklySummaries.map(clean), content: { sources: sources.map(clean), items: items.map(clean), favorites: favorites.map(clean) } });
+      return { syncState, upperVersion, snapshot: asProjection(fullFacts), changes: asProjection(changedFacts) };
+    });
   }
 
   async getUserSyncState(userId) {
@@ -745,6 +813,8 @@ class MemoryStore {
     return {
       dataUpdatedAt: user.data_updated_at || user.created_at || "",
       dataResetAt: user.data_reset_at || "",
+      dataSyncVersion: Number(user.data_sync_version || 0),
+      dataResetVersion: Number(user.data_reset_version || 0),
     };
   }
 

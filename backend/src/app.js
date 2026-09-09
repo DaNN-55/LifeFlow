@@ -13,6 +13,7 @@ const {
 } = require("./lib/auth");
 const { formatDateKey, getWeekRangeFromWeekValue } = require("./lib/date");
 const { CHANNELS } = require("./information-input");
+const { createStateContinuityPersistence } = require("./state-continuity-persistence");
 
 const SESSION_COOKIE_NAME = "lifeflow_session";
 const SESSION_HEADER_NAME = "x-session-id";
@@ -178,7 +179,7 @@ const contentRefreshSchema = z.object({
 });
 
 const syncChangesQuerySchema = z.object({
-  since: z.string().datetime().optional(),
+  since: z.string().max(64).optional(),
 });
 
 function buildDateKeysBetween(startDate, endDate) {
@@ -194,31 +195,6 @@ function buildDateKeysBetween(startDate, endDate) {
   }
 
   return dates;
-}
-
-async function buildSyncSnapshot(store, informationInput, userContext) {
-  const [tasks, dailyRecords, weeklySummaries, content, syncState] = await Promise.all([
-    store.listTasks(userContext),
-    store.listDailyRecords(userContext),
-    store.listWeeklySummaries(userContext),
-    informationInput.getFullSyncProjection(userContext),
-    informationInput.getSyncState(userContext.userId),
-  ]);
-
-  return {
-    cursor: String(syncState?.dataUpdatedAt || new Date().toISOString()),
-    resetAt: String(syncState?.dataResetAt || ""),
-    snapshot: {
-      tasks,
-      dailyRecords,
-      weeklySummaries,
-      content: {
-        sources: content.sources,
-        items: content.items,
-        favorites: content.favorites,
-      },
-    },
-  };
 }
 
 const contentFavoriteSchema = z.object({
@@ -259,6 +235,7 @@ function createApp({ config, store, informationInput: input }) {
   if (!input) {
     throw new Error("informationInput is required");
   }
+  const stateContinuity = createStateContinuityPersistence({ store, informationInput: input });
   const app = express();
   const captchaStore = new Map();
   const pulseQuoteCache = {
@@ -669,7 +646,7 @@ function createApp({ config, store, informationInput: input }) {
 
   app.get("/api/sync/bootstrap", requireAuthenticated, async (request, response, next) => {
     try {
-      const payload = await buildSyncSnapshot(store, input, request.userContext);
+      const payload = await stateContinuity.snapshot(request.userContext);
       response.json(payload);
     } catch (error) {
       next(error);
@@ -679,52 +656,7 @@ function createApp({ config, store, informationInput: input }) {
   app.get("/api/sync/changes", requireAuthenticated, async (request, response, next) => {
     try {
       const query = syncChangesQuerySchema.parse(request.query || {});
-      if (!query.since) {
-        const payload = await buildSyncSnapshot(store, input, request.userContext);
-        response.json({
-          ...payload,
-          reset: true,
-        });
-        return;
-      }
-
-      const syncState = await input.getSyncState(request.userContext.userId);
-      const cursor = String(syncState?.dataUpdatedAt || new Date().toISOString());
-      const resetAt = String(syncState?.dataResetAt || "");
-      const sinceMs = new Date(query.since).getTime();
-      const resetMs = new Date(resetAt).getTime();
-
-      if (!Number.isNaN(resetMs) && resetMs > sinceMs) {
-        const payload = await buildSyncSnapshot(store, input, request.userContext);
-        response.json({
-          ...payload,
-          reset: true,
-        });
-        return;
-      }
-
-      const [tasks, dailyRecords, weeklySummaries, content] = await Promise.all([
-        store.listTasksUpdatedSince(request.userContext, query.since),
-        store.listDailyRecordsUpdatedSince(request.userContext, query.since),
-        store.listWeeklySummariesUpdatedSince(request.userContext, query.since),
-        input.getIncrementalSyncProjection(request.userContext, query.since),
-      ]);
-
-      response.json({
-        cursor,
-        reset: false,
-        resetAt,
-        changes: {
-          tasks,
-          dailyRecords,
-          weeklySummaries,
-          content: {
-            sources: content.sources,
-            items: content.items,
-            favorites: content.favorites,
-          },
-        },
-      });
+      response.json(await stateContinuity.changes(request.userContext, query.since));
     } catch (error) {
       next(error);
     }

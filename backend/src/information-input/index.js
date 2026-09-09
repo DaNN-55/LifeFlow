@@ -94,38 +94,15 @@ function createInformationInput({ persistence, collector, now = () => new Date(D
       sourceId: query.sourceId || "",
       sort: query.sort || "latest",
     };
-    const [favoriteUrls, result, facets] = await Promise.all([
-      favoritesOnly ? Promise.resolve([]) : persistence.listFavoriteUrls(userContext, query.channel),
-      favoritesOnly
-        ? persistence.listFavoriteItems(userContext, filters)
-        : persistence.listItems(userContext, filters),
-      favoritesOnly
-        ? persistence.listFavoriteFacets(userContext, query.channel)
-        : persistence.listItemFacets(userContext, query.channel),
-    ]);
+    const result = await persistence.queryContent(userContext, { filters, favoritesOnly });
     return {
       ...result,
-      items: (result.items || []).map((item) => ({
-        ...item,
-        is_favorite: favoritesOnly || favoriteUrls.includes(item.canonical_url),
-      })),
-      tags: facets.tags || [],
-      sources: facets.sources || [],
       cache: getCacheStatus(userContext.userId, query.channel),
     };
   }
 
   async function listFeatured(userContext, channel, limit = 3) {
-    const [favoriteUrls, items] = await Promise.all([
-      persistence.listFavoriteUrls(userContext, channel),
-      persistence.listFeaturedItems(userContext, channel, limit),
-    ]);
-    return {
-      items: (items || []).map((item) => ({
-        ...item,
-        is_favorite: favoriteUrls.includes(item.canonical_url),
-      })),
-    };
+    return { items: await persistence.queryFeatured(userContext, channel, limit) };
   }
 
   async function refresh(userContext, { channel, limit }) {
@@ -140,8 +117,7 @@ function createInformationInput({ persistence, collector, now = () => new Date(D
         const cache = getCache(userContext.userId, channel);
         cache.items = [];
         cache.refreshedAt = now().getTime();
-        await persistence.replaceItems(userContext, channel, []);
-        await persistence.touchSyncState(userContext.userId, { reset: true });
+        await persistence.confirmRefresh(userContext, { channel, results: [], cutoffIso: getContentRetentionCutoffIso(now) });
         const stats = {
           totalSources: 0,
           successCount: 0,
@@ -160,24 +136,10 @@ function createInformationInput({ persistence, collector, now = () => new Date(D
           const syncedAt = now().toISOString();
           try {
             const items = dedupeContentItems(await collector.fetchIncrement(source, channel));
-            if (items.length) {
-              await persistence.upsertItems(userContext, items);
-            }
-            await persistence.updateSourceSync(userContext, source.id, {
-              last_synced_at: syncedAt,
-              last_success_at: syncedAt,
-              last_error: "",
-              latest_published_at: pickLatestPublishedAt(source.latest_published_at, items),
-            });
-            return { source, ok: true, count: items.length };
+            return { source, ok: true, items, count: items.length, syncedAt, latestPublishedAt: pickLatestPublishedAt(source.latest_published_at, items) };
           } catch (error) {
             console.warn("[content] failed to refresh source", source.name, error.message);
-            await persistence.updateSourceSync(userContext, source.id, {
-              last_synced_at: syncedAt,
-              last_failure_at: syncedAt,
-              last_error: String(error.message || "Unknown error"),
-            });
-            return { source, ok: false, error };
+            return { source, ok: false, error, errorMessage: String(error.message || "Unknown error"), syncedAt };
           }
         },
       );
@@ -191,24 +153,17 @@ function createInformationInput({ persistence, collector, now = () => new Date(D
         (count, result) => count + (result.ok ? Number(result.count || 0) : 0),
         0,
       );
-      const refreshedSourceIds = results.filter((result) => result.ok).map((result) => result.source.id);
-      if (refreshedSourceIds.length) {
-        await persistence.pruneExpiredItems(userContext, {
-          channel,
-          sourceIds: refreshedSourceIds,
-          cutoffIso: getContentRetentionCutoffIso(now),
-        });
-      }
+      await persistence.confirmRefresh(userContext, { channel, results, cutoffIso: getContentRetentionCutoffIso(now) });
       const [preview, confirmedItems] = await Promise.all([
-        persistence.listItems(userContext, {
+        persistence.queryContent(userContext, { filters: {
           channel,
           page: 1,
           pageSize: Number.isFinite(Number(limit)) && Number(limit) > 0
             ? Math.max(1, Number(limit))
             : DEFAULT_PAGE_SIZE,
           sort: "latest",
-        }),
-        persistence.listItemsUpdatedSince(userContext, "", channel),
+        }}),
+        persistence.syncProjection(userContext),
       ]);
       const items = Array.isArray(preview?.items) ? preview.items : [];
       const stats = {
@@ -224,9 +179,8 @@ function createInformationInput({ persistence, collector, now = () => new Date(D
       cache.items = items;
       cache.refreshedAt = now().getTime();
       cache.lastRefreshStats = stats;
-      await persistence.touchSyncState(userContext.userId);
       return {
-        items: confirmedItems || [],
+        items: confirmedItems.items || [],
         stats,
       };
     })();
@@ -250,7 +204,7 @@ function createInformationInput({ persistence, collector, now = () => new Date(D
   }
 
   async function removeFavorite(userContext, channel, canonicalUrl) {
-    return persistence.deleteFavorite(userContext, channel, canonicalUrl);
+    return persistence.removeFavorite(userContext, channel, canonicalUrl);
   }
 
   function listSources(userContext, channel) {
@@ -305,25 +259,12 @@ function createInformationInput({ persistence, collector, now = () => new Date(D
     return persistence.deleteSource(userContext, sourceId);
   }
 
-  async function getFullSyncProjection(userContext) {
-    const [sources, items, favorites] = await Promise.all([
-      persistence.listSources(userContext),
-      persistence.listItemsUpdatedSince(userContext, ""),
-      persistence.listFavoriteItemsUpdatedSince(userContext, ""),
-    ]);
-    return { sources, items, favorites };
+  async function getFullSyncProjection(userContext, upperVersion = null) {
+    return persistence.syncProjection(userContext, { upperVersion });
   }
 
-  async function getIncrementalSyncProjection(userContext, since) {
-    return Promise.all([
-      persistence.listSourcesUpdatedSince(userContext, since),
-      persistence.listItemsUpdatedSince(userContext, since),
-      persistence.listFavoriteItemsUpdatedSince(userContext, since),
-    ]).then(([sources, items, favorites]) => ({ sources, items, favorites }));
-  }
-
-  function getSyncState(userId) {
-    return persistence.getSyncState(userId);
+  async function getIncrementalSyncProjection(userContext, since, upperVersion) {
+    return persistence.syncProjection(userContext, { since, upperVersion });
   }
 
   return {
@@ -338,7 +279,6 @@ function createInformationInput({ persistence, collector, now = () => new Date(D
     deleteSource,
     getFullSyncProjection,
     getIncrementalSyncProjection,
-    getSyncState,
     getCacheStatus,
   };
 }

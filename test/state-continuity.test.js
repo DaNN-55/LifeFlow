@@ -818,21 +818,27 @@ test("增量远端确认通过 public scope 合并已有缓存", async () => {
         alice: {
           tasks: [{ id: "cached", name: "缓存任务" }],
           dailyRecords: {},
-          sync: { cursor: "2026-08-10T00:00:00.000Z" },
+          sync: { cursor: "v1.a" },
         },
       },
     }),
   });
   globalThis.localStorage = storage;
   globalThis.window = { setTimeout, clearTimeout, location: { hostname: "state-continuity.test", protocol: "http:" } };
-  globalThis.fetch = async () => new Response(JSON.stringify({
-    cursor: "2026-08-11T00:00:00.000Z",
+  const requests = [];
+  globalThis.fetch = async (url) => {
+    requests.push(String(url));
+    return new Response(JSON.stringify({
+    cursor: "v1.b",
     changes: { tasks: [{ id: "remote", name: "远端任务" }] },
-  }), { status: 200 });
+    }), { status: 200 });
+  };
 
   try {
     const scope = createStateContinuity().open({ id: "alice" });
     await scope.control.sync();
+
+    assert.ok(requests.some((url) => url.includes("/api/sync/changes?since=v1.a")));
 
     assert.deepEqual(
       scope.view(views.today({ date: "2026-08-11" })).data.tasks.map((task) => task.id).sort(),

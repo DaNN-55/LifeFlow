@@ -134,7 +134,7 @@ test("refresh with no available sources clears items and emits reset sync semant
   assert.equal((await store.listContent({ userId: user.id }, { channel: "news" })).total, 0);
   const after = await store.getUserSyncState(user.id);
   assert.equal(Boolean(after.dataResetAt), true);
-  assert.notEqual(after.dataUpdatedAt, before.dataUpdatedAt);
+  assert.ok(after.dataSyncVersion > before.dataSyncVersion);
 });
 
 test("partial refresh only prunes successfully refreshed sources", async () => {

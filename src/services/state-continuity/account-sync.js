@@ -7,10 +7,7 @@ import { fetchSyncBootstrap, fetchSyncChanges } from "../sync-api.js";
 
 function isInvalidSyncCursor(value = "") {
   const raw = String(value || "").trim();
-  if (!raw) {
-    return true;
-  }
-  return Number.isNaN(Date.parse(raw));
+  return !/^v1\.[0-9a-z]+$/i.test(raw);
 }
 
 export function hasDashboardSnapshotData(snapshot = {}) {

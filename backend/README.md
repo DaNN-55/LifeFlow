@@ -123,6 +123,7 @@ http://localhost:8787
    `supabase/migrations/2026-03-27-dedupe-content-sources-and-add-identity-constraint.sql`
    `supabase/migrations/2026-03-27-drop-content-source-is-default.sql`
    `supabase/migrations/2026-03-28-ensure-content-items-and-source-sync-state.sql`
+   `supabase/migrations/2026-09-09-add-opaque-sync-cursors.sql`
 4. 在项目设置里拿到：
    - `Project URL`
    - `service_role` key
@@ -200,10 +201,13 @@ http://localhost:8787/health
 
 如果你要把现在这版完整连起来，最低只需要完成：
 
-1. 在 Supabase 执行最新 schema / migration
-2. 在后端配置：
+1. 在 Supabase 执行最新 schema / migration（包括 `2026-09-09-add-opaque-sync-cursors.sql`）
+2. 验证 `users.data_sync_version`、各事实表的 `sync_version` 以及 `*_assign_lifeflow_sync_version` trigger 已存在
+3. 验证 `clear_lifeflow_user_data` RPC 仅授予 `service_role`，并在真实 PostgreSQL 中确认其事务性清空、trigger 与 upsert 行为
+4. 再部署使用不透明 cursor 的后端代码
+5. 在后端配置：
    - `SUPABASE_URL`
    - `SUPABASE_SERVICE_ROLE_KEY`
    - `CORS_ORIGIN`
-3. 重启或重新部署后端
-4. 前端继续直接调用当前后端，无需额外生成前端 key
+6. 重启或重新部署后端
+7. 前端继续直接调用当前后端，无需额外生成前端 key

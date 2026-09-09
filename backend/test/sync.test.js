@@ -74,8 +74,9 @@ test("sync endpoints return bootstrap, incremental changes, and reset snapshots"
     assert.equal(bootstrap.snapshot.tasks.length, 1);
     assert.equal(bootstrap.snapshot.dailyRecords.length, 1);
     assert.equal(bootstrap.snapshot.weeklySummaries.length, 1);
-    assert.ok(bootstrap.cursor);
+    assert.match(bootstrap.cursor, /^v1\.[0-9a-z]+$/);
 
+    store.getNowIso = () => "2026-03-21T09:00:00.000Z";
     await store.upsertDailyRecord({ userId: user.id }, "2026-03-21", {
       tasks: {
         "task-1": {
@@ -84,6 +85,7 @@ test("sync endpoints return bootstrap, incremental changes, and reset snapshots"
         },
       },
     });
+    await store.upsertWeeklySummary({ userId: user.id }, "2026-W13", { content: "same millisecond" });
 
     const changesResponse = await fetch(
       `${baseUrl}/api/sync/changes?since=${encodeURIComponent(bootstrap.cursor)}`,
@@ -95,6 +97,8 @@ test("sync endpoints return bootstrap, incremental changes, and reset snapshots"
     assert.equal(Array.isArray(changes.changes.tasks), true);
     assert.equal(changes.changes.dailyRecords.length, 1);
     assert.equal(changes.changes.dailyRecords[0].date, "2026-03-21");
+    assert.equal(changes.changes.weeklySummaries.length, 1);
+    assert.equal(changes.changes.weeklySummaries[0].week, "2026-W13");
 
     await store.deleteTask({ userId: user.id }, "task-1");
 
