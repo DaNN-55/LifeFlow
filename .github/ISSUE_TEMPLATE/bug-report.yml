@@ -1,0 +1,56 @@
+name: Bug 报告
+description: 报告展示页或安全 Demo 中可以复现的问题
+title: "[Bug] "
+labels:
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请只报告公开页面或安全 Demo 的问题。不要填写任务名、执行备注、用户名、资讯内容或来源 URL，也不要粘贴 Session、Cookie、密钥或其他私人数据。
+
+        如需报告安全漏洞，请查看 [SECURITY.md](https://github.com/DaNN-55/LifeFlow/blob/main/SECURITY.md)，不要创建公开 Issue。
+  - type: dropdown
+    id: page
+    attributes:
+      label: 页面
+      options:
+        - 展示页
+        - 安全 Demo - Today
+        - 安全 Demo - Review
+        - 安全 Demo - News
+        - 安全 Demo - Pulse
+        - 其他公开页面
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 复现步骤
+      description: 请使用不包含私人内容的公开步骤，并尽量从页面入口开始编号。
+      placeholder: |
+        1. 打开展示页或安全 Demo
+        2. 点击公开的功能入口
+        3. 观察到问题
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期行为
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: 浏览器环境
+      description: 请填写浏览器名称和版本，例如 Chrome 140 / macOS。
+      placeholder: Chrome 140 / macOS 15
+    validations:
+      required: true

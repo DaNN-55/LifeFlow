@@ -21,6 +21,7 @@ import { useSessionStore } from "../../stores/session";
 import { useTodayStore } from "../../stores/today";
 import { demoState } from "../../services/demo-state";
 import { attachInformationInput } from "../../services/information-input.js";
+import { alphaAnalytics, alphaAnalyticsMode } from "../../services/alpha-analytics.js";
 import { stateContinuity } from "../../services/state-continuity.js";
 import { buildWeatherAxis, buildWeatherHotspots, buildWeatherPolyline, sparklinePoints } from "../../utils/home";
 
@@ -31,6 +32,11 @@ const accountStore = useAccountStore();
 const homeStore = useHomeStore();
 const sessionStore = useSessionStore();
 const todayStore = useTodayStore();
+
+function recordFeedbackClick() {
+  alphaAnalytics.record("feedback_clicked", { mode: alphaAnalyticsMode(sessionStore) });
+}
+
 const accountMenuRef = ref(null);
 const topTabsRef = ref(null);
 const topTabNodes = new Map();
@@ -58,17 +64,18 @@ const PWA_PHONE_MIN_WIDTH = 380;
 const PWA_PHONE_MAX_WIDTH = 430;
 const PWA_PHONE_MIN_HEIGHT = 780;
 const PWA_PHONE_MAX_HEIGHT = 980;
+const GITHUB_ISSUE_CHOOSER_URL = "https://github.com/DaNN-55/LifeFlow/issues/new/choose";
 
 const statusLabel = computed(() => {
   if (sessionStore.previewMode) {
-    return "预览";
+    return "安全 Demo";
   }
   return sessionStore.user?.username ? sessionStore.user.username : "登录";
 });
 
 const compactStatusLabel = computed(() => {
   const raw = String(statusLabel.value || "").trim();
-  if (!isPwaPhoneShell.value || !raw || raw === "登录" || raw === "预览") {
+  if (!isPwaPhoneShell.value || !raw || raw === "登录" || raw === "安全 Demo") {
     return raw;
   }
   if (raw.includes("@")) {
@@ -269,6 +276,11 @@ function resetDemo() {
   window.location.reload();
 }
 
+async function exitDemo() {
+  await sessionStore.signOut();
+  await router.push("/");
+}
+
 function detectPwaPhoneShell() {
   if (typeof window === "undefined") {
     return false;
@@ -382,13 +394,7 @@ async function handleAccountChipClick() {
     return;
   }
   if (sessionStore.previewMode) {
-    await sessionStore.signOut();
-    await router.push({
-      name: "auth",
-      query: {
-        redirect: route.fullPath,
-      },
-    });
+    await exitDemo();
     return;
   }
   if (!sessionStore.user?.id) {
@@ -488,7 +494,7 @@ watch(
     <header class="main-nav">
       <div class="nav-brand">
         <div class="brand-mark" aria-label="LifeFlow 标志">
-          <img src="/logo.png" alt="LifeFlow" />
+          <img src="/pwa-192.png" alt="LifeFlow" />
         </div>
         <div class="brand-copy">
           <strong>LifeFlow</strong>
@@ -545,6 +551,24 @@ watch(
       </div>
 
       <div class="nav-actions">
+        <a
+          class="nav-feedback-link"
+          :href="GITHUB_ISSUE_CHOOSER_URL"
+          target="_blank"
+          rel="noopener noreferrer"
+          @click="recordFeedbackClick"
+        >
+          反馈
+        </a>
+        <span v-if="sessionStore.previewMode" class="demo-mode-indicator">安全 Demo</span>
+        <button
+          v-if="sessionStore.previewMode"
+          type="button"
+          class="task-cancel-action nav-pwa-button"
+          @click="exitDemo"
+        >
+          退出 Demo
+        </button>
         <button
           v-if="sessionStore.previewMode"
           type="button"

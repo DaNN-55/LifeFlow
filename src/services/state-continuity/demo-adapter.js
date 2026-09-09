@@ -45,6 +45,12 @@ export function createDemoStateAdapter() {
       if (command.type === "today.saveRecord") {
         return { snapshot: demoState.updateDailyRecord(command.date, command.payload) };
       }
+      if (command.type === "demo.onboarding.setCollapsed") {
+        return { snapshot: demoState.setOnboardingCollapsed(command.collapsed) };
+      }
+      if (command.type === "demo.onboarding.markPeriodReviewOpened") {
+        return { snapshot: demoState.markPeriodReviewOpened() };
+      }
       if (
         command.type === "today.updateTaskPreferences"
         || command.type === "preferences.replace"

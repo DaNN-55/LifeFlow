@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 
 import { attachInformationInput } from "../services/information-input.js";
+import { alphaAnalytics } from "../services/alpha-analytics.js";
 import { stateContinuity } from "../services/state-continuity.js";
 import { getUserFacingErrorMessage } from "../utils/error-message";
 import { formatDateTime } from "../utils/date";
@@ -109,8 +110,12 @@ export const useContentStore = defineStore("content", {
     async toggleFavorite(item) {
       const input = this.input();
       if (!input) return;
+      const wasFavorited = Boolean(item?.is_favorite);
       try {
         await input.change((catalog) => catalog.toggleFavorite(item.ref || { id: item.id }));
+        if (useSessionStore().previewMode && !wasFavorited) {
+          alphaAnalytics.record("first_synthetic_news_favorited", { mode: "demo" });
+        }
       } catch (error) {
         this.channels.news.error = getUserFacingErrorMessage(error, "收藏操作失败");
       }

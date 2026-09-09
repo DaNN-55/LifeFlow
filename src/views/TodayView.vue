@@ -8,6 +8,7 @@ import ToolbarSelect from "../components/common/ToolbarSelect.vue";
 import TaskIconPicker from "../components/today/TaskIconPicker.vue";
 import TaskDialog from "../components/today/TaskDialog.vue";
 import TodayTaskCard from "../components/today/TodayTaskCard.vue";
+import DemoOnboardingChecklist from "../components/today/DemoOnboardingChecklist.vue";
 import TimelineTaskCard from "../components/weekly/TimelineTaskCard.vue";
 import WeeklyReviewCard from "../components/weekly/WeeklyReviewCard.vue";
 import { TASK_COLOR_PALETTES } from "../app/task-constants";
@@ -110,6 +111,7 @@ async function loadWeeklyModule() {
     return;
   }
   if (todayPanel.value !== "timeline") await weeklyStore.setMode("week");
+  if (todayPanel.value === "review") await weeklyStore.markDemoPeriodReviewOpened();
 }
 
 function destroySortable() {
@@ -422,7 +424,16 @@ watch(
           <p>{{ todayStore.error }}</p>
         </div>
 
-        <div v-else ref="taskListRef" class="task-stack" aria-live="polite">
+        <div v-else>
+          <DemoOnboardingChecklist
+            v-if="sessionStore.previewMode && todayStore.demoOnboarding"
+            :onboarding="todayStore.demoOnboarding"
+            @collapse="todayStore.setDemoOnboardingCollapsed(true)"
+            @expand="todayStore.setDemoOnboardingCollapsed(false)"
+            @open-information="router.push('/content')"
+            @open-review="switchTodayPanel('review')"
+          />
+          <div ref="taskListRef" class="task-stack" aria-live="polite">
           <TodayTaskCard
             v-for="task in activeTasks"
             :key="task.id"
@@ -498,6 +509,7 @@ watch(
               <button type="submit" class="add-task-submit">创建任务</button>
             </form>
           </article>
+          </div>
         </div>
       </template>
 

@@ -57,12 +57,12 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family:
-    "Public Sans", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif;
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif;
   line-height: 1.45;
 }
 
 code {
-  font-family: "JetBrains Mono", monospace;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
 }
 
 button,
@@ -926,6 +926,21 @@ a {
   box-shadow: 0 8px 16px rgba(15, 23, 42, 0.1);
 }
 
+.nav-feedback-link {
+  padding: 6px 4px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 3px;
+}
+
+.nav-feedback-link:hover,
+.nav-feedback-link:focus-visible {
+  color: var(--text);
+  text-decoration-color: currentColor;
+}
+
 .theme-option {
   font-size: 0.68rem;
   text-transform: uppercase;
@@ -1031,6 +1046,21 @@ a {
 
 .nav-pwa-button {
   min-height: 30px;
+  white-space: nowrap;
+}
+
+.demo-mode-indicator {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, #2563eb 28%, var(--line));
+  border-radius: var(--ui-button-radius);
+  background: color-mix(in srgb, #2563eb 10%, var(--card));
+  color: color-mix(in srgb, #1d4ed8 82%, var(--text));
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
   white-space: nowrap;
 }
 

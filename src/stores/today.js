@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 
 import { TASK_COLOR_PALETTES, getRandomTaskColor } from "../app/task-constants";
+import { alphaAnalytics, alphaAnalyticsMode } from "../services/alpha-analytics.js";
 import { stateContinuity, views } from "../services/state-continuity";
 import { formatDateKey, formatDisplayDate, formatDateTime, getTodayDateString, parseLocalDate } from "../utils/date";
 import { getUserFacingErrorMessage } from "../utils/error-message";
@@ -124,6 +125,7 @@ export const useTodayStore = defineStore("today", {
     saveStatus: "数据将自动保存到云端",
     saveTone: "default",
     ready: false,
+    demoOnboarding: null,
     noteDrafts: {},
     activeTaskMenuId: null,
     activePaletteTaskId: null,
@@ -201,6 +203,14 @@ export const useTodayStore = defineStore("today", {
       this.noteDrafts = Object.fromEntries(
         Object.entries(data.drafts || {}).filter(([taskId]) => activeTaskIds.has(String(taskId || ""))),
       );
+      this.demoOnboarding = data.onboarding && typeof data.onboarding === "object"
+        ? {
+            collapsed: Boolean(data.onboarding.collapsed),
+            executionRecorded: Boolean(data.onboarding.executionRecorded),
+            syntheticNewsFavorited: Boolean(data.onboarding.syntheticNewsFavorited),
+            periodReviewOpened: Boolean(data.onboarding.periodReviewOpened),
+          }
+        : null;
       this.ready = true;
     },
     restoreNoteDrafts() {
@@ -299,6 +309,13 @@ export const useTodayStore = defineStore("today", {
     closeTransientUi() {
       this.activeTaskMenuId = "";
       this.activePaletteTaskId = "";
+    },
+    async setDemoOnboardingCollapsed(collapsed) {
+      const sessionStore = useSessionStore();
+      if (!sessionStore.previewMode) return;
+      const scope = this.getContinuityScope();
+      await scope.change((writes) => writes.demo.setOnboardingCollapsed(collapsed));
+      this.applyProjection(this.getTodayProjection());
     },
     setSaveState(message, tone = "default") {
       this.saveStatus = message;
@@ -403,7 +420,8 @@ export const useTodayStore = defineStore("today", {
       if (!task) {
         return;
       }
-      await this.persistRecord(
+      const wasCompleted = Boolean(this.record.payload.tasks[taskId]?.completed);
+      const persisted = await this.persistRecord(
         `已保存 ${task.name} 的完成状态`,
         this.selectedDate,
         (record) => {
@@ -412,6 +430,9 @@ export const useTodayStore = defineStore("today", {
           record.payload.tasks[taskId] = taskState;
         },
       );
+      if (persisted && !wasCompleted) {
+        alphaAnalytics.record("first_task_completed", { mode: alphaAnalyticsMode(useSessionStore()) });
+      }
     },
     async setTaskColor(taskId, color) {
       const task = this.tasks.find((item) => item.id === taskId);
@@ -460,6 +481,8 @@ export const useTodayStore = defineStore("today", {
           [taskId]: draftText,
         };
         this.persistNoteDrafts();
+      } else {
+        alphaAnalytics.record("first_execution_note_added", { mode: alphaAnalyticsMode(useSessionStore()) });
       }
     },
     async deleteTaskNote(taskId, noteId) {
@@ -501,6 +524,9 @@ export const useTodayStore = defineStore("today", {
         },
       );
 
+      if (persisted) {
+        alphaAnalytics.record("first_execution_note_added", { mode: alphaAnalyticsMode(useSessionStore()) });
+      }
       return Boolean(persisted);
     },
     async createTask(name, tagsInput, color, icon = "") {

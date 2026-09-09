@@ -31,6 +31,7 @@ function getTodayData(snapshot, date, drafts) {
     tasks: Array.isArray(snapshot?.tasks) ? snapshot.tasks : [],
     record: snapshot?.dailyRecords?.[date] || null,
     drafts,
+    onboarding: snapshot?.onboarding || null,
   });
 }
 
@@ -245,6 +246,18 @@ function applyCommand(snapshot, command, response = {}) {
       date: command.date,
       payload: command.payload,
     });
+  }
+  if (command.type === "demo.onboarding.setCollapsed") {
+    return {
+      ...snapshot,
+      onboarding: { ...(snapshot.onboarding || {}), collapsed: Boolean(command.collapsed) },
+    };
+  }
+  if (command.type === "demo.onboarding.markPeriodReviewOpened") {
+    return {
+      ...snapshot,
+      onboarding: { ...(snapshot.onboarding || {}), periodReviewOpened: true },
+    };
   }
   if (command.type === "today.createTask") {
     const task = response?.task;
@@ -532,6 +545,10 @@ export function createStateContinuity({ adapter: fixedAdapter, adapters = null }
             updatedAt,
           }),
         },
+        demo: {
+          setOnboardingCollapsed: (collapsed) => ({ type: "demo.onboarding.setCollapsed", collapsed }),
+          markPeriodReviewOpened: () => ({ type: "demo.onboarding.markPeriodReviewOpened" }),
+        },
         preferences: {
           replace: (preferences) => ({ type: "preferences.replace", preferences }),
           merge: (patch) => ({ type: "preferences.merge", patch }),
@@ -542,7 +559,7 @@ export function createStateContinuity({ adapter: fixedAdapter, adapters = null }
       }
       if (command.type === "today.saveDrafts") {
         if (isCurrent()) {
-          adapter.saveDrafts(record.identity, command.date, command.drafts);
+          adapter.saveDrafts(record.identity, command.date, clone(command.drafts || {}));
           state.draftRevision += 1;
         }
         return Promise.resolve(null);

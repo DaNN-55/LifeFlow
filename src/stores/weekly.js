@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 
 import { createPeriodReview, reviewPeriods, reviewViews } from "../services/period-review.js";
+import { alphaAnalytics, alphaAnalyticsMode } from "../services/alpha-analytics.js";
 import { stateContinuity } from "../services/state-continuity.js";
 import {
   formatMonthDay,
@@ -211,6 +212,16 @@ export const useWeeklyStore = defineStore("weekly", {
         this.setSaveStatus(this.actionError);
         return false;
       }
+    },
+    async markDemoPeriodReviewOpened() {
+      const session = useSessionStore();
+      if (!session.user?.id && !session.previewMode) return false;
+      if (session.previewMode) {
+        const scope = stateContinuity.open({ mode: "demo" });
+        await scope.change((writes) => writes.demo.markPeriodReviewOpened());
+      }
+      alphaAnalytics.record("first_period_review_opened", { mode: alphaAnalyticsMode(session) });
+      return true;
     },
   },
 });

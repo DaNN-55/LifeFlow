@@ -36,6 +36,23 @@ function createTaskState({ completed = false, notes = [] } = {}) {
   };
 }
 
+function createOnboardingState() {
+  return {
+    collapsed: false,
+    executionRecorded: false,
+    syntheticNewsFavorited: false,
+    periodReviewOpened: false,
+  };
+}
+
+function hasExecutionEvidence(payload = {}) {
+  return Object.values(payload?.tasks || {}).some((taskState) => (
+    Boolean(taskState?.completed)
+    && Array.isArray(taskState?.notes)
+    && taskState.notes.some((note) => String(note?.text || "").trim())
+  ));
+}
+
 function createFixture(now) {
   const today = formatDate(now);
   const yesterday = formatDate(addDays(now, -1));
@@ -157,6 +174,9 @@ function createFixture(now) {
         updatedAt: "",
       },
     },
+    // Fixture history illustrates the product, but deliberately does not count
+    // as the visitor's own onboarding progress.
+    onboarding: createOnboardingState(),
     content: {
       items: { news: items },
       sources: { news: sources },
@@ -181,10 +201,18 @@ function createFixture(now) {
         longitude: null,
       },
       github: {
-        status: "idle",
-        repos: [],
-        url: "",
-        message: "Demo 模式不请求外部服务",
+        status: "ready",
+        repos: [
+          {
+            name: "DaNN-55 / LifeFlow",
+            description: "LifeFlow 公开仓库：把今日执行、周期复盘与信息输入放在同一条工作流中。",
+            updatedAt: "",
+            url: "https://github.com/DaNN-55/LifeFlow",
+            shortUrl: "LifeFlow",
+          },
+        ],
+        url: "https://github.com/DaNN-55/LifeFlow",
+        message: "LifeFlow 公开仓库",
       },
       stock: {
         status: "idle",
@@ -200,7 +228,13 @@ function normalizeState(value, now) {
   if (!value || typeof value !== "object" || value.version !== DEMO_VERSION) {
     return createFixture(now);
   }
-  return value;
+  return {
+    ...value,
+    onboarding: {
+      ...createOnboardingState(),
+      ...(value.onboarding || {}),
+    },
+  };
 }
 
 export function createDemoStateRepository({ storage = globalThis.localStorage, now = () => new Date() } = {}) {
@@ -220,7 +254,7 @@ export function createDemoStateRepository({ storage = globalThis.localStorage, n
 
   function ensure() {
     const current = read();
-    return current ? clone(current) : write(createFixture(now()));
+    return current ? write(current) : write(createFixture(now()));
   }
 
   function update(mutator) {
@@ -287,6 +321,19 @@ export function createDemoStateRepository({ storage = globalThis.localStorage, n
           updatedAt: now().toISOString(),
           payload: clone(payload),
         };
+        if (hasExecutionEvidence(payload)) {
+          state.onboarding.executionRecorded = true;
+        }
+      });
+    },
+    setOnboardingCollapsed(collapsed) {
+      return update((state) => {
+        state.onboarding.collapsed = Boolean(collapsed);
+      });
+    },
+    markPeriodReviewOpened() {
+      return update((state) => {
+        state.onboarding.periodReviewOpened = true;
       });
     },
     saveWeeklySummary(week, content) {
@@ -305,6 +352,9 @@ export function createDemoStateRepository({ storage = globalThis.localStorage, n
         item.is_favorite = !item.is_favorite;
         if (item.is_favorite) {
           state.content.favorites.news[itemId] = { ...item, favorited_at: now().toISOString() };
+          // This flag is deliberately set only after the repository has applied
+          // a real favorite mutation to a synthetic item.
+          state.onboarding.syntheticNewsFavorited = true;
         } else {
           delete state.content.favorites.news[itemId];
         }

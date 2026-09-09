@@ -1,0 +1,77 @@
+name: 体验反馈
+description: 分享你对 LifeFlow 展示页或安全 Demo 的理解、卡点和再次使用意愿
+title: "[反馈] "
+labels:
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。请不要填写任务名、执行备注、用户名、资讯内容或来源 URL，也不要粘贴 Session、Cookie、密钥或其他私人数据。
+
+        如需报告安全漏洞，请查看 [SECURITY.md](https://github.com/DaNN-55/LifeFlow/blob/main/SECURITY.md)，不要创建公开 Issue。
+  - type: dropdown
+    id: context
+    attributes:
+      label: 公开体验上下文
+      description: 请选择你反馈时所在的公开页面，不要填写账号或私人内容。
+      options:
+        - 展示页
+        - 安全 Demo
+        - 其他公开页面
+    validations:
+      required: true
+  - type: dropdown
+    id: understanding
+    attributes:
+      label: 你对 LifeFlow 的理解程度
+      options:
+        - 很清楚，知道它解决什么问题
+        - 大致理解，但仍有一处疑问
+        - 不太清楚
+    validations:
+      required: true
+  - type: dropdown
+    id: stopped_at
+    attributes:
+      label: 你在哪一步停止或犹豫
+      options:
+        - 没有停止，完成了主要体验
+        - 展示页阅读阶段
+        - 进入安全 Demo 前
+        - 安全 Demo 的 Today / 执行阶段
+        - Review / 周期复盘阶段
+        - News / 资讯输入阶段
+        - Pulse / 状态概览阶段
+        - 其他公开页面
+    validations:
+      required: true
+  - type: dropdown
+    id: core_flow
+    attributes:
+      label: 核心流程完成情况
+      options:
+        - 完成了执行 → 记录 → 周期复盘
+        - 完成了部分核心流程
+        - 只浏览了展示页或 Demo
+        - 没有完成核心流程
+    validations:
+      required: true
+  - type: dropdown
+    id: reuse_intent
+    attributes:
+      label: 你愿意再次使用吗
+      options:
+        - 愿意
+        - 可能愿意
+        - 暂时不会
+    validations:
+      required: true
+  - type: textarea
+    id: feedback
+    attributes:
+      label: 具体反馈
+      description: 请描述你理解到的价值、疑问或最希望改进的一点。只写公开体验，不要粘贴私人数据。
+      placeholder: 例如：我在安全 Demo 完成了执行和记录，但不确定周期复盘如何帮助下一步判断。
+    validations:
+      required: true

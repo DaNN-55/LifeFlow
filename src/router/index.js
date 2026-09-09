@@ -1,46 +1,55 @@
 import { createRouter, createWebHistory } from "vue-router";
 
-import AuthView from "../views/AuthView.vue";
-import PulseView from "../views/PulseView.vue";
-import TodayView from "../views/TodayView.vue";
-import ContentView from "../views/ContentView.vue";
 import { FRETFLOW_ENABLED } from "../app/constants";
 
 const routes = [
   {
+    path: "/",
+    name: "landing",
+    component: () => import("../views/LandingView.vue"),
+    meta: {
+      requiresAuth: false,
+      layout: "public",
+      deferSessionProbe: true,
+    },
+  },
+  {
     path: "/auth",
     alias: "/login",
     name: "auth",
-    component: AuthView,
+    component: () => import("../views/AuthView.vue"),
     meta: {
       requiresAuth: false,
       layout: "auth",
+      deferSessionProbe: true,
     },
   },
   {
     path: "/demo",
     name: "demo",
-    component: TodayView,
+    component: () => import("../views/TodayView.vue"),
     meta: {
       requiresAuth: false,
       demo: true,
-    },
-  },
-  {
-    path: "/",
-    redirect: {
-      name: "pulse",
+      layout: "workspace",
+      deferSessionProbe: true,
     },
   },
   {
     path: "/pulse",
     name: "pulse",
-    component: PulseView,
+    component: () => import("../views/PulseView.vue"),
+    meta: {
+      layout: "workspace",
+    },
   },
   {
     path: "/today",
     name: "today",
-    component: TodayView,
+    component: () => import("../views/TodayView.vue"),
+    meta: {
+      layout: "workspace",
+    },
   },
   {
     path: "/weekly",
@@ -55,7 +64,10 @@ const routes = [
   {
     path: "/content",
     name: "content",
-    component: ContentView,
+    component: () => import("../views/ContentView.vue"),
+    meta: {
+      layout: "workspace",
+    },
     props: {
       channel: "news",
     },
@@ -65,6 +77,9 @@ const routes = [
         path: "/fretflow",
         name: "fretflow",
         component: () => import("../views/FretFlowView.vue"),
+        meta: {
+          layout: "workspace",
+        },
       }]
     : [{
         path: "/fretflow/:pathMatch(.*)*",

@@ -14,6 +14,11 @@ LifeFlow 是面向个人长期使用场景的记录与复盘工具。它把任�
 
 项目提供可运行、可测试的 Vue + Express 应用，也提供不连接后端或外部服务的安全 Demo，方便直接体验核心流程。
 
+- [在线展示页](https://life-flow-seven.vercel.app/)
+- [在线安全 Demo](https://life-flow-seven.vercel.app/demo)
+- [提交体验反馈](https://github.com/DaNN-55/LifeFlow/issues/new?template=feedback.yml)
+- [提交 Bug 报告](https://github.com/DaNN-55/LifeFlow/issues/new?template=bug-report.yml)
+
 ## 核心功能
 
 - **记录每日执行**：创建、排序和完成任务，并把执行过程关联到具体任务与日期。
@@ -81,6 +86,8 @@ npm run backend:test
 npm run build
 ```
 
+本地 `GET /health` 只用于确认后端进程可响应，以及当前进程选择的是 `memory` 还是 `supabase` 存储；它不等同于真实账号 E2E，也不证明真实 Supabase 项目、跨域部署或外部资讯服务已经验收通过。当前仓库没有真实 Supabase 项目的账号端到端验收证据。
+
 ## 技术栈
 
 - 前端：Vue 3、Pinia、Vue Router、Vite、vite-plugin-pwa
@@ -96,9 +103,16 @@ npm run build
 ## 当前边界
 
 - 这是个人作品与产品原型，不宣称公开用户规模、企业采用、商业收益或生产运行结果。
+- 在线展示页和安全 Demo 用于 Alpha 体验；安全 Demo 只使用合成任务、合成资讯和浏览器本地空间，不连接真实账号、Supabase 或外部资讯信源。
 - Supabase Store 已实现并覆盖配置错误分类测试，但尚未连接真实 Supabase 项目完成端到端验收。
 - 数据隔离由后端 Session 和带 `user_id` 的查询保证；数据库侧尚未配置独立 RLS，因此 `SUPABASE_SERVICE_ROLE_KEY` 必须只保存在后端。
 - 自定义 RSS / 网页信源尚未完成生产级内网地址拦截与完整 SSRF 防护，公开部署前需要补齐该边界。
+
+## 反馈、贡献与安全报告
+
+- 体验反馈和 Bug 请从 [Issue 模板入口](https://github.com/DaNN-55/LifeFlow/issues/new/choose) 选择对应表单；表单只要求公开页面或安全 Demo 的结构化上下文。
+- 代码和文档贡献请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。
+- 安全漏洞请阅读 [SECURITY.md](SECURITY.md) 并使用私密报告入口，不要创建公开 Issue。
 
 ## 部署方向
 

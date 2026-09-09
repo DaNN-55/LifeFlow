@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { reactive } from "vue";
 
 import { attachInformationInput } from "../src/services/information-input.js";
 import { createStateContinuity, views } from "../src/services/state-continuity.js";
@@ -89,6 +90,28 @@ test("已缓存的 Today 投影在打开身份 scope 时立即可读", () => {
   assert.equal(today.data.tasks[0].name, "缓存任务");
   assert.equal(today.freshness, "cached");
   assert.equal(today.activity, "idle");
+});
+
+test("Today 草稿写入会在 adapter 边界移除 Vue reactive proxy", async () => {
+  const continuity = createStateContinuity({
+    adapter: createMemoryAdapter({
+      snapshots: {
+        alice: { tasks: [], dailyRecords: {}, drafts: {} },
+      },
+    }),
+  });
+  const adapter = continuity.open({ id: "alice" });
+
+  const reactiveDrafts = reactive({ "task-1": "不会把 proxy 交给持久化 adapter" });
+  const result = await adapter.change((writes) => (
+    writes.today.saveDrafts("2026-09-09", reactiveDrafts)
+  ));
+
+  assert.equal(result, null);
+  assert.deepEqual(
+    adapter.view(views.today({ date: "2026-09-09" })).data.drafts,
+    { "task-1": "不会把 proxy 交给持久化 adapter" },
+  );
 });
 
 test("远端同步确认的快照替换缓存投影", async () => {

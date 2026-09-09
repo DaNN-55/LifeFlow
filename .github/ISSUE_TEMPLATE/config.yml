@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安全漏洞私密报告
+    url: https://github.com/DaNN-55/LifeFlow/blob/main/SECURITY.md
+    about: 请阅读 SECURITY.md，使用私密渠道报告安全漏洞，不要创建公开 Issue。

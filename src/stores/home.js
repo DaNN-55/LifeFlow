@@ -109,8 +109,11 @@ export const useHomeStore = defineStore("home", {
     ...createEmptyHomeState(),
   }),
   getters: {
-    githubProfileUrl() {
+    githubProfileUrl(state) {
       const sessionStore = useSessionStore();
+      if (sessionStore.previewMode) {
+        return String(state.github?.url || "https://github.com/DaNN-55/LifeFlow").trim();
+      }
       return String(sessionStore.preferences?.widgets?.github?.profileUrl || defaultWidgets.github.profileUrl || "").trim();
     },
     favoritesChannel() {

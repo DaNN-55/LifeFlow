@@ -39,7 +39,7 @@ function syncNetworkStatus() {
 router.beforeEach(async (to) => {
   const existingSessionStore = useSessionStore(pinia);
   const isDemoRoute = to.meta.demo === true;
-  const shouldDeferSessionProbe = (to.name === "auth" || isDemoRoute)
+  const shouldDeferSessionProbe = to.meta.deferSessionProbe === true
     && existingSessionStore.status === "idle"
     && !existingSessionStore.previewMode;
   const sessionStore = shouldDeferSessionProbe

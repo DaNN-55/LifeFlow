@@ -12,3 +12,4 @@ backend/.vercel/
 docs/*
 !docs/adr/
 !docs/adr/*.md
+!docs/alpha-release-acceptance.md

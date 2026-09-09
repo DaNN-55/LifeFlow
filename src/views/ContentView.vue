@@ -165,7 +165,7 @@ async function loadChannelFromTop(overrides = {}) {
             {{ contentStore.getMetaText(channel) }}
           </div>
           <button
-            v-if="isAuthenticated"
+            v-if="isAuthenticated && !isDemoMode"
             type="button"
             class="task-cancel-action"
             @click="contentStore.openSourceModal(channel)"
@@ -173,6 +173,7 @@ async function loadChannelFromTop(overrides = {}) {
             管理信源
           </button>
           <button
+            v-if="!isDemoMode"
             type="button"
             class="content-stage-refresh"
             :class="{ 'is-spinning': contentState.refreshing }"
@@ -186,7 +187,7 @@ async function loadChannelFromTop(overrides = {}) {
 
         <div v-if="isDemoMode" class="local-mode-strip">
           <p class="local-mode-copy">
-            当前为安全 Demo，资讯、收藏和已读状态均为合成数据，并保存在独立的本地空间。
+            当前为安全 Demo，资讯、收藏和已读状态均为合成数据，并保存在独立的本地空间；此处不连接、刷新或管理真实信源。
             当前页已读 {{ readCount }} / {{ contentState.items.length }}。
           </p>
         </div>

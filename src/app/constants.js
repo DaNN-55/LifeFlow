@@ -12,6 +12,10 @@ export const AUTH_GATE_ENABLED = true;
 export const ACCOUNT_CONTROLS_ENABLED = true;
 export const AUTH_CHALLENGE_ENABLED = true;
 export const AUTH_PREVIEW_ENABLED = true;
+export function resolveAuthSignupEnabled(value) {
+  return String(value ?? "").trim().toLowerCase() === "true";
+}
+export const AUTH_SIGNUP_ENABLED = resolveAuthSignupEnabled(import.meta.env?.VITE_AUTH_SIGNUP_ENABLED);
 export const FRETFLOW_ENABLED = false;
 
 export const topTabs = [

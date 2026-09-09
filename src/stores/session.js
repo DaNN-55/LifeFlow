@@ -84,7 +84,7 @@ export const useSessionStore = defineStore("session", {
       this.previewMode = true;
       this.status = "ready";
       this.apiStatus = "offline";
-      this.feedback = "已进入本地预览模式";
+      this.feedback = "已进入安全 Demo";
       saveSessionId("");
       savePreviewMode(true);
       clearOfflineSession();
@@ -93,7 +93,7 @@ export const useSessionStore = defineStore("session", {
       if (this.previewMode) {
         this.status = "ready";
         this.apiStatus = "offline";
-        this.feedback = "已进入本地预览模式";
+        this.feedback = "已进入安全 Demo";
         return;
       }
       this.status = "bootstrapping";
@@ -170,7 +170,7 @@ export const useSessionStore = defineStore("session", {
       this.user = null;
       this.previewMode = false;
       this.status = "guest";
-      this.feedback = "已退出登录";
+      this.feedback = wasPreviewMode ? "已退出安全 Demo" : "已退出登录";
       if (wasPreviewMode || previousUserId) {
         stateContinuity.transition(null, { purgePrevious: true });
       }

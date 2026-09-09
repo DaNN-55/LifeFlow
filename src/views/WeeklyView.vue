@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 
 import ToolbarSelect from "../components/common/ToolbarSelect.vue";
 import TaskDialog from "../components/today/TaskDialog.vue";
@@ -14,7 +14,7 @@ const todayStore = useTodayStore();
 const weeklyStore = useWeeklyStore();
 const expandedReviewCards = ref({});
 
-const isAuthenticated = computed(() => Boolean(sessionStore.user?.id));
+const isAuthenticated = computed(() => Boolean(sessionStore.user?.id) || sessionStore.previewMode);
 const showSummaryEdit = computed(
   () => weeklyStore.mode === "week" && weeklyStore.currentSummaryMode !== "view",
 );
@@ -38,6 +38,10 @@ function toggleReviewCard(taskId) {
     [key]: !isReviewExpanded(key),
   };
 }
+
+onMounted(() => {
+  weeklyStore.markDemoPeriodReviewOpened();
+});
 
 </script>
 

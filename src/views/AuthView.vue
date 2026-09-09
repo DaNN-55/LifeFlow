@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
-import { AUTH_CHALLENGE_ENABLED, AUTH_PREVIEW_ENABLED } from "../app/constants";
+import { AUTH_CHALLENGE_ENABLED, AUTH_PREVIEW_ENABLED, AUTH_SIGNUP_ENABLED } from "../app/constants";
 import { fetchAuthChallenge, fetchCaptcha, recoverPassword, signIn, signUp } from "../services/auth-api";
 import { loadApiBase, loadAuthConfig, refreshApiBase, saveAuthConfig } from "../services/config";
 import { useSessionStore } from "../stores/session";
@@ -77,6 +77,10 @@ function submitPrimaryAuth() {
 }
 
 function openSignupModal() {
+  if (!AUTH_SIGNUP_ENABLED) {
+    feedback.value = "云端账号当前处于封闭测试，请进入安全 Demo 体验。";
+    return;
+  }
   ensureAuthChallengeLoaded();
   signupForm.username = String(form.username || "").trim();
   signupForm.password = "";
@@ -92,8 +96,7 @@ async function ensureAuthChallengeLoaded() {
 }
 
 async function enterDemo() {
-  sessionStore.startPreviewSession();
-  await router.replace("/today");
+  await router.replace("/demo");
 }
 
 function closeSignupModal() {
@@ -396,6 +399,11 @@ async function closeRecoveryCodeModal() {
 }
 
 async function submitAuth(mode = "signin") {
+  if (mode === "signup" && !AUTH_SIGNUP_ENABLED) {
+    feedback.value = "云端账号当前处于封闭测试，请进入安全 Demo 体验。";
+    return;
+  }
+
   const username = String(form.username || "").trim();
   const password = String(form.password || "");
   const recoveryCode = String(form.recoveryCode || "").trim();
@@ -491,6 +499,12 @@ async function submitAuth(mode = "signin") {
 }
 
 async function submitSignup() {
+  if (!AUTH_SIGNUP_ENABLED) {
+    closeSignupModal();
+    feedback.value = "云端账号当前处于封闭测试，请进入安全 Demo 体验。";
+    return;
+  }
+
   const username = String(signupForm.username || "").trim();
   const password = String(signupForm.password || "");
 
@@ -561,8 +575,17 @@ onBeforeUnmount(() => {
       <p class="panel-kicker">Cloud Sync</p>
       <h1 id="login-page-title">登录后同步到云端</h1>
       <p class="auth-gate-copy">
-        登录后你的任务、备注和周总结会接入现有后端。首次使用可先创建账号，并妥善保存系统生成的恢复码；如果忘记密码，可用恢复码重置。
+        <template v-if="AUTH_SIGNUP_ENABLED">
+          登录后你的任务、备注和周总结会接入现有后端。首次使用可创建账号，并妥善保存系统生成的恢复码；如果忘记密码，可用恢复码重置。
+        </template>
+        <template v-else>
+          云端账号当前处于封闭测试。已有账号可继续登录或使用恢复码重置密码；首次体验请进入安全 Demo。
+        </template>
       </p>
+
+      <div v-if="!AUTH_SIGNUP_ENABLED" class="auth-inline-note">
+        公开注册暂未开放，安全 Demo 使用独立的本地合成数据，不会写入云端账号。
+      </div>
 
       <div v-if="isFileProtocol" class="auth-inline-note">
         当前页面是通过 <code>file://</code> 打开的。正式使用请改用本地或部署后的 HTTP 地址访问。
@@ -675,11 +698,11 @@ onBeforeUnmount(() => {
           <button type="submit" class="settings-save auth-login-button" :disabled="busy || (!isChallengeDisabled && isChallengeBusy)">
             {{ busy && isRecoveryMode ? "重置中..." : busy && authMode === "signin" ? "登录中..." : isRecoveryMode ? "重置密码" : "登录" }}
           </button>
-          <button type="button" class="auth-button" :disabled="busy" @click="openSignupModal">
+          <button v-if="AUTH_SIGNUP_ENABLED" type="button" class="auth-button" :disabled="busy" @click="openSignupModal">
             创建账号
           </button>
           <button v-if="AUTH_PREVIEW_ENABLED" type="button" class="auth-button auth-preview-action" @click="enterDemo">
-            体验Demo
+            进入安全 Demo
           </button>
           <button type="button" class="auth-button auth-recover-action" :disabled="busy || (!isChallengeDisabled && isChallengeBusy)" @click="submitAuth('recover')">
             {{ busy && authMode === "recover" ? "重置中..." : "重置密码" }}
@@ -689,7 +712,7 @@ onBeforeUnmount(() => {
       </form>
     </section>
 
-    <div class="settings-modal" :hidden="!signupModalOpen">
+    <div v-if="AUTH_SIGNUP_ENABLED && signupModalOpen" class="settings-modal">
       <div class="settings-backdrop" @click="closeSignupModal"></div>
       <section class="settings-dialog auth-recovery-dialog" role="dialog" aria-modal="true" aria-labelledby="signup-modal-title">
         <div class="settings-header">
