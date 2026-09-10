@@ -42,7 +42,7 @@ npm ci
 npm run dev
 ```
 
-打开 `http://localhost:5175/auth`，点击 **体验 Demo**。所有操作只写入独立的浏览器 `localStorage`，不会连接生产 API、Supabase、资讯、天气或行情服务。
+打开 `http://localhost:5175/`，点击 **立即体验安全 Demo**。所有操作只写入独立的浏览器 `localStorage`，不会连接生产 API、Supabase、资讯、天气或行情服务。
 
 建议按下面的顺序体验：
 
@@ -106,7 +106,7 @@ npm run build
 - 在线展示页和安全 Demo 用于 Alpha 体验；安全 Demo 只使用合成任务、合成资讯和浏览器本地空间，不连接真实账号、Supabase 或外部资讯信源。
 - Supabase Store 已实现并覆盖配置错误分类测试，但尚未连接真实 Supabase 项目完成端到端验收。
 - 数据隔离由后端 Session 和带 `user_id` 的查询保证；数据库侧尚未配置独立 RLS，因此 `SUPABASE_SERVICE_ROLE_KEY` 必须只保存在后端。
-- 自定义 RSS / 网页信源尚未完成生产级内网地址拦截与完整 SSRF 防护，公开部署前需要补齐该边界。
+- 自定义 RSS / 网页信源尚未完成生产级内网地址拦截与完整 SSRF 防护；在公开开放真实信源前需要补齐该边界。
 
 ## 反馈、贡献与安全报告
 
@@ -120,4 +120,4 @@ npm run build
 
 ## 开源许可证
 
-本项目采用 [MIT License](LICENSE)。
+本项目采用 [Apache License 2.0](LICENSE)，SPDX 标识为 `Apache-2.0`。
