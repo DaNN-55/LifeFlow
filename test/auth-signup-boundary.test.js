@@ -30,3 +30,23 @@ test("认证页将注册入口、弹窗和提交路径置于同一开关后", as
   assert.match(authViewSource, /进入安全 Demo/);
   assert.match(authViewSource, /router\.replace\("\/demo"\)/);
 });
+
+test("账号登录默认回到工作台而不是公开展示页", async () => {
+  const [authViewSource, mainSource] = await Promise.all([
+    readFile(new URL("../src/views/AuthView.vue", import.meta.url), "utf8"),
+    readFile(new URL("../src/main.js", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(
+    authViewSource,
+    /route\.query\.redirect === "string" \? route\.query\.redirect : "\/pulse"/,
+  );
+  assert.match(
+    authViewSource,
+    /if \(!redirect\.startsWith\("\/"\) \|\| redirect\.startsWith\("\/\/"\)\) \{\s+return "\/pulse";/,
+  );
+  assert.match(
+    mainSource,
+    /\? to\.query\.redirect\s+: "\/pulse";/,
+  );
+});

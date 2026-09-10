@@ -61,9 +61,9 @@ const isChallengeUnavailable = computed(
 const currentApiBase = computed(() => loadApiBase());
 
 function resolveRedirectTarget() {
-  const redirect = typeof route.query.redirect === "string" ? route.query.redirect : "/";
+  const redirect = typeof route.query.redirect === "string" ? route.query.redirect : "/pulse";
   if (!redirect.startsWith("/") || redirect.startsWith("//")) {
-    return "/";
+    return "/pulse";
   }
   return redirect;
 }

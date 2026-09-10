@@ -56,7 +56,7 @@ router.beforeEach(async (to) => {
   const redirectTarget =
     typeof to.query.redirect === "string" && to.query.redirect.startsWith("/") && !to.query.redirect.startsWith("//")
       ? to.query.redirect
-      : "/";
+      : "/pulse";
 
   if (!AUTH_GATE_ENABLED) {
     if (to.name === "auth" && isAuthenticated) {
