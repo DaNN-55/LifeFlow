@@ -77,15 +77,10 @@
 
 .landing-hero {
   display: grid;
-  grid-template-columns: minmax(0, 1.12fr) minmax(330px, .88fr);
-  column-gap: clamp(44px, 8vw, 120px);
-  row-gap: clamp(32px, 4vw, 56px);
-  align-items: start;
+  grid-template-columns: minmax(0, 1.35fr) minmax(330px, .65fr);
+  gap: clamp(32px, 4vw, 64px);
+  align-items: center;
   padding: clamp(72px, 11vw, 148px) 0 clamp(74px, 11vw, 136px);
-}
-
-.landing-hero-intro {
-  grid-column: 1 / -1;
 }
 
 .landing-eyebrow {
@@ -117,8 +112,8 @@
 }
 
 .landing-hero h1 {
-  max-width: none;
-  font-size: clamp(3.45rem, 6.8vw, 6.5rem);
+  max-width: 700px;
+  font-size: clamp(3.25rem, 5.2vw, 4.6rem);
   white-space: nowrap;
 }
 
@@ -170,6 +165,10 @@
 
 .landing-workflow-card {
   position: relative;
+  width: 90%;
+  justify-self: end;
+  align-self: start;
+  margin-top: 106px;
   padding: 24px;
   border: 1px solid #d2d3cc;
   border-radius: 6px;
@@ -419,6 +418,17 @@
 .landing-footer a {
   color: var(--landing-ink);
   font-weight: 700;
+}
+
+@media (min-width: 761px) and (max-width: 980px) {
+  .landing-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .landing-workflow-card {
+    justify-self: start;
+    margin-top: 0;
+  }
 }
 
 @media (max-width: 760px) {
