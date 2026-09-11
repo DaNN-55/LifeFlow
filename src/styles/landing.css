@@ -77,7 +77,7 @@
 
 .landing-hero {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(330px, .65fr);
+  grid-template-columns: minmax(0, 1.12fr) minmax(420px, .88fr);
   gap: clamp(32px, 4vw, 64px);
   align-items: center;
   padding: clamp(72px, 11vw, 148px) 0 clamp(74px, 11vw, 136px);
@@ -165,7 +165,7 @@
 
 .landing-workflow-card {
   position: relative;
-  width: 90%;
+  width: 100%;
   justify-self: end;
   align-self: start;
   margin-top: 106px;
