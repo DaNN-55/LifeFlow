@@ -78,8 +78,9 @@
 .landing-hero {
   display: grid;
   grid-template-columns: minmax(0, 1.12fr) minmax(330px, .88fr);
-  gap: clamp(44px, 8vw, 120px);
-  align-items: center;
+  column-gap: clamp(44px, 8vw, 120px);
+  row-gap: clamp(32px, 4vw, 56px);
+  align-items: start;
   padding: clamp(72px, 11vw, 148px) 0 clamp(74px, 11vw, 136px);
 }
 
