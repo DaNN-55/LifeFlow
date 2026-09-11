@@ -35,7 +35,7 @@ LifeFlow 是面向个人长期使用场景的记录与复盘工具。它把任�
 
 ## 快速体验
 
-项目要求 Node.js 20.x。只体验安全 Demo 时无需启动后端：
+项目要求 Node.js 22–24（推荐使用 `.nvmrc` 指定的 Node.js 22）。只体验安全 Demo 时无需启动后端：
 
 ```bash
 npm ci

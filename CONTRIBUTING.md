@@ -12,7 +12,7 @@ Issue Form 只收集公开页面或安全 Demo 的上下文。请不要提交任
 
 ## 本地验证
 
-项目要求 Node.js 20.x。安装依赖后可运行：
+项目要求 Node.js 22–24（推荐使用 `.nvmrc` 指定的 Node.js 22）。安装依赖后可运行：
 
 ```bash
 npm ci

@@ -5,7 +5,7 @@
   "description": "Lightweight backend for LifeFlow dashboard with optional Supabase storage.",
   "type": "commonjs",
   "engines": {
-    "node": ">=20"
+    "node": ">=22 <25"
   },
   "scripts": {
     "dev": "node --watch src/server.js",
@@ -13,11 +13,11 @@
     "test": "node --test"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.49.1",
+    "@supabase/supabase-js": "^2.116.0",
     "cheerio": "^1.2.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
-    "express": "^4.21.2",
+    "express": "^5.2.1",
     "rss-parser": "^3.13.0",
     "svg-captcha": "^1.4.0",
     "zod": "^3.24.2"
