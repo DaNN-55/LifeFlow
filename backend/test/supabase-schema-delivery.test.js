@@ -20,3 +20,22 @@ test("Supabase delivery guide lists each legacy migration exactly once", () => {
   assert.deepEqual([...listedMigrations].sort(), migrationFiles);
   assert.match(guide, /新建、空白的 Supabase 项目[\s\S]*?只执行一次 \[`schema\.sql`\]\(schema\.sql\)/);
 });
+
+test("Supabase baseline includes the final database objects added by legacy migrations", () => {
+  const schema = fs.readFileSync(path.join(SUPABASE_DIR, "schema.sql"), "utf8");
+
+  for (const pattern of [
+    /user_id text not null/,
+    /archived boolean not null default false/,
+    /lifecycle_events jsonb not null default '\[\]'::jsonb/,
+    /recovery_code_hash text not null default ''/,
+    /preferences jsonb not null default '\{\}'::jsonb/,
+    /data_sync_version bigint not null default 0/,
+    /idx_content_items_user_source_published_at on public\.content_items \(user_id, source_id, published_at desc\)/,
+    /create trigger content_items_assign_lifeflow_sync_version/,
+    /function public\.assign_lifeflow_sync_version\(\)[\s\S]*?set search_path = public/,
+  ]) {
+    assert.match(schema, pattern);
+  }
+  assert.doesNotMatch(schema, /is_default/);
+});

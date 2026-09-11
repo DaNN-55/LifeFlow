@@ -138,6 +138,7 @@ create index if not exists idx_user_sessions_user_id on public.user_sessions (us
 create index if not exists idx_user_sessions_expires_at on public.user_sessions (expires_at);
 create index if not exists idx_content_sources_user_channel_order on public.content_sources (user_id, channel, sort_order);
 create index if not exists idx_content_items_user_channel_published_at on public.content_items (user_id, channel, published_at desc);
+create index if not exists idx_content_items_user_source_published_at on public.content_items (user_id, source_id, published_at desc);
 create index if not exists idx_content_favorites_user_channel_published_at on public.content_favorites (user_id, channel, published_at desc);
 
 create index if not exists idx_tasks_user_sync_version on public.tasks (user_id, sync_version);
