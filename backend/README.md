@@ -104,27 +104,11 @@ http://localhost:8787
 
 ## Supabase 作为数据库
 
-如果你要把后端切到 Supabase：
+数据库交付分为两条明确路径，详细步骤与完整历史清单见 [supabase/README.md](supabase/README.md)：
 
-1. 在 Supabase 创建一个新项目。
-2. 全新项目打开 SQL Editor，只需执行当前完整基线：
-   `supabase/schema.sql`
-3. 已使用旧版 schema 的现有项目不要重复执行完整基线，只按时间顺序补执行尚未应用的迁移：
-   `supabase/migrations/2026-03-09-add-user-scope.sql`
-   `supabase/migrations/2026-03-11-add-task-archive-columns.sql`
-   `supabase/migrations/2026-03-11-add-users-and-sessions.sql`
-   `supabase/migrations/2026-03-11-add-weekly-summaries.sql`
-   `supabase/migrations/2026-03-11-drop-public-defaults.sql`
-   `supabase/migrations/2026-03-12-add-account-preferences-and-content-bodies.sql`
-   `supabase/migrations/2026-03-12-add-content-tables.sql`
-   `supabase/migrations/2026-03-12-add-content-favorites.sql`
-   `supabase/migrations/2026-03-14-add-user-recovery-code.sql`
-   `supabase/migrations/2026-03-27-add-sync-tracking.sql`
-   `supabase/migrations/2026-03-27-dedupe-content-sources-and-add-identity-constraint.sql`
-   `supabase/migrations/2026-03-27-drop-content-source-is-default.sql`
-   `supabase/migrations/2026-03-28-ensure-content-items-and-source-sync-state.sql`
-   `supabase/migrations/2026-09-09-add-opaque-sync-cursors.sql`
-4. 在项目设置里拿到：
+1. **全新空项目**：在 SQL Editor 只执行一次 `supabase/schema.sql` 完整基线。
+2. **已经使用旧 schema 的项目**：先备份并核对已执行状态，再按迁移指南的指定顺序补执行缺失脚本；不要对已有项目重复执行完整基线，也不要删除、改名或直接拼接历史迁移。
+3. 在项目设置里拿到：
    - `Project URL`
    - `service_role` key
 
@@ -138,7 +122,7 @@ http://localhost:8787
 
 ```env
 PORT=8787
-CORS_ORIGIN=http://localhost:8000,https://your-frontend.vercel.app,https://life-flow-*.vercel.app
+CORS_ORIGIN=http://localhost:5175,https://your-frontend.vercel.app,https://life-flow-*.vercel.app
 SUPABASE_URL=https://your-project-ref.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 ```
@@ -201,7 +185,7 @@ http://localhost:8787/health
 
 如果你要把现在这版完整连起来，最低只需要完成：
 
-1. 在 Supabase 执行最新 schema / migration（包括 `2026-09-09-add-opaque-sync-cursors.sql`）
+1. 按 [数据库交付指南](supabase/README.md) 为新项目执行基线，或为已有项目补齐所有缺失迁移（当前最后两项是 `2026-09-09-add-opaque-sync-cursors.sql` 与 `2026-09-09-fix-sync-trigger-search-path.sql`）
 2. 验证 `users.data_sync_version`、各事实表的 `sync_version` 以及 `*_assign_lifeflow_sync_version` trigger 已存在
 3. 验证 `clear_lifeflow_user_data` RPC 仅授予 `service_role`，并在真实 PostgreSQL 中确认其事务性清空、trigger 与 upsert 行为
 4. 再部署使用不透明 cursor 的后端代码

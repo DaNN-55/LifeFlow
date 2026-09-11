@@ -9,7 +9,10 @@ backend/.vercel/
 .DS_Store
 *.log
 *.local
+# The public engineering docs are versioned; personal notes and local plans stay local.
 docs/*
 !docs/adr/
 !docs/adr/*.md
+!docs/agents/
+!docs/agents/*.md
 !docs/alpha-release-acceptance.md
