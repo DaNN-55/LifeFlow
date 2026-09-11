@@ -18,7 +18,7 @@ test("Supabase delivery guide lists each legacy migration exactly once", () => {
   assert.equal(fs.existsSync(path.join(SUPABASE_DIR, "schema.sql")), true);
   assert.equal(new Set(listedMigrations).size, listedMigrations.length);
   assert.deepEqual([...listedMigrations].sort(), migrationFiles);
-  assert.match(guide, /新建、空白的 Supabase 项目[\s\S]*?只执行一次 \[`schema\.sql`\]\(schema\.sql\)/);
+  assert.match(guide, /空白 Supabase 项目，\*\*只需要[\s\S]*?\[`schema\.sql`\]\(schema\.sql\) 一次/);
 });
 
 test("Supabase baseline includes the final database objects added by legacy migrations", () => {
