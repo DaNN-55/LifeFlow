@@ -104,11 +104,10 @@ http://localhost:8787
 
 ## Supabase 作为数据库
 
-数据库交付分为两条明确路径，详细步骤与完整历史清单见 [supabase/README.md](supabase/README.md)：
+数据库只有一条公开交付路径，详细步骤见 [supabase/README.md](supabase/README.md)：
 
-1. **全新空项目**：在 SQL Editor 只执行一次 `supabase/schema.sql` 完整基线。
-2. **已经使用旧 schema 的项目**：先备份并核对已执行状态，再按迁移指南的指定顺序补执行缺失脚本；不要对已有项目重复执行完整基线，也不要删除、改名或直接拼接历史迁移。
-3. 在项目设置里拿到：
+1. 在新建、空白 Supabase 项目的 SQL Editor 只执行一次 `supabase/schema.sql` 完整基线。
+2. 在项目设置里拿到：
    - `Project URL`
    - `service_role` key
 
@@ -185,7 +184,7 @@ http://localhost:8787/health
 
 如果你要把现在这版完整连起来，最低只需要完成：
 
-1. 按 [数据库交付指南](supabase/README.md) 为新项目执行基线，或为已有项目补齐所有缺失迁移（当前最后两项是 `2026-09-09-add-opaque-sync-cursors.sql` 与 `2026-09-09-fix-sync-trigger-search-path.sql`）
+1. 按 [数据库交付指南](supabase/README.md) 在新的空白项目执行一次完整基线
 2. 验证 `users.data_sync_version`、各事实表的 `sync_version` 以及 `*_assign_lifeflow_sync_version` trigger 已存在
 3. 验证 `clear_lifeflow_user_data` RPC 仅授予 `service_role`，并在真实 PostgreSQL 中确认其事务性清空、trigger 与 upsert 行为
 4. 再部署使用不透明 cursor 的后端代码

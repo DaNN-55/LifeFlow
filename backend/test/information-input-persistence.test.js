@@ -194,32 +194,25 @@ test("Supabase query double applies the version interval and leaves version assi
   assert.equal(Object.hasOwn(insertPayload, "sync_version"), false);
 });
 
-test("Supabase migration keeps database-owned cursor assignment explicit", () => {
-  const migration = fs.readFileSync(path.join(__dirname, "../supabase/migrations/2026-09-09-add-opaque-sync-cursors.sql"), "utf8");
+test("Supabase baseline keeps database-owned cursor assignment explicit", () => {
   const schema = fs.readFileSync(path.join(__dirname, "../supabase/schema.sql"), "utf8");
   for (const table of ["tasks", "daily_records", "weekly_summaries", "content_sources", "content_items", "content_favorites"]) {
-    assert.match(migration, new RegExp(`alter table public\\.${table} add column if not exists sync_version bigint`));
-    assert.match(migration, new RegExp(`create trigger ${table}_assign_lifeflow_sync_version`));
     assert.match(schema, new RegExp(`create trigger ${table}_assign_lifeflow_sync_version`));
   }
-  assert.match(migration, /data_sync_version = data_sync_version \+ 1/);
-  assert.match(migration, /when tg_op = 'DELETE' then data_sync_version \+ 1/);
-  assert.match(migration, /function public\.assign_lifeflow_sync_version\(\)[\s\S]*?set search_path = public/);
   assert.match(schema, /function public\.assign_lifeflow_sync_version\(\)[\s\S]*?set search_path = public/);
-  for (const sql of [migration, schema]) {
-    assert.match(sql, /create or replace function public\.clear_lifeflow_user_data\(target_user_id text\)/);
-    assert.match(sql, /security invoker/);
-    assert.match(sql, /revoke all on function public\.clear_lifeflow_user_data\(text\) from authenticated/);
-    assert.match(sql, /grant execute on function public\.clear_lifeflow_user_data\(text\) to service_role/);
-    assert.match(sql, /revoke all on function public\.read_lifeflow_sync_projection\(text,bigint\) from public, anon, authenticated/);
-    assert.match(sql, /grant execute on function public\.read_lifeflow_sync_projection\(text,bigint\) to service_role/);
-    assert.match(sql, /lifeflow_sync_payload\(target_user_id,-1,upper\)/);
-    assert.match(sql, /lifeflow_sync_payload\(target_user_id,coalesce\(since_version,0\),upper\)/);
-    assert.match(sql, /sync_version>lower_version and x\.sync_version<=upper_version/);
-    assert.match(sql, /order by x\.display_order,x\.id/);
-    assert.match(sql, /order by x\.sort_order,x\.name,x\.id/);
-    assert.match(sql, /data_reset_version = data_sync_version \+ 1/);
-  }
+  assert.match(schema, /data_sync_version = data_sync_version \+ 1/);
+  assert.match(schema, /when tg_op = 'DELETE' then data_sync_version \+ 1/);
+  assert.match(schema, /create or replace function public\.clear_lifeflow_user_data\(target_user_id text\)/);
+  assert.match(schema, /security invoker/);
+  assert.match(schema, /revoke all on function public\.clear_lifeflow_user_data\(text\) from authenticated/);
+  assert.match(schema, /grant execute on function public\.clear_lifeflow_user_data\(text\) to service_role/);
+  assert.match(schema, /revoke all on function public\.read_lifeflow_sync_projection\(text,bigint\) from public, anon, authenticated/);
+  assert.match(schema, /grant execute on function public\.read_lifeflow_sync_projection\(text,bigint\) to service_role/);
+  assert.match(schema, /lifeflow_sync_payload\(target_user_id,-1,upper\)/);
+  assert.match(schema, /lifeflow_sync_payload\(target_user_id,coalesce\(since_version,0\),upper\)/);
+  assert.match(schema, /sync_version>lower_version and x\.sync_version<=upper_version/);
+  assert.match(schema, /order by x\.display_order,x\.id/);
+  assert.match(schema, /order by x\.sort_order,x\.name,x\.id/);
+  assert.match(schema, /data_reset_version = data_sync_version \+ 1/);
   assert.equal((schema.match(/create or replace function public\.read_lifeflow_sync_projection/g) || []).length, 1);
-  assert.equal((migration.match(/create or replace function public\.read_lifeflow_sync_projection/g) || []).length, 1);
 });

@@ -3,13 +3,13 @@ const assert = require("node:assert/strict");
 
 const { SupabaseStore, buildTableAvailabilityError } = require("../src/store/supabaseStore");
 
-test("reports missing table as migration issue", () => {
+test("reports missing table as schema baseline issue", () => {
   const error = buildTableAvailabilityError("content_items", {
     code: "42P01",
     message: 'relation "public.content_items" does not exist',
   });
 
-  assert.equal(error.message, "Supabase 表 content_items 不可用，请先执行最新 migration");
+  assert.equal(error.message, "Supabase 表 content_items 不可用，请先执行 schema.sql 完整基线");
 });
 
 test("reports auth failures with key guidance", () => {

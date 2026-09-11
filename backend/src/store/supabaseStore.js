@@ -131,7 +131,7 @@ function buildTableAvailabilityError(tableName, error) {
     code === "PGRST205" ||
     /relation .* does not exist|schema cache|could not find the table/i.test(errorText)
   ) {
-    return new Error(`Supabase 表 ${tableName} 不可用，请先执行最新 migration`);
+    return new Error(`Supabase 表 ${tableName} 不可用，请先执行 schema.sql 完整基线`);
   }
 
   if (

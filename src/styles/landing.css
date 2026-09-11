@@ -117,7 +117,7 @@
 
 .landing-hero h1 {
   max-width: none;
-  font-size: clamp(3.25rem, 4.8vw, 5rem);
+  font-size: clamp(3.45rem, 6.8vw, 6.5rem);
   white-space: nowrap;
 }
 

@@ -5,6 +5,7 @@ dev-dist/
 backend/node_modules/
 backend/.env
 backend/.vercel/
+backend/supabase/migrations/
 .vercel/
 .DS_Store
 *.log
