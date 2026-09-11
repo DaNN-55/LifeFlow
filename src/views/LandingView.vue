@@ -61,7 +61,7 @@ onMounted(() => {
     <section class="landing-hero" aria-labelledby="landing-title">
       <div class="landing-hero-intro">
         <p class="landing-eyebrow"><span></span> Alpha 公开体验中</p>
-        <h1 id="landing-title">让执行留下痕迹，让复盘带来下一步。</h1>
+        <h1 id="landing-title">让执行留下痕迹，<br />让复盘带来下一步。</h1>
       </div>
       <div class="landing-hero-copy">
         <p class="landing-lede">LifeFlow 把每日执行、过程记录和周期复盘连成一个轻量的个人工作系统，让你不必每次都从零开始。</p>
