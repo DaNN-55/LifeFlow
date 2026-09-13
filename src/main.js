@@ -99,7 +99,7 @@ const updateServiceWorker = registerSW({
     appStore.notifyOfflineReady();
   },
   onNeedRefresh() {
-    if (router.currentRoute.value.name === "landing") {
+    if (["landing", "auth"].includes(router.currentRoute.value.name)) {
       updateServiceWorker(true);
       return;
     }
