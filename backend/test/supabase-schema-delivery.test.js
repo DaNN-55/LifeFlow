@@ -21,6 +21,8 @@ test("Supabase baseline includes the final database objects", () => {
     /user_id text not null/,
     /archived boolean not null default false/,
     /lifecycle_events jsonb not null default '\[\]'::jsonb/,
+    /tags jsonb not null default '\[\]'::jsonb/,
+    /icon text not null default ''/,
     /recovery_code_hash text not null default ''/,
     /preferences jsonb not null default '\{\}'::jsonb/,
     /data_sync_version bigint not null default 0/,

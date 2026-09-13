@@ -90,8 +90,7 @@ export function createAccountStateAdapter() {
         return saveDailyRecord(command.date, command.payload);
       }
       if (
-        command.type === "today.updateTaskPreferences"
-        || command.type === "preferences.replace"
+        command.type === "preferences.replace"
         || command.type === "preferences.merge"
       ) {
         return saveAccountPreferences(command.preferences);

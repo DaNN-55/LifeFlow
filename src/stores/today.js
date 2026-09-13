@@ -162,14 +162,6 @@ export const useTodayStore = defineStore("today", {
     selectedDateLabel(state) {
       return formatDisplayDate(parseLocalDate(state.selectedDate));
     },
-    tagsByTaskId() {
-      const sessionStore = useSessionStore();
-      return sessionStore.preferences?.tasks?.tagsByTaskId || {};
-    },
-    iconByTaskId() {
-      const sessionStore = useSessionStore();
-      return sessionStore.preferences?.tasks?.iconByTaskId || {};
-    },
   },
   actions: {
     getContinuityScope() {
@@ -390,31 +382,6 @@ export const useTodayStore = defineStore("today", {
       );
       return restored;
     },
-    async persistTaskPreferences(taskId, { tags, icon } = {}) {
-      const sessionStore = useSessionStore();
-      if (sessionStore.previewMode) {
-        const scope = this.getContinuityScope();
-        await scope.change((writes) => writes.today.updateTask(taskId, {
-          ...(Array.isArray(tags) ? { tags } : {}),
-          ...(typeof icon === "string" ? { icon } : {}),
-        }));
-        this.applyProjection(this.getTodayProjection());
-        return true;
-      }
-      if (!sessionStore.user) {
-        return false;
-      }
-
-      try {
-        const scope = this.getContinuityScope();
-        const response = await scope.change((writes) => writes.today.updateTaskPreferences(taskId, { tags, icon }));
-        sessionStore.setPreferences(response?.preferences || scope.view(views.information()).data.preferences);
-        return true;
-      } catch (error) {
-        this.handleActionError(error, "任务偏好同步失败");
-        return false;
-      }
-    },
     async toggleTaskCompletion(taskId) {
       const task = this.tasks.find((item) => item.id === taskId);
       if (!task) {
@@ -548,7 +515,7 @@ export const useTodayStore = defineStore("today", {
         this.newTaskColor = "";
         this.newTaskIcon = "";
         this.setSaveState(`已创建任务：${normalizedName} · Demo 本地保存`, "success");
-        return;
+        return true;
       }
 
       try {
@@ -559,20 +526,22 @@ export const useTodayStore = defineStore("today", {
           color: color || getRandomTaskColor(),
           displayOrder: this.tasks.length + 1,
           archived: false,
+          tags: normalizeTaskTags(tagsInput),
+          icon,
         }));
         this.applyProjection(this.getTodayProjection());
         const createdTask = this.tasks.find((task) => task.id === String(response?.task?.id || ""));
         if (!createdTask) {
           throw new Error("创建任务后未收到任务数据");
         }
-        const tags = normalizeTaskTags(tagsInput);
-        await this.persistTaskPreferences(createdTask.id, { tags, icon });
         this.activePaletteTaskId = "";
         this.newTaskColor = "";
         this.newTaskIcon = "";
         this.setSaveState(`已创建任务：${createdTask.name}`, "success");
+        return true;
       } catch (error) {
         this.handleActionError(error, "创建任务失败");
+        return false;
       }
     },
     openRenameDialog(taskId) {
@@ -582,8 +551,8 @@ export const useTodayStore = defineStore("today", {
       }
       this.renameDialogTaskId = taskId;
       this.renameDraftName = task.name;
-      this.renameDraftTags = (this.tagsByTaskId[taskId] || []).join(", ");
-      this.renameDraftIcon = this.iconByTaskId[taskId] || "";
+      this.renameDraftTags = (task.tags || []).join(", ");
+      this.renameDraftIcon = task.icon || "";
       this.activeTaskMenuId = "";
     },
     closeRenameDialog() {
@@ -600,23 +569,17 @@ export const useTodayStore = defineStore("today", {
       }
       const nextName = String(this.renameDraftName || "").trim();
       const nextTags = normalizeTaskTags(this.renameDraftTags);
-      const currentTags = this.tagsByTaskId[task.id] || [];
+      const currentTags = task.tags || [];
       const nextIcon = String(this.renameDraftIcon || "");
-      const currentIcon = this.iconByTaskId[task.id] || "";
-      const nextTaskName = nextName || task.name;
-
-      if (nextName && nextName !== task.name) {
-        const updated = await this.persistTask(task.id, { name: nextName }, `已更新任务：${nextName}`);
-        if (!updated) {
-          return;
-        }
-      }
-      if (JSON.stringify(nextTags) !== JSON.stringify(currentTags) || nextIcon !== currentIcon) {
-        const updatedPreferences = await this.persistTaskPreferences(task.id, { tags: nextTags, icon: nextIcon });
-        if (!updatedPreferences) {
-          return;
-        }
-        this.setSaveState(`已更新 ${nextTaskName} 的任务设置`, "success");
+      const currentIcon = task.icon || "";
+      const payload = {
+        ...(nextName && nextName !== task.name ? { name: nextName } : {}),
+        ...(JSON.stringify(nextTags) !== JSON.stringify(currentTags) ? { tags: nextTags } : {}),
+        ...(nextIcon !== currentIcon ? { icon: nextIcon } : {}),
+      };
+      if (Object.keys(payload).length) {
+        const updated = await this.persistTask(task.id, payload, `已更新任务：${nextName || task.name}`);
+        if (!updated) return;
       }
       this.closeRenameDialog();
     },
@@ -674,8 +637,6 @@ export const useTodayStore = defineStore("today", {
         this.applyProjection(this.getTodayProjection());
         await deleted;
         this.applyProjection(this.getTodayProjection());
-        const response = await scope.change((writes) => writes.today.updateTaskPreferences(taskId, { tags: [], icon: "" }));
-        sessionStore.setPreferences(response?.preferences || scope.view(views.information()).data.preferences);
         this.setSaveState(`已删除任务：${taskName}`, "success");
         this.closeDeleteDialog();
       } catch (error) {
@@ -736,11 +697,11 @@ export const useTodayStore = defineStore("today", {
     },
     getTaskTags(taskId) {
       const task = this.tasks.find((item) => item.id === taskId);
-      return useSessionStore().previewMode ? (task?.tags || []) : (this.tagsByTaskId[taskId] || []);
+      return task?.tags || [];
     },
     getTaskIcon(taskId, taskName = "") {
       const task = this.tasks.find((item) => item.id === taskId);
-      return resolveTaskIcon(taskName, useSessionStore().previewMode ? (task?.icon || "") : (this.iconByTaskId[taskId] || ""));
+      return resolveTaskIcon(taskName, task?.icon || "");
     },
     getTaskForDialog(taskId) {
       return this.tasks.find((item) => item.id === taskId) || null;

@@ -43,9 +43,10 @@ function createDefaultSyncPreferences() {
 }
 
 function normalizePreferences(preferences = {}) {
+  const { tasks: _legacyTaskPresentation, ...currentPreferences } = preferences || {};
   const sidebarPreferences = preferences?.sidebar || {};
   return {
-    ...(preferences || {}),
+    ...currentPreferences,
     theme: preferences?.theme === "dark" ? "dark" : "light",
     sidebar: {
       ...createDefaultSidebarPreferences(),
@@ -77,15 +78,6 @@ function normalizePreferences(preferences = {}) {
       stock: {
         ...defaultWidgets.stock,
         ...(preferences?.widgets?.stock || {}),
-      },
-    },
-    tasks: {
-      ...(preferences?.tasks || {}),
-      tagsByTaskId: {
-        ...(preferences?.tasks?.tagsByTaskId || {}),
-      },
-      iconByTaskId: {
-        ...(preferences?.tasks?.iconByTaskId || {}),
       },
     },
     content: {

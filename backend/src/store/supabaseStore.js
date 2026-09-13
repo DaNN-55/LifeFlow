@@ -1,6 +1,7 @@
 const { createClient } = require("@supabase/supabase-js");
 
 const USER_SELECT_FIELDS = "id, username, password_hash, recovery_code_hash, preferences, created_at, data_updated_at, data_reset_at, data_sync_version, data_reset_version";
+const TASK_SELECT_FIELDS = "id, name, color, display_order, archived, archived_at, lifecycle_events, tags, icon, created_at, updated_at";
 const CONTENT_SOURCE_SELECT_FIELDS = [
   "id",
   "channel",
@@ -224,7 +225,7 @@ class SupabaseStore {
   async listTasks(scope = {}, { upperVersion = null } = {}) {
     const query = applySyncVersionRange(this.client
       .from("tasks")
-      .select("id, name, color, display_order, archived, archived_at, lifecycle_events, created_at, updated_at")
+      .select(TASK_SELECT_FIELDS)
       .eq("user_id", scope.userId || "")
       .order("display_order", { ascending: true })
       .order("id", { ascending: true }), null, upperVersion);
@@ -241,7 +242,7 @@ class SupabaseStore {
     const { data, error } = await this.client
       .from("tasks")
       .insert({ ...task, user_id: scope.userId || "", updated_at: new Date().toISOString() })
-      .select("id, name, color, display_order, archived, archived_at, lifecycle_events, created_at, updated_at")
+      .select(TASK_SELECT_FIELDS)
       .single();
 
     if (error) {
@@ -271,6 +272,12 @@ class SupabaseStore {
     if (typeof patch.lifecycle_events !== "undefined") {
       updatePayload.lifecycle_events = patch.lifecycle_events;
     }
+    if (typeof patch.tags !== "undefined") {
+      updatePayload.tags = patch.tags;
+    }
+    if (typeof patch.icon !== "undefined") {
+      updatePayload.icon = patch.icon;
+    }
     updatePayload.updated_at = new Date().toISOString();
 
     const { data, error } = await this.client
@@ -278,7 +285,7 @@ class SupabaseStore {
       .update(updatePayload)
       .eq("user_id", scope.userId || "")
       .eq("id", taskId)
-      .select("id, name, color, display_order, archived, archived_at, lifecycle_events, created_at, updated_at")
+      .select(TASK_SELECT_FIELDS)
       .single();
 
     if (error) {
@@ -460,7 +467,7 @@ class SupabaseStore {
   async listTasksUpdatedSince(scope = {}, since, upperVersion = null) {
     const query = applySyncVersionRange(this.client
       .from("tasks")
-      .select("id, name, color, display_order, archived, archived_at, lifecycle_events, created_at, updated_at")
+      .select(TASK_SELECT_FIELDS)
       .eq("user_id", scope.userId || "")
       .order("display_order", { ascending: true })
       .order("id", { ascending: true }), since, upperVersion);

@@ -1,4 +1,5 @@
 import { API_PROBE_TIMEOUT_MS } from "./config.js";
+import { API_REQUEST_TIMEOUT_MS } from "../app/constants.js";
 import { loadSessionId, resolveApiBase } from "./config.js";
 import { getUserFacingErrorMessage, isLikelyNetworkError } from "../utils/error-message.js";
 
@@ -7,10 +8,10 @@ function joinApiPath(baseUrl, path) {
 }
 
 export async function fetchJson(path, options = {}) {
-  const controller = new AbortController();
-  const timeoutMs = Number(options.timeoutMs || API_PROBE_TIMEOUT_MS);
-  const timeoutId = timeoutMs ? window.setTimeout(() => controller.abort(), timeoutMs) : 0;
   const apiBase = options.apiBase || await resolveApiBase();
+  const controller = new AbortController();
+  const timeoutMs = Number(options.timeoutMs || API_REQUEST_TIMEOUT_MS);
+  const timeoutId = timeoutMs ? window.setTimeout(() => controller.abort(), timeoutMs) : 0;
   const headers = new Headers(options.headers || {});
   const sessionId = loadSessionId();
 

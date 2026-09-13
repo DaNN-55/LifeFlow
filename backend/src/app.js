@@ -33,6 +33,8 @@ const taskSchema = z.object({
   displayOrder: z.number().int().positive().optional(),
   archived: z.boolean().optional(),
   archivedAt: z.string().datetime().nullable().optional(),
+  tags: z.array(z.string().min(1).max(24)).max(6).optional(),
+  icon: z.string().max(48).optional(),
   lifecycleEvents: z.array(z.object({
     taskId: z.string().min(1).max(64),
     type: z.enum(["archive", "restore"]),
@@ -115,10 +117,6 @@ const accountPreferencesSchema = z.object({
   profile: z.object({
     birthDate: z.string().max(32).optional(),
     lifeExpectancyYears: z.number().int().min(1).max(150).optional(),
-  }).optional(),
-  tasks: z.object({
-    tagsByTaskId: z.record(z.array(z.string().min(1).max(24)).max(6)).optional(),
-    iconByTaskId: z.record(z.string().min(1).max(48)).optional(),
   }).optional(),
   sync: z.object({
     lastSyncAttemptAt: z.string().optional(),
@@ -682,6 +680,8 @@ function createApp({ config, store, informationInput: input }) {
         display_order: parsed.displayOrder || existingTasks.length + 1,
         archived: Boolean(parsed.archived),
         archived_at: parsed.archivedAt || null,
+        tags: parsed.tags || [],
+        icon: parsed.icon || "",
         lifecycle_events: parsed.lifecycleEvents || [],
       };
       const created = await store.createTask(request.userContext, task);
@@ -700,6 +700,8 @@ function createApp({ config, store, informationInput: input }) {
         display_order: parsed.displayOrder,
         archived: parsed.archived,
         archived_at: parsed.archivedAt,
+        tags: parsed.tags,
+        icon: parsed.icon,
         lifecycle_events: parsed.lifecycleEvents,
       });
 

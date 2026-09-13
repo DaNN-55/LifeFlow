@@ -27,6 +27,8 @@ create table if not exists public.tasks (
   archived boolean not null default false,
   archived_at timestamptz,
   lifecycle_events jsonb not null default '[]'::jsonb,
+  tags jsonb not null default '[]'::jsonb,
+  icon text not null default '',
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now()),
   sync_version bigint not null default 0,

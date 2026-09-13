@@ -108,10 +108,12 @@ test("task endpoints isolate records between authenticated users", async () => {
     const createResponse = await fetch(`${baseUrl}/api/tasks`, {
       method: "POST",
       headers: firstHeaders,
-      body: JSON.stringify({ name: "First user's task", color: "#112233" }),
+      body: JSON.stringify({ name: "First user's task", color: "#112233", tags: ["工作", "重点"], icon: "target" }),
     });
     const createdTask = (await createResponse.json()).task;
     assert.equal(createResponse.status, 201);
+    assert.deepEqual(createdTask.tags, ["工作", "重点"]);
+    assert.equal(createdTask.icon, "target");
 
     const [firstListResponse, secondListResponse] = await Promise.all([
       fetch(`${baseUrl}/api/tasks`, { headers: firstHeaders }),
@@ -124,6 +126,8 @@ test("task endpoints isolate records between authenticated users", async () => {
 
     assert.equal(firstListResponse.status, 200);
     assert.deepEqual(firstList.tasks.map((task) => task.id), [createdTask.id]);
+    assert.deepEqual(firstList.tasks[0].tags, ["工作", "重点"]);
+    assert.equal(firstList.tasks[0].icon, "target");
     assert.equal(secondListResponse.status, 200);
     assert.deepEqual(secondList.tasks, []);
 

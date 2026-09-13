@@ -70,6 +70,9 @@ function createAdapter(initial = snapshot()) {
         delete current.content.items.news.first;
         return { snapshot: structuredClone(current) };
       }
+      if (command.type === "today.createTask") {
+        return { task: { ...command.payload } };
+      }
       return { preferences: command.preferences };
     },
   };
@@ -197,30 +200,23 @@ test("账号偏好中的 canonical 已读记录不会被空的 Demo readItems �
   assert.deepEqual(input.news().projection.items.map((item) => item.id), ["first"]);
 });
 
-test("Today 局部偏好确认后，资讯操作保留新标签和图标", async () => {
+test("资讯操作不会改写已确认的任务展示数据", async () => {
   const adapter = createAdapter();
   const scope = createStateContinuity({ adapter }).open({
     id: "alice",
-    preferences: {
-      tasks: { tagsByTaskId: { first: ["旧标签"] }, iconByTaskId: { first: "旧" } },
-      content: { readItems: {}, hiddenSources: {} },
-    },
+    preferences: { content: { readItems: {}, hiddenSources: {} } },
   });
+  await scope.change((catalog) => catalog.today.createTask({ id: "task-1", name: "任务", color: "#000", tags: ["新标签"], icon: "新" }));
   const input = attachInformationInput(scope);
 
-  await scope.change((catalog) => catalog.today.updateTaskPreferences("first", {
-    tags: ["新标签"],
-    icon: "新",
-  }));
   await input.change((catalog) => catalog.toggleRead({ id: "https://example.com/first" }));
 
-  const readCommand = adapter.commands.find((command) => command.type === "information.toggleRead");
-  assert.deepEqual(readCommand.preferences.tasks.tagsByTaskId.first, ["新标签"]);
-  assert.equal(readCommand.preferences.tasks.iconByTaskId.first, "新");
+  assert.deepEqual(scope.view({ type: "today", date: "2026-08-11" }).data.tasks[0].tags, ["新标签"]);
+  assert.equal(scope.view({ type: "today", date: "2026-08-11" }).data.tasks[0].icon, "新");
   assert.equal(input.news().projection.items.find((item) => item.id === "first").is_read, true);
 });
 
-test("资讯偏好失败只回滚对应 mutation，不撤销已确认的任务偏好", async () => {
+test("资讯偏好失败只回滚对应 mutation，不撤销已确认的任务更新", async () => {
   const adapter = createAdapter();
   const originalWrite = adapter.write.bind(adapter);
   const readWrite = deferred();
@@ -233,7 +229,7 @@ test("资讯偏好失败只回滚对应 mutation，不撤销已确认的任务�
   };
   const scope = createStateContinuity({ adapter }).open({ id: "alice", preferences: { content: {} } });
   const input = attachInformationInput(scope);
-  await scope.change((catalog) => catalog.today.updateTaskPreferences("first", { tags: ["保留"] }));
+  await scope.change((catalog) => catalog.today.createTask({ id: "task-1", name: "保留", color: "#000", tags: ["保留"] }));
 
   const reading = input.change((catalog) => catalog.toggleRead({ id: "https://example.com/first" }));
   assert.equal(input.news().projection.items.find((item) => item.id === "first").is_read, true);
@@ -242,6 +238,5 @@ test("资讯偏好失败只回滚对应 mutation，不撤销已确认的任务�
 
   assert.equal(input.news().projection.items.find((item) => item.id === "first").is_read, false);
   await input.change((catalog) => catalog.setSourceHidden({ id: "sourceB" }, true));
-  const hiddenCommand = adapter.commands.find((command) => command.type === "information.setSourceHidden");
-  assert.deepEqual(hiddenCommand.preferences.tasks.tagsByTaskId.first, ["保留"]);
+  assert.deepEqual(scope.view({ type: "today", date: "2026-08-11" }).data.tasks[0].tags, ["保留"]);
 });

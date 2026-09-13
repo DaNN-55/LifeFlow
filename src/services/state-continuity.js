@@ -98,7 +98,6 @@ function preserveLegacyArchiveEvent(snapshot, taskId, payload = {}) {
 function isPreferenceCommand(command) {
   return command.type === "preferences.replace"
     || command.type === "preferences.merge"
-    || command.type === "today.updateTaskPreferences"
     || command.type === "information.toggleRead"
     || command.type === "information.markRead"
     || command.type === "information.setSourceHidden";
@@ -125,23 +124,6 @@ function applyPreferenceCommand(preferences = {}, command) {
     return merge(preferences, command.patch);
   }
   const next = clone(preferences || {});
-  if (command.type === "today.updateTaskPreferences") {
-    next.tasks = {
-      ...(next.tasks || {}),
-      tagsByTaskId: { ...(next.tasks?.tagsByTaskId || {}) },
-      iconByTaskId: { ...(next.tasks?.iconByTaskId || {}) },
-    };
-    if (Array.isArray(command.patch?.tags)) {
-      if (command.patch.tags.length) next.tasks.tagsByTaskId[command.taskId] = command.patch.tags;
-      else delete next.tasks.tagsByTaskId[command.taskId];
-    }
-    if (typeof command.patch?.icon === "string") {
-      if (command.patch.icon) next.tasks.iconByTaskId[command.taskId] = command.patch.icon;
-      else delete next.tasks.iconByTaskId[command.taskId];
-    }
-    return next;
-  }
-
   next.content = {
     ...(next.content || {}),
     readItems: { ...(next.content?.readItems || {}) },
@@ -512,7 +494,6 @@ export function createStateContinuity({ adapter: fixedAdapter, adapters = null }
             payload: preserveLegacyArchiveEvent(state.snapshot, taskId, payload),
           }),
           deleteTask: (taskId) => ({ type: "today.deleteTask", taskId }),
-          updateTaskPreferences: (taskId, patch) => ({ type: "today.updateTaskPreferences", taskId, patch }),
           saveDrafts: (date, drafts) => ({ type: "today.saveDrafts", date, drafts }),
         },
         information: {

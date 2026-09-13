@@ -10,14 +10,6 @@ const props = defineProps({
     type: Object,
     required: true,
   },
-  tagsByTaskId: {
-    type: Object,
-    default: () => ({}),
-  },
-  iconByTaskId: {
-    type: Object,
-    default: () => ({}),
-  },
 });
 const emit = defineEmits(["select-task"]);
 
@@ -25,12 +17,12 @@ const rootRef = ref(null);
 const hoveredTaskId = ref("");
 const pinnedTaskId = ref("");
 
-function getTaskTags(taskId) {
-  return Array.isArray(props.tagsByTaskId?.[taskId]) ? props.tagsByTaskId[taskId] : [];
+function getTaskTags(task) {
+  return Array.isArray(task?.tags) ? task.tags : [];
 }
 
 function resolveTaskIcon(task) {
-  return getTaskIcon(task?.name, props.iconByTaskId?.[task?.id] || "");
+  return getTaskIcon(task?.name, task?.icon || "");
 }
 
 function getProgressWidth(task) {
@@ -131,8 +123,8 @@ onBeforeUnmount(() => {
                 <span class="material-symbols-outlined task-title-icon monthly-task-icon" aria-hidden="true">{{ resolveTaskIcon(task) }}</span>
                 <span>{{ getTaskDisplayName(task.name) }}</span>
               </button>
-              <div v-if="getTaskTags(task.id).length" class="task-tag-row monthly-overview-tag-row">
-                <span v-for="tag in getTaskTags(task.id)" :key="tag" class="task-tag">#{{ tag }}</span>
+              <div v-if="getTaskTags(task).length" class="task-tag-row monthly-overview-tag-row">
+                <span v-for="tag in getTaskTags(task)" :key="tag" class="task-tag">#{{ tag }}</span>
               </div>
             </div>
 

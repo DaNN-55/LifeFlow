@@ -142,7 +142,7 @@ function toggleSummaryExpanded(week) {
 function getTaskTitleIcon(task) {
   return getTaskIcon(
     task?.name,
-    sessionStore.previewMode ? (task?.icon || "") : (sessionStore.preferences?.tasks?.iconByTaskId?.[task?.id] || ""),
+    task?.icon || "",
   );
 }
 

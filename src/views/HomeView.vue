@@ -108,9 +108,11 @@ function switchHomeTab(tab) {
 }
 
 async function handleCreateTask() {
-  await todayStore.createTask(newTaskName.value, newTaskTags.value, todayStore.newTaskColor, todayStore.newTaskIcon);
-  newTaskName.value = "";
-  newTaskTags.value = "";
+  const created = await todayStore.createTask(newTaskName.value, newTaskTags.value, todayStore.newTaskColor, todayStore.newTaskIcon);
+  if (created) {
+    newTaskName.value = "";
+    newTaskTags.value = "";
+  }
 }
 
 function toggleNewTaskPalette() {
@@ -407,8 +409,6 @@ watch(
           <MonthlyOverviewCard
             v-if="weeklyStore.mode === 'month'"
             :overview="weeklyStore.monthOverview"
-            :tags-by-task-id="sessionStore.preferences?.tasks?.tagsByTaskId || {}"
-            :icon-by-task-id="sessionStore.preferences?.tasks?.iconByTaskId || {}"
           />
 
           <section
@@ -489,7 +489,7 @@ watch(
             :key="task.id"
             :task="task"
             :task-icon="todayStore.getTaskIcon(task.id, task.name)"
-            :tags="sessionStore.preferences?.tasks?.tagsByTaskId?.[task.id] || []"
+            :tags="task.tags || []"
             :completion-count="task.completionCount"
             :total-days="task.totalDays"
             :notes="task.notes"

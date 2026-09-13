@@ -52,8 +52,7 @@ export function createDemoStateAdapter() {
         return { snapshot: demoState.markPeriodReviewOpened() };
       }
       if (
-        command.type === "today.updateTaskPreferences"
-        || command.type === "preferences.replace"
+        command.type === "preferences.replace"
         || command.type === "preferences.merge"
         || command.type === "information.setSourceHidden"
       ) {

@@ -338,12 +338,11 @@ test("清空账号数据排在旧写入之后，并在返回时原子清空 scop
 
 test("同一身份的新 session preferences 由 continuity 接收并更新唯一投影", () => {
   const continuity = createStateContinuity({ adapter: createMemoryAdapter() });
-  const scope = continuity.open({ id: "alice", preferences: { theme: "light", tasks: { tagsByTaskId: { one: ["旧"] } } } });
+  const scope = continuity.open({ id: "alice", preferences: { theme: "light" } });
 
-  continuity.transition({ id: "alice", preferences: { theme: "dark", tasks: { tagsByTaskId: { one: ["新"] } } } });
+  continuity.transition({ id: "alice", preferences: { theme: "dark" } });
 
   assert.equal(scope.view(views.information()).data.preferences.theme, "dark");
-  assert.deepEqual(scope.view(views.information()).data.preferences.tasks.tagsByTaskId.one, ["新"]);
 });
 
 test("普通 open 不会用 Session 的旧镜像覆盖 continuity 已确认偏好", async () => {

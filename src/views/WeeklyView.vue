@@ -139,8 +139,6 @@ onMounted(() => {
           <MonthlyOverviewCard
             v-if="weeklyStore.mode === 'month'"
             :overview="weeklyStore.monthOverview"
-            :tags-by-task-id="sessionStore.preferences?.tasks?.tagsByTaskId || {}"
-            :icon-by-task-id="sessionStore.preferences?.tasks?.iconByTaskId || {}"
           />
 
           <section
@@ -221,7 +219,7 @@ onMounted(() => {
                 :key="task.id"
                 :task="task"
                 :task-icon="todayStore.getTaskIcon(task.id, task.name)"
-                :tags="sessionStore.preferences?.tasks?.tagsByTaskId?.[task.id] || []"
+                :tags="task.tags || []"
             :completion-count="task.completionCount"
             :total-days="task.totalDays"
             :notes="task.notes"
