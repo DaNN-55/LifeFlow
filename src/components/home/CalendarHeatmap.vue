@@ -1,4 +1,6 @@
 <script setup>
+import { ref } from "vue";
+
 defineProps({
   label: {
     type: String,
@@ -11,6 +13,26 @@ defineProps({
 });
 
 const emit = defineEmits(["select-date"]);
+const isDateEditing = ref(false);
+const dateDraft = ref("");
+
+function startDateEditing(label) {
+  dateDraft.value = String(label || "").replaceAll("/", "-");
+  isDateEditing.value = true;
+}
+
+function cancelDateEditing() {
+  isDateEditing.value = false;
+}
+
+function commitDateEditing() {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateDraft.value)) {
+    cancelDateEditing();
+    return;
+  }
+  isDateEditing.value = false;
+  emit("select-date", dateDraft.value);
+}
 </script>
 
 <template>
@@ -20,7 +42,31 @@ const emit = defineEmits(["select-date"]);
         <p class="panel-kicker">Calendar</p>
         <h2 id="calendar-title">Heatmap</h2>
       </div>
-      <span class="section-meta mono">{{ label }}</span>
+      <div class="calendar-date-control">
+        <input
+          v-if="isDateEditing"
+          v-model="dateDraft"
+          class="calendar-date-input mono"
+          type="date"
+          :max="new Date().toISOString().slice(0, 10)"
+          aria-label="选择日期，可跳转到过去的日期"
+          autofocus
+          @change="commitDateEditing"
+          @blur="cancelDateEditing"
+          @keydown.enter.prevent="commitDateEditing"
+          @keydown.esc="cancelDateEditing"
+        />
+        <button
+          v-else
+          type="button"
+          class="section-meta mono calendar-date-trigger"
+          aria-label="编辑日期，可跳转到过去的日期"
+          title="点击编辑日期"
+          @click="startDateEditing(label)"
+        >
+          {{ label }}
+        </button>
+      </div>
     </div>
 
     <div class="calendar-weekdays" aria-hidden="true">
