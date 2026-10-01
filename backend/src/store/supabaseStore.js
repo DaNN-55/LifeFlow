@@ -1,4 +1,5 @@
 const { createClient } = require("@supabase/supabase-js");
+const { normalizeDateKey } = require("../lib/date");
 
 const USER_SELECT_FIELDS = "id, username, password_hash, recovery_code_hash, preferences, created_at, data_updated_at, data_reset_at, data_sync_version, data_reset_version";
 const TASK_SELECT_FIELDS = "id, name, color, display_order, archived, archived_at, lifecycle_events, tags, icon, created_at, updated_at";
@@ -309,6 +310,7 @@ class SupabaseStore {
   }
 
   async getDailyRecord(scope = {}, date) {
+    date = normalizeDateKey(date);
     const { data, error } = await this.client
       .from("daily_records")
       .select("record_date, payload, updated_at")
@@ -332,6 +334,7 @@ class SupabaseStore {
   }
 
   async upsertDailyRecord(scope = {}, date, payload) {
+    date = normalizeDateKey(date);
     const { data, error } = await this.client
       .from("daily_records")
       .upsert(
@@ -377,6 +380,8 @@ class SupabaseStore {
   }
 
   async listDailyRecordsBetween(scope = {}, startDate, endDate) {
+    startDate = normalizeDateKey(startDate);
+    endDate = normalizeDateKey(endDate);
     const { data, error } = await this.client
       .from("daily_records")
       .select("record_date, payload, updated_at")
@@ -417,6 +422,19 @@ class SupabaseStore {
       content: data.content || "",
       updatedAt: data.updated_at,
     };
+  }
+
+  async deleteDailyRecord(scope = {}, date) {
+    date = normalizeDateKey(date);
+    const { error } = await this.client.from("daily_records").delete()
+      .eq("user_id", scope.userId || "").eq("record_date", date);
+    if (error) throw error;
+  }
+
+  async deleteWeeklySummary(scope = {}, week) {
+    const { error } = await this.client.from("weekly_summaries").delete()
+      .eq("user_id", scope.userId || "").eq("week_key", week);
+    if (error) throw error;
   }
 
   async upsertWeeklySummary(scope = {}, week, payload) {

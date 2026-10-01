@@ -13,7 +13,7 @@ export function createTask(payload) {
 }
 
 export function updateTask(taskId, payload) {
-  return fetchJson(`/api/tasks/${taskId}`, {
+  return fetchJson(`/api/tasks/${encodeURIComponent(taskId)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -21,10 +21,14 @@ export function updateTask(taskId, payload) {
 }
 
 export function deleteTask(taskId) {
-  return fetchJson(`/api/tasks/${taskId}`, {
+  return fetchJson(`/api/tasks/${encodeURIComponent(taskId)}`, {
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
   });
+}
+
+export function deleteDailyRecord(date) {
+  return fetchJson(`/api/daily-records/${encodeURIComponent(date)}`, { method: "DELETE" });
 }
 
 export function fetchDailyRecord(date) {

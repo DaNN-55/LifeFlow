@@ -4,7 +4,12 @@ import { createAccountStateAdapter } from "./state-continuity/account-adapter.js
 import { createDemoStateAdapter } from "./state-continuity/demo-adapter.js";
 
 function clone(value) {
-  return structuredClone(toRaw(value));
+  const raw = toRaw(value);
+  if (Array.isArray(raw)) return raw.map(clone);
+  if (raw && (Object.getPrototypeOf(raw) === Object.prototype || Object.getPrototypeOf(raw) === null)) {
+    return Object.fromEntries(Object.entries(raw).map(([key, entry]) => [key, clone(entry)]));
+  }
+  return structuredClone(raw);
 }
 
 function createEmptySnapshot() {

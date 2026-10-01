@@ -225,7 +225,15 @@ function createFixture(now) {
 }
 
 function normalizeState(value, now) {
-  if (!value || typeof value !== "object" || value.version !== DEMO_VERSION) {
+  const object = (entry) => entry !== null && typeof entry === "object" && !Array.isArray(entry);
+  const records = (entries, valid = object) => object(entries) && Object.values(entries).every(valid);
+  if (!object(value) || value.version !== DEMO_VERSION
+    || !Array.isArray(value.tasks) || !value.tasks.every((task) => object(task) && typeof task.id === "string")
+    || !records(value.dailyRecords, (record) => object(record) && object(record.payload) && records(record.payload.tasks))
+    || !records(value.weeklySummaries)
+    || !object(value.content) || !object(value.content.readItems)
+    || !["items", "sources", "favorites"].every((key) => records(value.content[key], (entries) => records(entries))
+      && object(value.content[key].news))) {
     return createFixture(now);
   }
   return {

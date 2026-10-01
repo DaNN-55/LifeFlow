@@ -19,4 +19,5 @@ docs/*
 !docs/alpha-release-acceptance.md
 !docs/audits/
 docs/audits/*
+!docs/audits/failure-testing.md
 !docs/audits/cleanup-audit.md

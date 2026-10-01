@@ -21,25 +21,48 @@ export function hasDashboardSnapshotData(snapshot = {}) {
 }
 
 function applySyncPayload(userId, payload = {}, fallbackCursor = "") {
+  validateSyncPayload(payload);
   const cursor = String(payload?.cursor || fallbackCursor || "");
   const resetAt = String(payload?.resetAt || "");
   const lastSyncedAt = new Date().toISOString();
 
   if (payload?.reset || payload?.snapshot) {
-    replaceDashboardUserCache(userId, payload?.snapshot || {}, {
+    return replaceDashboardUserCache(userId, payload.snapshot, {
       cursor,
       resetAt,
       lastSyncedAt,
     });
-    return loadDashboardUserCache(userId);
   }
 
-  mergeDashboardUserCache(userId, payload?.changes || {}, {
+  return mergeDashboardUserCache(userId, payload.changes, {
     cursor,
     resetAt,
     lastSyncedAt,
   });
-  return loadDashboardUserCache(userId);
+}
+
+function validateSyncPayload(payload) {
+  const object = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+  const fail = () => { throw new Error("同步响应格式不完整，已保留当前数据，请重试"); };
+  if (!object(payload) || typeof payload.cursor !== "string" || !payload.cursor) fail();
+  if (payload.reset !== undefined && typeof payload.reset !== "boolean") fail();
+  const full = payload.reset || Object.hasOwn(payload, "snapshot");
+  const data = full ? payload.snapshot : payload.changes;
+  if (!object(data)) fail();
+  for (const [key, id] of [["tasks", "id"], ["dailyRecords", "date"], ["weeklySummaries", "week"]]) {
+    if (!full && data[key] === undefined) continue;
+    if (!Array.isArray(data[key]) || data[key].some((entry) => !object(entry)
+      || typeof entry[id] !== "string" || !entry[id])) fail();
+  }
+  if (data.preferences !== undefined && !object(data.preferences)) fail();
+  if (data.content !== undefined) {
+    if (!object(data.content)) fail();
+    for (const key of ["sources", "items", "favorites"]) {
+      if (!full && data.content[key] === undefined) continue;
+      if (!Array.isArray(data.content[key]) || data.content[key].some((entry) => !object(entry)
+        || typeof entry.id !== "string" || !entry.id || typeof entry.channel !== "string" || !entry.channel)) fail();
+    }
+  }
 }
 
 export async function fetchDashboardSyncResult(userId) {

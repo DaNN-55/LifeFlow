@@ -10,6 +10,7 @@ import { useSessionStore } from "./session";
 
 let observedScope = null;
 let stopObserving = null;
+const pendingNotesByScope = new WeakMap();
 
 function normalizeTask(task = {}, index = 0) {
   return {
@@ -414,42 +415,48 @@ export const useTodayStore = defineStore("today", {
       const task = this.tasks.find((item) => item.id === taskId);
       const draftText = String(this.noteDrafts[taskId] || "");
       const draft = draftText.trim();
-      if (!task || !draft) {
+      const scope = this.getContinuityScope();
+      if (!task || !draft || !scope) {
         return;
       }
+      const date = this.selectedDate;
+      const pendingKey = JSON.stringify([date, taskId]);
+      const pendingNotes = pendingNotesByScope.get(scope) || new Set();
+      if (pendingNotes.has(pendingKey)) return;
+      pendingNotesByScope.set(scope, pendingNotes);
+      pendingNotes.add(pendingKey);
 
-      const nextDrafts = {
-        ...this.noteDrafts,
-      };
-      delete nextDrafts[taskId];
-      this.noteDrafts = nextDrafts;
-      this.persistNoteDrafts();
+      try {
+        const persisted = await this.persistRecord(
+          `已追加 ${task.name} 的备注`,
+          date,
+          (record) => {
+            const taskState = record.payload.tasks[taskId] || createEmptyTaskState();
+            taskState.notes = [
+              ...(Array.isArray(taskState.notes) ? taskState.notes : []),
+              {
+                id: `note-${Date.now()}`,
+                text: draft,
+                createdAt: buildNoteCreatedAt(date),
+              },
+            ];
+            record.payload.tasks[taskId] = taskState;
+          },
+        );
 
-      const persisted = await this.persistRecord(
-        `已追加 ${task.name} 的备注`,
-        this.selectedDate,
-        (record) => {
-          const taskState = record.payload.tasks[taskId] || createEmptyTaskState();
-          taskState.notes = [
-            ...(Array.isArray(taskState.notes) ? taskState.notes : []),
-            {
-              id: `note-${Date.now()}`,
-              text: draft,
-              createdAt: buildNoteCreatedAt(this.selectedDate),
-            },
-          ];
-          record.payload.tasks[taskId] = taskState;
-        },
-      );
-
-      if (!persisted) {
-        this.noteDrafts = {
-          ...this.noteDrafts,
-          [taskId]: draftText,
-        };
-        this.persistNoteDrafts();
-      } else {
-        alphaAnalytics.record("first_execution_note_added", { mode: alphaAnalyticsMode(useSessionStore()) });
+        if (persisted && this.getContinuityScope() === scope) {
+          // Keep the durable draft until confirmation; only clear the exact
+          // submitted version, even if the user has navigated or kept typing.
+          const drafts = { ...scope.view(views.today({ date })).data.drafts };
+          if (drafts[taskId] === draftText) {
+            delete drafts[taskId];
+            await scope.change((writes) => writes.today.saveDrafts(date, drafts));
+            this.applyProjection(this.getTodayProjection());
+          }
+          alphaAnalytics.record("first_execution_note_added", { mode: alphaAnalyticsMode(useSessionStore()) });
+        }
+      } finally {
+        pendingNotes.delete(pendingKey);
       }
     },
     async deleteTaskNote(taskId, noteId) {

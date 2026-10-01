@@ -1,4 +1,18 @@
 function createInformationInputPersistence(store) {
+  // Serialize source mutations and refresh confirmation, never the network
+  // collection itself. A source may be deleted while a fetch is in flight.
+  const writesByUser = new Map();
+  async function withUserWrite(userContext, operation) {
+    const key = userContext.userId || "";
+    const previous = writesByUser.get(key) || Promise.resolve();
+    const pending = previous.catch(() => undefined).then(operation);
+    writesByUser.set(key, pending);
+    try {
+      return await pending;
+    } finally {
+      if (writesByUser.get(key) === pending) writesByUser.delete(key);
+    }
+  }
   async function queryContent(userContext, { filters, favoritesOnly = false }) {
     const [favoriteUrls, result, facets] = await Promise.all([
       favoritesOnly ? Promise.resolve([]) : store.listFavoriteContentUrls(userContext, filters.channel),
@@ -15,11 +29,19 @@ function createInformationInputPersistence(store) {
 
   async function confirmRefresh(userContext, { channel, results, cutoffIso }) {
     if (results.length === 0) {
-      await store.replaceContentItems(userContext, channel, []);
+      // A source may have been added since the refresh read the source list.
+      if (!(await store.listContentSources(userContext, channel)).length) {
+        await store.replaceContentItems(userContext, channel, []);
+      }
       return { refreshedSourceIds: [] };
     }
     const refreshedSourceIds = [];
     for (const result of results) {
+      const currentSource = await store.getContentSource(userContext, result.source.id);
+      if (!currentSource || !currentSource.enabled
+        || currentSource.channel !== result.source.channel
+        || currentSource.url !== result.source.url || currentSource.type !== result.source.type
+        || String(currentSource.parser_key || "") !== String(result.source.parser_key || "")) continue;
       if (result.ok) {
         if (result.items.length) await store.upsertContentItems(userContext, result.items);
         await store.updateContentSourceSync(userContext, result.source.id, {
@@ -59,12 +81,12 @@ function createInformationInputPersistence(store) {
     queryContent,
     listSources: (userContext, channel, options) => store.listContentSources(userContext, channel, options),
     getSource: (userContext, sourceId) => store.getContentSource(userContext, sourceId),
-    createSource: (userContext, source) => store.createContentSource(userContext, source),
-    updateSource: (userContext, sourceId, patch) => store.updateContentSource(userContext, sourceId, patch),
-    deleteSource: (userContext, sourceId) => store.deleteContentSource(userContext, sourceId),
+    createSource: (userContext, source) => withUserWrite(userContext, () => store.createContentSource(userContext, source)),
+    updateSource: (userContext, sourceId, patch) => withUserWrite(userContext, () => store.updateContentSource(userContext, sourceId, patch)),
+    deleteSource: (userContext, sourceId) => withUserWrite(userContext, () => store.deleteContentSource(userContext, sourceId)),
     saveFavorite: (userContext, item) => store.upsertFavoriteContent(userContext, item),
     removeFavorite: (userContext, channel, canonicalUrl) => store.deleteFavoriteContent(userContext, channel, canonicalUrl),
-    confirmRefresh,
+    confirmRefresh: (userContext, result) => withUserWrite(userContext, () => confirmRefresh(userContext, result)),
     syncProjection,
   };
 }

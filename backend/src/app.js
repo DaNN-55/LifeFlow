@@ -11,7 +11,7 @@ const {
   buildRecoveryCodeHash,
   verifyRecoveryCode,
 } = require("./lib/auth");
-const { formatDateKey, getWeekRangeFromWeekValue } = require("./lib/date");
+const { formatDateKey, getWeekRangeFromWeekValue, normalizeDateKey } = require("./lib/date");
 const { CHANNELS } = require("./information-input");
 const { createStateContinuityPersistence } = require("./state-continuity-persistence");
 
@@ -808,6 +808,25 @@ function createApp({ config, store, informationInput: input }) {
     }
   });
 
+  app.delete("/api/daily-records/:date", requireAuthenticated, async (request, response, next) => {
+    try {
+      await store.deleteDailyRecord(request.userContext, normalizeDateKey(request.params.date));
+      response.status(204).send();
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/api/weekly-summaries/:week", requireAuthenticated, async (request, response, next) => {
+    try {
+      const week = z.string().regex(/^\d{4}-W(0[1-9]|[1-4]\d|5[0-3])$/).parse(request.params.week);
+      await store.deleteWeeklySummary(request.userContext, week);
+      response.status(204).send();
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.get("/api/task-timeline", requireAuthenticated, async (request, response, next) => {
     try {
       const user = await store.getUserById(request.userContext.userId);
@@ -1458,11 +1477,7 @@ async function fetchJsonWithTimeout(url, timeoutMs, options = {}) {
 }
 
 function normalizeDateParam(dateValue) {
-  const date = new Date(dateValue);
-  if (Number.isNaN(date.getTime())) {
-    throw new Error(`Invalid date: ${dateValue}`);
-  }
-  return formatDateKey(date);
+  return normalizeDateKey(dateValue);
 }
 
 module.exports = { createApp };

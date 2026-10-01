@@ -905,7 +905,7 @@ test("无效同步 cursor 经 public scope 触发 bootstrap 而非增量请求",
     return new Response(JSON.stringify({
       reset: true,
       cursor: "2026-08-11T00:00:00.000Z",
-      snapshot: { tasks: [], dailyRecords: [] },
+      snapshot: { tasks: [], dailyRecords: [], weeklySummaries: [] },
     }), { status: 200 });
   };
 

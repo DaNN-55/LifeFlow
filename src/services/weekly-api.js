@@ -1,5 +1,9 @@
 import { fetchJson } from "./api-client.js";
 
+export function deleteWeeklySummary(week) {
+  return fetchJson(`/api/weekly-summaries/${encodeURIComponent(week)}`, { method: "DELETE" });
+}
+
 export function fetchWeeklySummary(week) {
   return fetchJson(`/api/weekly-summaries/${week}`);
 }

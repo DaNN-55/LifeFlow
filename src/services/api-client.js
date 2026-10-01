@@ -19,52 +19,59 @@ export async function fetchJson(path, options = {}) {
     headers.set("x-session-id", sessionId);
   }
 
-  let response;
-  try {
-    response = await fetch(joinApiPath(apiBase, path), {
-      ...options,
-      headers,
-      credentials: options.credentials || "include",
-      signal: options.signal || controller.signal,
-    });
-  } catch (error) {
-    const nextError = new Error(getUserFacingErrorMessage(error));
-    nextError.status = Number(error?.status || 0);
-    nextError.name = error?.name || "Error";
-    nextError.cause = error;
-    nextError.isNetworkLike = isLikelyNetworkError(error);
-    throw nextError;
-  } finally {
-    if (timeoutId) {
-      window.clearTimeout(timeoutId);
-    }
-  }
+  const abortFromCaller = () => controller.abort(options.signal.reason);
+  if (options.signal?.aborted) abortFromCaller();
+  else options.signal?.addEventListener("abort", abortFromCaller, { once: true });
 
-  const raw = await response.text();
-  let payload = null;
   try {
-    payload = raw ? JSON.parse(raw) : null;
-  } catch (error) {
+    let response;
+    let raw;
+    try {
+      response = await fetch(joinApiPath(apiBase, path), {
+        ...options,
+        headers,
+        credentials: options.credentials || "include",
+        signal: controller.signal,
+      });
+      // A response is not complete when only its headers have arrived.
+      raw = await response.text();
+    } catch (error) {
+      const nextError = new Error(getUserFacingErrorMessage(error));
+      nextError.status = Number(error?.status || 0);
+      nextError.name = error?.name || "Error";
+      nextError.cause = error;
+      nextError.isNetworkLike = isLikelyNetworkError(error);
+      throw nextError;
+    }
+
+    let payload = null;
+    try {
+      payload = raw ? JSON.parse(raw) : null;
+    } catch (error) {
+      if (!response.ok) {
+        payload = null;
+      } else {
+        error.status = response.status;
+        error.serverResponse = true;
+        error.raw = raw;
+        throw error;
+      }
+    }
+
     if (!response.ok) {
-      payload = null;
-    } else {
+      const error = new Error(payload?.error || `Request failed: ${response.status}`);
       error.status = response.status;
-      error.serverResponse = true;
+      error.details = payload?.details || null;
       error.raw = raw;
+      error.message = getUserFacingErrorMessage(error, mapStatusFallback(path, response.status));
       throw error;
     }
-  }
 
-  if (!response.ok) {
-    const error = new Error(payload?.error || `Request failed: ${response.status}`);
-    error.status = response.status;
-    error.details = payload?.details || null;
-    error.raw = raw;
-    error.message = getUserFacingErrorMessage(error, mapStatusFallback(path, response.status));
-    throw error;
+    return payload;
+  } finally {
+    if (timeoutId) window.clearTimeout(timeoutId);
+    options.signal?.removeEventListener("abort", abortFromCaller);
   }
-
-  return payload;
 }
 
 export async function probeHealth() {

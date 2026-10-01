@@ -20,6 +20,17 @@ function formatDateKey(date) {
   return `${year}-${month}-${day}`;
 }
 
+function normalizeDateKey(value) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)
+    || Number.isNaN(Date.parse(`${value}T00:00:00Z`))
+    || new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) !== value) {
+    const error = new Error(`Invalid calendar date: ${value}`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return value;
+}
+
 function getWeekRangeFromWeekValue(weekValue) {
   const [yearPart, weekPart] = String(weekValue).split("-W");
   const year = Number(yearPart);
@@ -35,5 +46,6 @@ module.exports = {
   addDays,
   formatDateKey,
   getStartOfWeek,
+  normalizeDateKey,
   getWeekRangeFromWeekValue,
 };

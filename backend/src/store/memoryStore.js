@@ -1,4 +1,4 @@
-const { formatDateKey } = require("../lib/date");
+const { normalizeDateKey } = require("../lib/date");
 
 function normalizePrimaryTag(tag) {
   const cleaned = String(tag || "").replace(/\s+/g, " ").trim();
@@ -148,18 +148,16 @@ class MemoryStore {
 
   async updateTask(scope = {}, taskId, patch) {
     const { tasks } = this.ensureUserScope(scope.userId);
-    const existing = tasks.get(taskId);
-    if (!existing) {
-      return null;
-    }
-    const next = { ...existing };
-    Object.entries(patch).forEach(([key, value]) => {
-      if (typeof value !== "undefined") {
-        next[key] = value;
-      }
-    });
-    next.updated_at = this.getNowIso();
-    return this.confirmUserFact(scope.userId, {}, (state) => {
+    return this.runInUserSyncQueue(scope.userId, async () => {
+      // Read and merge inside the same queue as deletion and other patches.
+      const existing = tasks.get(taskId);
+      if (!existing) return null;
+      const next = { ...existing };
+      Object.entries(patch).forEach(([key, value]) => {
+        if (typeof value !== "undefined") next[key] = value;
+      });
+      next.updated_at = this.getNowIso();
+      const state = await this.advanceUserSyncState(scope.userId);
       next.sync_version = state.dataSyncVersion;
       tasks.set(taskId, next);
       return next;
@@ -181,13 +179,13 @@ class MemoryStore {
 
   async getDailyRecord(scope = {}, date) {
     const { dailyRecords } = this.ensureUserScope(scope.userId);
-    const key = formatDateKey(new Date(date));
+    const key = normalizeDateKey(date);
     return dailyRecords.get(key) || null;
   }
 
   async upsertDailyRecord(scope = {}, date, payload) {
     const { dailyRecords } = this.ensureUserScope(scope.userId);
-    const key = formatDateKey(new Date(date));
+    const key = normalizeDateKey(date);
     const record = {
       date: key,
       payload,
@@ -202,8 +200,8 @@ class MemoryStore {
 
   async listDailyRecordsBetween(scope = {}, startDate, endDate) {
     const { dailyRecords } = this.ensureUserScope(scope.userId);
-    const start = formatDateKey(new Date(startDate));
-    const end = formatDateKey(new Date(endDate));
+    const start = normalizeDateKey(startDate);
+    const end = normalizeDateKey(endDate);
     return [...dailyRecords.values()]
       .filter((record) => record.date >= start && record.date <= end)
       .sort((left, right) => left.date.localeCompare(right.date));
@@ -219,6 +217,19 @@ class MemoryStore {
   async getWeeklySummary(scope = {}, week) {
     const { weeklySummaries } = this.ensureUserScope(scope.userId);
     return weeklySummaries.get(week) || null;
+  }
+
+  async deleteDailyRecord(scope = {}, date) {
+    const key = normalizeDateKey(date);
+    return this.confirmUserFact(scope.userId, { reset: true }, () => {
+      this.ensureUserScope(scope.userId).dailyRecords.delete(key);
+    });
+  }
+
+  async deleteWeeklySummary(scope = {}, week) {
+    return this.confirmUserFact(scope.userId, { reset: true }, () => {
+      this.ensureUserScope(scope.userId).weeklySummaries.delete(week);
+    });
   }
 
   async upsertWeeklySummary(scope = {}, week, payload) {

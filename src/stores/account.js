@@ -10,9 +10,11 @@ import {
 } from "../services/account-api";
 import { saveAuthConfig, saveSessionId } from "../services/config";
 import { stateContinuity } from "../services/state-continuity";
-import { createTask, deleteTask, fetchDailyRecord, listTasks, saveDailyRecord, updateTask } from "../services/today-api";
-import { fetchWeeklySummary, saveWeeklySummary } from "../services/weekly-api";
-import { addDays, formatDateKey, formatDateTime, formatWeekInputValue, getStartOfWeek, parseIsoDate } from "../utils/date";
+import { createTask, deleteTask, deleteDailyRecord, saveDailyRecord, updateTask } from "../services/today-api";
+import { deleteWeeklySummary, saveWeeklySummary } from "../services/weekly-api";
+import { fetchSyncBootstrap } from "../services/sync-api.js";
+import { validateBackup } from "../services/backup-validation.js";
+import { formatDateKey, formatDateTime } from "../utils/date";
 import { getUserFacingErrorMessage } from "../utils/error-message";
 import { useSessionStore } from "./session";
 
@@ -130,52 +132,12 @@ function normalizeTaskForSnapshot(task = {}) {
     order: Number(task.order || task.display_order || 1),
     archived: Boolean(task.archived),
     archivedAt: task.archivedAt || task.archived_at || "",
+    tags: Array.isArray(task.tags) ? [...task.tags] : [],
+    icon: String(task.icon || ""),
     lifecycleEvents: Array.isArray(task.lifecycleEvents || task.lifecycle_events)
       ? (task.lifecycleEvents || task.lifecycle_events)
       : [],
   };
-}
-
-function buildDateKeysBetween(startDate, endDate = new Date()) {
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  start.setHours(0, 0, 0, 0);
-  end.setHours(0, 0, 0, 0);
-
-  const keys = [];
-  for (let cursor = new Date(start); cursor <= end; cursor = addDays(cursor, 1)) {
-    keys.push(formatDateKey(cursor));
-  }
-  return keys;
-}
-
-function buildWeekValuesBetween(startDate, endDate = new Date()) {
-  const start = getStartOfWeek(startDate);
-  const end = getStartOfWeek(endDate);
-  const values = [];
-
-  for (let cursor = new Date(start); cursor <= end; cursor = addDays(cursor, 7)) {
-    values.push(formatWeekInputValue(cursor));
-  }
-  return values;
-}
-
-async function mapInBatches(items = [], batchSize = 10, mapper) {
-  const results = [];
-  for (let index = 0; index < items.length; index += batchSize) {
-    const batch = items.slice(index, index + batchSize);
-    results.push(...(await Promise.all(batch.map(mapper))));
-  }
-  return results;
-}
-
-function hasRecordContent(record = {}) {
-  const tasks = record?.tasks || record?.payload?.tasks || {};
-  return Object.keys(tasks).length > 0 || Boolean(record?.updatedAt);
-}
-
-function hasSummaryContent(summary = {}) {
-  return Boolean(String(summary?.content || "").trim() || summary?.updatedAt);
 }
 
 function getSnapshotStats(snapshotData = {}) {
@@ -201,7 +163,7 @@ function downloadJsonPayload(filename, payload) {
 }
 
 function normalizeImportPayload(rawData = {}, basePreferences = {}) {
-  const parsed = rawData && typeof rawData === "object" ? rawData : {};
+  const parsed = validateBackup(rawData);
   return {
     taskTypes: Array.isArray(parsed.taskTypes) ? parsed.taskTypes : [],
     dailyRecords: parsed.dailyRecords && typeof parsed.dailyRecords === "object" ? parsed.dailyRecords : {},
@@ -660,52 +622,21 @@ export const useAccountStore = defineStore("account", {
         throw new Error("请先登录账号后再导出数据");
       }
 
-      const profile = this.syncProfileData?.user?.id === sessionStore.user.id
-        ? this.syncProfileData
-        : await this.refreshSyncProfile();
-      const snapshotData = createEmptySnapshotData(sessionStore.preferences || {});
-      const createdAt = parseIsoDate(profile?.user?.createdAt) || new Date();
-      const startDate = new Date(createdAt);
-      const today = new Date();
-      startDate.setHours(0, 0, 0, 0);
-      today.setHours(0, 0, 0, 0);
-
-      const dateKeys = buildDateKeysBetween(startDate, today);
-      const weekValues = buildWeekValuesBetween(startDate, today);
-      const [{ tasks = [] }, dailyResponses, summaryResponses] = await Promise.all([
-        listTasks(),
-        mapInBatches(dateKeys, 20, (date) => fetchDailyRecord(date)),
-        mapInBatches(weekValues, 12, (week) => fetchWeeklySummary(week)),
-      ]);
-
-      snapshotData.taskTypes = tasks.map((task) => normalizeTaskForSnapshot(task));
-
-      dailyResponses.forEach((response, index) => {
-        const date = dateKeys[index];
-        const record = response?.record;
-        if (!hasRecordContent(record)) {
-          return;
-        }
-        snapshotData.dailyRecords[date] = {
-          date,
-          tasks: record?.payload?.tasks || {},
-          updatedAt: record?.updatedAt || "",
-        };
-      });
-
-      summaryResponses.forEach((response, index) => {
-        const week = weekValues[index];
-        const summary = response?.summary;
-        if (!hasSummaryContent(summary)) {
-          return;
-        }
-        snapshotData.weeklySummaries[week] = {
-          week,
-          content: summary?.content || "",
-          updatedAt: summary?.updatedAt || "",
-        };
-      });
-
+      const [payload, profile] = await Promise.all([fetchSyncBootstrap(), this.refreshSyncProfile()]);
+      const snapshot = payload?.snapshot;
+      if (!Array.isArray(snapshot?.tasks) || !Array.isArray(snapshot?.dailyRecords) || !Array.isArray(snapshot?.weeklySummaries)) {
+        throw new Error("账号快照不完整，已停止导出或导入");
+      }
+      // Export actual stored history, including imported dates before signup
+      // or after today. Calendar enumeration can silently omit these records.
+      const snapshotData = createEmptySnapshotData(profile?.user?.preferences || sessionStore.preferences || {});
+      snapshotData.taskTypes = snapshot.tasks.map(normalizeTaskForSnapshot);
+      snapshotData.dailyRecords = Object.fromEntries(snapshot.dailyRecords.map((record) => [record.date, {
+        date: record.date, tasks: record.payload?.tasks || {}, updatedAt: record.updatedAt || "",
+      }]));
+      snapshotData.weeklySummaries = Object.fromEntries(snapshot.weeklySummaries.map((summary) => [summary.week, {
+        week: summary.week, content: summary.content || "", updatedAt: summary.updatedAt || "",
+      }]));
       return snapshotData;
     },
     async exportSnapshot() {
@@ -786,42 +717,39 @@ export const useAccountStore = defineStore("account", {
       if (!(file instanceof File)) {
         throw new Error("请选择要导入的 JSON 备份文件");
       }
+      if (this.transferBusy) throw new Error("已有导入或导出正在进行，请等待完成");
+      if (!["merge", "replace"].includes(strategy)) throw new Error("不支持的导入方式");
 
       this.transferBusy = true;
       const sessionStore = useSessionStore();
       const scope = stateContinuity.open({ id: sessionStore.user.id });
+      let wroteData = false;
       try {
         const raw = JSON.parse(await file.text());
-        const normalized = normalizeImportPayload(raw?.data || raw, sessionStore.preferences || {});
+        const normalized = normalizeImportPayload(raw?.data ?? raw?.backup?.data ?? raw, sessionStore.preferences || {});
         const currentSnapshot = await this.collectFullSnapshotData();
         saveSafetyBackup(currentSnapshot, strategy === "replace" ? "before-replace-import" : "before-merge-import");
         this.safetyBackup = loadSafetyBackup();
 
-        const existingResponse = await listTasks();
-        const existingTasks = Array.isArray(existingResponse?.tasks) ? existingResponse.tasks : [];
+        const existingTasks = currentSnapshot.taskTypes;
         const existingIds = new Set(existingTasks.map((task) => String(task.id)));
         const importedIds = new Set(normalized.taskTypes.map((task) => String(task.id)));
-
-        if (strategy === "replace") {
-          await Promise.all(
-            existingTasks
-              .filter((task) => !importedIds.has(String(task.id)))
-              .map((task) => deleteTask(task.id)),
-          );
-        }
 
         for (const task of normalized.taskTypes) {
           const payload = {
             id: task.id,
             name: task.name,
             color: task.color,
-            displayOrder: task.order || task.display_order || 1,
+            displayOrder: task.order ?? task.display_order ?? 1,
             archived: Boolean(task.archived),
-            archivedAt: task.archivedAt || task.archived_at || "",
+            archivedAt: task.archivedAt || task.archived_at || null,
+            tags: task.tags || [],
+            icon: task.icon || "",
             lifecycleEvents: Array.isArray(task.lifecycleEvents || task.lifecycle_events)
               ? (task.lifecycleEvents || task.lifecycle_events)
               : [],
           };
+          wroteData = true;
           if (existingIds.has(String(task.id))) {
             await updateTask(task.id, payload);
           } else {
@@ -831,12 +759,14 @@ export const useAccountStore = defineStore("account", {
 
         for (const [date, record] of Object.entries(normalized.dailyRecords)) {
           const payloadTasks = record?.tasks || record?.payload?.tasks || {};
+          wroteData = true;
           await saveDailyRecord(date, {
             tasks: payloadTasks,
           });
         }
 
         for (const [week, summary] of Object.entries(normalized.weeklySummaries)) {
+          wroteData = true;
           await saveWeeklySummary(week, summary?.content || "");
         }
 
@@ -848,17 +778,37 @@ export const useAccountStore = defineStore("account", {
                 ...(sessionStore.preferences || {}),
                 ...(normalized.preferences || {}),
               });
-        mergedPreferences.sync = {
+        wroteData = true;
+        const response = await scope.change((catalog) => catalog.preferences.replace(mergedPreferences));
+        sessionStore.setPreferences(response?.preferences || mergedPreferences);
+        // Destructive cleanup starts only after the complete document has been
+        // validated, backed up, and all replacement values have been written.
+        if (strategy === "replace") {
+          for (const task of existingTasks) {
+            if (!importedIds.has(String(task.id))) await deleteTask(task.id);
+          }
+          for (const date of Object.keys(currentSnapshot.dailyRecords)) {
+            if (!Object.hasOwn(normalized.dailyRecords, date)) await deleteDailyRecord(date);
+          }
+          for (const week of Object.keys(currentSnapshot.weeklySummaries)) {
+            if (!Object.hasOwn(normalized.weeklySummaries, week)) await deleteWeeklySummary(week);
+          }
+        }
+        // Announce success only after destructive cleanup has also succeeded.
+        const sync = {
           ...(mergedPreferences.sync || createDefaultSyncPreferences()),
           lastSuccessfulSyncAt: new Date().toISOString(),
           lastSyncAttemptAt: new Date().toISOString(),
           notices: appendSyncNotice(mergedPreferences.sync?.notices, importMessage, "success"),
         };
-        const response = await scope.change((catalog) => catalog.preferences.replace(mergedPreferences));
-        sessionStore.setPreferences(response?.preferences || mergedPreferences);
+        const confirmed = await scope.change((catalog) => catalog.preferences.merge({ sync }));
+        sessionStore.setPreferences(confirmed?.preferences || { ...mergedPreferences, sync });
         await scope.control.refresh();
         await this.refreshSyncProfile();
         this.syncOpen = false;
+      } catch (error) {
+        if (wroteData) await scope.control.refresh().catch(() => {});
+        throw error;
       } finally {
         this.transferBusy = false;
       }
