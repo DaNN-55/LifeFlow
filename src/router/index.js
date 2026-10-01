@@ -1,7 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
 
-import { FRETFLOW_ENABLED } from "../app/constants";
-
 const routes = [
   {
     path: "/",
@@ -72,19 +70,10 @@ const routes = [
       channel: "news",
     },
   },
-  ...(FRETFLOW_ENABLED
-    ? [{
-        path: "/fretflow",
-        name: "fretflow",
-        component: () => import("../views/FretFlowView.vue"),
-        meta: {
-          layout: "workspace",
-        },
-      }]
-    : [{
-        path: "/fretflow/:pathMatch(.*)*",
-        redirect: "/pulse",
-      }]),
+  {
+    path: "/fretflow/:pathMatch(.*)*",
+    redirect: "/pulse",
+  },
 ];
 
 export const router = createRouter({

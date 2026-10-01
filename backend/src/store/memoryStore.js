@@ -48,10 +48,6 @@ class MemoryStore {
     return this.now();
   }
 
-  async touchUserSyncState(userId, options = {}) {
-    return this.confirmUserFact(userId, options, (state) => state);
-  }
-
   async confirmUserFact(userId, options = {}, confirm = () => undefined) {
     return this.runInUserSyncQueue(userId, async () => {
       const state = await this.advanceUserSyncState(userId, options);
@@ -352,17 +348,6 @@ class MemoryStore {
     };
   }
 
-  async listUsers() {
-    return [...this.usersByUsername.values()].map((user) => ({
-      id: user.id,
-      username: user.username,
-      preferences: user.preferences || {},
-      created_at: user.created_at || "",
-      data_updated_at: user.data_updated_at || "",
-      data_reset_at: user.data_reset_at || "",
-    }));
-  }
-
   async listContentSources(scope = {}, channel = "", { upperVersion = null } = {}) {
     const { contentSources } = this.ensureUserScope(scope.userId);
     return [...contentSources.values()]
@@ -601,21 +586,6 @@ class MemoryStore {
     return { tags, sources };
   }
 
-  async getFeaturedContent(scope = {}, channel = "", limit = 3) {
-    const result = await this.listContent(scope, {
-      channel,
-      page: 1,
-      pageSize: Math.max(1, limit),
-      sort: "latest",
-    });
-    return result.items.slice(0, limit);
-  }
-
-  async getContentItem(scope = {}, itemId) {
-    const { contentItems } = this.ensureUserScope(scope.userId);
-    return contentItems.get(itemId) || null;
-  }
-
   async listFavoriteContent(scope = {}, filters = {}) {
     const { contentFavorites } = this.ensureUserScope(scope.userId);
     const page = Math.max(1, Number(filters.page || 1));
@@ -691,12 +661,6 @@ class MemoryStore {
       .filter((item) => (!channel ? true : item.channel === channel))
       .map((item) => item.canonical_url)
       .filter(Boolean);
-  }
-
-  async getFavoriteContentItem(scope = {}, itemId) {
-    const { contentFavorites } = this.ensureUserScope(scope.userId);
-    const item = contentFavorites.get(itemId) || null;
-    return item ? { ...normalizeContentItem(item), is_favorite: true } : null;
   }
 
   async upsertFavoriteContent(scope = {}, item) {

@@ -101,10 +101,6 @@ function createInformationInput({ persistence, collector, now = () => new Date(D
     };
   }
 
-  async function listFeatured(userContext, channel, limit = 3) {
-    return { items: await persistence.queryFeatured(userContext, channel, limit) };
-  }
-
   async function refresh(userContext, { channel, limit }) {
     const cacheKey = `${userContext.userId}:${channel}`;
     if (refreshInFlight.has(cacheKey)) {
@@ -269,7 +265,6 @@ function createInformationInput({ persistence, collector, now = () => new Date(D
 
   return {
     listContent,
-    listFeatured,
     refresh,
     addFavorite,
     removeFavorite,

@@ -17,9 +17,7 @@
     "backend:test": "npm --prefix backend run test"
   },
   "dependencies": {
-    "@milkdown/crepe": "^7.22.1",
     "dompurify": "^3.4.15",
-    "entities": "7.0.1",
     "markdown-it": "^15.0.2",
     "pinia": "^3.0.3",
     "sortablejs": "^1.15.7",

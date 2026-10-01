@@ -210,28 +210,6 @@ function normalizeRsshubInstance(value = "") {
   return raw.replace(/\/+$/, "");
 }
 
-function dedupeContentItems(items) {
-  const map = new Map();
-  for (const item of items) {
-    const key = `${item.channel}::${item.canonical_url}`;
-    const existing = map.get(key);
-    if (!existing) {
-      map.set(key, item);
-      continue;
-    }
-    const existingTime = new Date(existing.published_at || existing.fetched_at || 0).getTime();
-    const nextTime = new Date(item.published_at || item.fetched_at || 0).getTime();
-    if (nextTime > existingTime) {
-      map.set(key, item);
-    }
-  }
-  return [...map.values()].sort((left, right) => {
-    const leftTime = new Date(left.published_at || left.fetched_at || 0).getTime();
-    const rightTime = new Date(right.published_at || right.fetched_at || 0).getTime();
-    return rightTime - leftTime;
-  });
-}
-
 function normalizeTags(tags) {
   const values = Array.isArray(tags) ? tags : [tags];
   return [...new Set(values.map((tag) => normalizePrimaryTag(tag)).filter(Boolean))].slice(0, 8);
@@ -343,23 +321,10 @@ function normalizeUrl(value, baseUrl) {
   }
   try {
     const normalized = new URL(raw, baseUrl).toString();
-    return /\.(?:jpe?g|png|webp|gif|avif|svg)(?:[?#].*)?$/i.test(normalized) ||
-      /\/image(?:[/?#]|$)/i.test(normalized) ||
-      /\/thumbnail(?:[/?#]|$)/i.test(normalized) ||
-      /format=|width=|height=|fit=|crop=/i.test(normalized)
-      ? normalized
-      : normalized;
+    return normalized;
   } catch (error) {
     return "";
   }
-}
-
-async function resolveContentImageUrl(imageUrl, canonicalUrl, sourceUrl) {
-  const directImage = normalizeUrl(imageUrl, canonicalUrl || sourceUrl);
-  if (directImage) {
-    return directImage;
-  }
-  return "";
 }
 
 function localizeSummary(summaryRaw, title) {
@@ -371,17 +336,6 @@ function localizeSummary(summaryRaw, title) {
     return "暂无摘要。";
   }
   return `英文摘要：${truncate(fallback, 180)}`;
-}
-
-function localizeBody(bodyRaw, summaryZh, title) {
-  if (containsChinese(bodyRaw)) {
-    return truncate(bodyRaw, 320);
-  }
-  const fallback = bodyRaw || summaryZh || title;
-  if (!fallback) {
-    return "暂无正文摘录。";
-  }
-  return `英文正文摘录：${truncate(fallback, 320)}`;
 }
 
 function inferLanguage(title, summary) {
@@ -417,32 +371,6 @@ function truncate(text, length) {
 function normalizeDateString(value) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "" : date.toISOString();
-}
-
-function pickLatestPublishedAt(currentValue, items = []) {
-  const candidates = [normalizeDateString(currentValue || "")]
-    .concat((items || []).map((item) => normalizeDateString(item?.published_at || item?.fetched_at || "")))
-    .filter(Boolean)
-    .sort();
-  return candidates.at(-1) || "";
-}
-
-async function mapWithConcurrency(items, concurrency, iteratee) {
-  const queue = Array.isArray(items) ? items : [];
-  const workerCount = Math.max(1, Math.min(Number(concurrency || 1), queue.length || 1));
-  const results = new Array(queue.length);
-  let cursor = 0;
-
-  async function worker() {
-    while (cursor < queue.length) {
-      const currentIndex = cursor;
-      cursor += 1;
-      results[currentIndex] = await iteratee(queue[currentIndex], currentIndex);
-    }
-  }
-
-  await Promise.all(Array.from({ length: workerCount }, () => worker()));
-  return results;
 }
 
 async function fetchText(url, timeoutMs = FETCH_TIMEOUT_MS) {

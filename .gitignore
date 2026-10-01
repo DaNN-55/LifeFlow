@@ -17,3 +17,6 @@ docs/*
 !docs/agents/
 !docs/agents/*.md
 !docs/alpha-release-acceptance.md
+!docs/audits/
+docs/audits/*
+!docs/audits/cleanup-audit.md

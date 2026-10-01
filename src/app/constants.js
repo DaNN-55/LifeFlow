@@ -17,15 +17,11 @@ export function resolveAuthSignupEnabled(value) {
   return String(value ?? "").trim().toLowerCase() === "true";
 }
 export const AUTH_SIGNUP_ENABLED = resolveAuthSignupEnabled(import.meta.env?.VITE_AUTH_SIGNUP_ENABLED);
-export const FRETFLOW_ENABLED = false;
 
 export const topTabs = [
   { id: "pulse", label: "Pulse", to: "/pulse" },
   { id: "today", label: "Today", to: "/today" },
   { id: "content", label: "News", to: "/content" },
-  ...(FRETFLOW_ENABLED
-    ? [{ id: "fretflow", label: "FretFlow", to: "/fretflow" }]
-    : []),
 ];
 
 export const contentTabs = [

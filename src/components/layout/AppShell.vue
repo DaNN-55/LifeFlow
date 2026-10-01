@@ -305,15 +305,6 @@ async function refreshShellMode() {
   await refreshTopTabIndicator();
 }
 
-async function ensureAllowedPwaRoute() {
-  if (!isPwaPhoneShell.value) {
-    return;
-  }
-  if (route.path === "/fretflow" || route.path.startsWith("/fretflow/")) {
-    await router.replace("/today");
-  }
-}
-
 async function openCalendarDate(date) {
   await Promise.all([
     homeStore.selectCalendarDate(date),
@@ -474,19 +465,6 @@ watch(
   },
 );
 
-watch(
-  () => isPwaPhoneShell.value,
-  async () => {
-    await ensureAllowedPwaRoute();
-  },
-);
-
-watch(
-  () => route.path,
-  async () => {
-    await ensureAllowedPwaRoute();
-  },
-);
 </script>
 
 <template>

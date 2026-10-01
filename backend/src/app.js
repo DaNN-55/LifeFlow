@@ -869,17 +869,6 @@ function createApp({ config, store, informationInput: input }) {
     }
   });
 
-  app.get("/api/content/featured", requireAuthenticated, async (request, response, next) => {
-    try {
-      const query = contentListQuerySchema.pick({ channel: true }).extend({
-        limit: z.coerce.number().int().min(1).max(12).optional(),
-      }).parse(request.query || {});
-      response.json(await input.listFeatured(request.userContext, query.channel, query.limit || 3));
-    } catch (error) {
-      next(error);
-    }
-  });
-
   app.post("/api/content/refresh", requireAuthenticated, async (request, response, next) => {
     try {
       const parsed = contentRefreshSchema.parse(request.body || {});

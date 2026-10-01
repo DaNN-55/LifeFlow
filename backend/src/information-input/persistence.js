@@ -13,14 +13,6 @@ function createInformationInputPersistence(store) {
     };
   }
 
-  async function queryFeatured(userContext, channel, limit) {
-    const [favoriteUrls, items] = await Promise.all([
-      store.listFavoriteContentUrls(userContext, channel),
-      store.getFeaturedContent(userContext, channel, limit),
-    ]);
-    return (items || []).map((item) => ({ ...item, is_favorite: favoriteUrls.includes(item.canonical_url) }));
-  }
-
   async function confirmRefresh(userContext, { channel, results, cutoffIso }) {
     if (results.length === 0) {
       await store.replaceContentItems(userContext, channel, []);
@@ -65,7 +57,6 @@ function createInformationInputPersistence(store) {
 
   return {
     queryContent,
-    queryFeatured,
     listSources: (userContext, channel, options) => store.listContentSources(userContext, channel, options),
     getSource: (userContext, sourceId) => store.getContentSource(userContext, sourceId),
     createSource: (userContext, source) => store.createContentSource(userContext, source),

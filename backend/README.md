@@ -92,7 +92,6 @@ http://localhost:8787
 - `POST /api/account/clear-data`
 - `POST /api/account/delete`
 - `GET /api/content`
-- `GET /api/content/featured`
 - `POST /api/content/refresh`
 - `POST /api/content/favorites`
 - `DELETE /api/content/favorites`
@@ -160,7 +159,7 @@ http://localhost:8787/health
 - 每个账号登录后只能看到自己的内容
 - 不再依赖 Supabase Auth
 - Supabase 这里只负责数据库存储
-- 账号偏好当前通过 `users.preferences` 保存，包含侧边栏、组件配置、资讯已读/稍后读/隐藏来源，以及轻量同步状态
+- 账号偏好当前通过 `users.preferences` 保存，包含侧边栏、组件配置、资讯已读/隐藏来源，以及轻量同步状态；资讯收藏保存在 `content_favorites`
 
 这里的用户隔离由后端会话校验和带 `user_id` 的存储查询负责。当前 schema 没有配置独立的 Row Level Security 策略，因此 `service_role` key 只能保存在后端，不能放进前端或暴露给用户。
 

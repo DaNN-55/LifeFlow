@@ -9,9 +9,9 @@ test("Supabase delivery guide exposes schema.sql as the only public setup path",
   const guide = fs.readFileSync(path.join(SUPABASE_DIR, "README.md"), "utf8");
 
   assert.equal(fs.existsSync(path.join(SUPABASE_DIR, "schema.sql")), true);
-  assert.equal(fs.existsSync(path.join(SUPABASE_DIR, "migrations")), false);
   assert.match(guide, /只执行一次[\s\S]*?\[`schema\.sql`\]\(schema\.sql\)/);
   assert.doesNotMatch(guide, /`migrations\/[^`]+\.sql`/);
+  assert.match(guide, /`backend\/supabase\/migrations\/` 是本地实验目录，已被 Git 忽略/);
 });
 
 test("Supabase baseline includes the final database objects", () => {

@@ -57,7 +57,7 @@ test("init rejects an old schema before the first sync query", async () => {
   };
   await assert.rejects(
     store.init(),
-    /Supabase 表 users 缺少同步版本字段，请先执行 2026-09-09-add-opaque-sync-cursors\.sql/,
+    /Supabase 表 users 缺少同步版本字段，请查看 backend\/supabase\/README\.md 的数据库交付说明；已有数据库不要重复执行完整 schema\.sql/,
   );
 });
 

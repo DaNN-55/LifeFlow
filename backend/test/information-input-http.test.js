@@ -101,6 +101,9 @@ test("information input routes retain authentication and response mappings", asy
     assert.equal(unauthenticated.status, 401);
     assert.deepEqual(await unauthenticated.json(), { error: "Authentication required" });
 
+    const retiredFeaturedResponse = await fetch(`${baseUrl}/api/content/featured?channel=news`, { headers });
+    assert.equal(retiredFeaturedResponse.status, 404);
+
     const invalidSourceResponse = await fetch(`${baseUrl}/api/content-sources`, {
       method: "POST",
       headers,

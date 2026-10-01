@@ -19,7 +19,3 @@ export function renderTaskNoteMarkdown(markdown) {
     USE_PROFILES: { html: true },
   });
 }
-
-export function renderContentPreviewMarkdown(markdown) {
-  return renderTaskNoteMarkdown(markdown);
-}

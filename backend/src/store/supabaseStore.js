@@ -217,7 +217,7 @@ class SupabaseStore {
     const { error } = await this.client.from(tableName).select(columns, { head: true, count: "exact" }).limit(1);
     if (!error) return;
     const detail = formatSupabaseErrorText(error) || "未知错误";
-    const nextError = new Error(`Supabase 表 ${tableName} 缺少同步版本字段，请先执行 2026-09-09-add-opaque-sync-cursors.sql：${detail}`);
+    const nextError = new Error(`Supabase 表 ${tableName} 缺少同步版本字段，请查看 backend/supabase/README.md 的数据库交付说明；已有数据库不要重复执行完整 schema.sql：${detail}`);
     nextError.cause = error;
     throw nextError;
   }
@@ -663,18 +663,6 @@ class SupabaseStore {
     };
   }
 
-  async listUsers() {
-    const { data, error } = await this.client
-      .from("users")
-      .select("id, username, created_at, data_updated_at, data_reset_at");
-
-    if (error) {
-      throw error;
-    }
-
-    return data;
-  }
-
   async listContentSources(scope = {}, channel = "", { upperVersion = null } = {}) {
     let query = applySyncVersionRange(this.client
       .from("content_sources")
@@ -1025,36 +1013,6 @@ class SupabaseStore {
     return { tags, sources: sources || [] };
   }
 
-  async getFeaturedContent(scope = {}, channel = "", limit = 3) {
-    const { data, error } = await this.client
-      .from("content_items")
-      .select(CONTENT_ITEM_LIST_SELECT_FIELDS)
-      .eq("user_id", scope.userId || "")
-      .eq("channel", channel)
-      .order("is_featured", { ascending: false })
-      .order("published_at", { ascending: false })
-      .limit(limit);
-
-    if (error) {
-      throw error;
-    }
-    return (data || []).map((item) => normalizeContentItem(item));
-  }
-
-  async getContentItem(scope = {}, itemId) {
-    const { data, error } = await this.client
-      .from("content_items")
-      .select(CONTENT_ITEM_FULL_SELECT_FIELDS)
-      .eq("user_id", scope.userId || "")
-      .eq("id", itemId)
-      .maybeSingle();
-
-    if (error) {
-      throw error;
-    }
-    return data ? normalizeContentItem(data) : data;
-  }
-
   async listFavoriteContent(scope = {}, filters = {}) {
     const page = Math.max(1, Number(filters.page || 1));
     const pageSize = Math.max(1, Number(filters.pageSize || 20));
@@ -1165,20 +1123,6 @@ class SupabaseStore {
       throw error;
     }
     return (data || []).map((item) => item.canonical_url).filter(Boolean);
-  }
-
-  async getFavoriteContentItem(scope = {}, itemId) {
-    const { data, error } = await this.client
-      .from("content_favorites")
-      .select("id, channel, source_id, title, summary_zh, summary_raw, body_zh, body_raw, author, published_at, content_type, source_name, source_url, canonical_url, tags, lang, image_url, favorited_at, created_at, updated_at")
-      .eq("user_id", scope.userId || "")
-      .eq("id", itemId)
-      .maybeSingle();
-
-    if (error) {
-      throw error;
-    }
-    return data ? { ...normalizeContentItem(data), is_favorite: true } : null;
   }
 
   async upsertFavoriteContent(scope = {}, item) {

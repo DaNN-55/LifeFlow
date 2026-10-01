@@ -278,17 +278,6 @@ function mergeChannelRecordMaps(current = {}, changes = {}) {
   return next;
 }
 
-export function loadCachedTasks(userId) {
-  return loadDashboardUserCache(userId).tasks;
-}
-
-export function saveCachedTasks(userId, tasks = []) {
-  withUserCache(userId, (cache) => ({
-    ...cache,
-    tasks: Array.isArray(tasks) ? tasks : [],
-  }));
-}
-
 export function loadCachedTodayNoteDrafts(userId, date) {
   const resolvedDate = /^\d{4}-\d{2}-\d{2}$/.test(String(date || "")) ? String(date) : "";
   if (!resolvedDate) {
@@ -331,90 +320,4 @@ export function saveCachedTodayNoteDrafts(userId, date, drafts = {}) {
       },
     };
   });
-}
-
-export function loadCachedDailyRecord(userId, date) {
-  const dateKey = String(date || "").trim();
-  if (!dateKey) {
-    return null;
-  }
-  return loadDashboardUserCache(userId).dailyRecords[dateKey] || null;
-}
-
-export function loadCachedDailyRecords(userId, dates = []) {
-  const dailyRecords = loadDashboardUserCache(userId).dailyRecords;
-  return dates.map((date) => dailyRecords[String(date || "").trim()] || null);
-}
-
-export function saveCachedDailyRecord(userId, record = {}) {
-  const dateKey = String(record?.date || "").trim();
-  if (!dateKey) {
-    return;
-  }
-  withUserCache(userId, (cache) => ({
-    ...cache,
-    dailyRecords: {
-      ...cache.dailyRecords,
-      [dateKey]: record,
-    },
-  }));
-}
-
-export function saveCachedDailyRecords(userId, records = []) {
-  const nextRecords = {};
-  records.forEach((record) => {
-    const dateKey = String(record?.date || "").trim();
-    if (dateKey) {
-      nextRecords[dateKey] = record;
-    }
-  });
-  if (!Object.keys(nextRecords).length) {
-    return;
-  }
-  withUserCache(userId, (cache) => ({
-    ...cache,
-    dailyRecords: {
-      ...cache.dailyRecords,
-      ...nextRecords,
-    },
-  }));
-}
-
-export function loadCachedWeeklySummary(userId, week) {
-  const weekKey = String(week || "").trim();
-  if (!weekKey) {
-    return null;
-  }
-  return loadDashboardUserCache(userId).weeklySummaries[weekKey] || null;
-}
-
-export function saveCachedWeeklySummary(userId, summary = {}) {
-  const weekKey = String(summary?.week || "").trim();
-  if (!weekKey) {
-    return;
-  }
-  withUserCache(userId, (cache) => ({
-    ...cache,
-    weeklySummaries: {
-      ...cache.weeklySummaries,
-      [weekKey]: summary,
-    },
-  }));
-}
-
-export function loadCachedHomeData(userId) {
-  return loadDashboardUserCache(userId).home || {};
-}
-
-export function saveCachedHomeData(userId, partialHome = {}) {
-  if (!partialHome || typeof partialHome !== "object") {
-    return;
-  }
-  withUserCache(userId, (cache) => ({
-    ...cache,
-    home: {
-      ...cache.home,
-      ...partialHome,
-    },
-  }));
 }
