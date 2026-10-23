@@ -10,6 +10,8 @@ backend/supabase/migrations/
 .DS_Store
 *.log
 *.local
+research/
+PLAN.md
 # The public engineering docs are versioned; personal notes and local plans stay local.
 docs/*
 !docs/adr/

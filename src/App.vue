@@ -40,6 +40,7 @@ watch(
 watch(
   useShellLayout,
   (usesWorkspace) => {
+    document.documentElement.dataset.layout = usesWorkspace ? "workspace" : "public";
     if (usesWorkspace) {
       ensureWorkspaceFonts();
     }
