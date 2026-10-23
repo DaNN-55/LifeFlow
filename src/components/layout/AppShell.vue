@@ -60,10 +60,6 @@ const informationSidebar = computed(() => {
   return attachInformationInput(scope).sidebar();
 });
 
-const PWA_PHONE_MIN_WIDTH = 380;
-const PWA_PHONE_MAX_WIDTH = 430;
-const PWA_PHONE_MIN_HEIGHT = 780;
-const PWA_PHONE_MAX_HEIGHT = 980;
 const GITHUB_ISSUE_CHOOSER_URL = "https://github.com/DaNN-55/LifeFlow/issues/new/choose";
 
 const statusLabel = computed(() => {
@@ -290,14 +286,8 @@ function detectPwaPhoneShell() {
   if (!isStandalone) {
     return false;
   }
-  const width = Math.min(window.innerWidth, window.innerHeight);
-  const height = Math.max(window.innerWidth, window.innerHeight);
-  return (
-    width >= PWA_PHONE_MIN_WIDTH &&
-    width <= PWA_PHONE_MAX_WIDTH &&
-    height >= PWA_PHONE_MIN_HEIGHT &&
-    height <= PWA_PHONE_MAX_HEIGHT
-  );
+  // Match the existing compact navigation breakpoint, independently of keyboard height.
+  return Boolean(window.matchMedia?.("(max-width: 880px)").matches);
 }
 
 async function refreshShellMode() {

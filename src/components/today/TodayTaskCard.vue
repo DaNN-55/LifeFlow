@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from "vue";
+import { computed, ref, watchPostEffect } from "vue";
 
 import { getTaskDisplayName } from "../../utils/task-icons";
 
@@ -64,12 +64,85 @@ function renderMarkdown(note) {
 }
 
 const displayName = computed(() => getTaskDisplayName(props.task?.name));
+const menuPanelRef = ref(null);
+const menuStyle = ref({});
+
+watchPostEffect((onCleanup) => {
+  const menu = menuPanelRef.value;
+  if (!props.menuOpen || !menu) return;
+
+  const viewport = window.visualViewport;
+  let frame = 0;
+
+  function positionMenu() {
+    if (!window.matchMedia("(max-width: 880px)").matches) {
+      menuStyle.value = {};
+      return;
+    }
+    const anchor = menu.parentElement.getBoundingClientRect();
+    const rootStyle = getComputedStyle(document.documentElement);
+    const safeTop = parseFloat(rootStyle.getPropertyValue("--safe-top")) || 0;
+    const safeBottom = parseFloat(rootStyle.getPropertyValue("--safe-bottom")) || 0;
+    const safeLeft = parseFloat(rootStyle.getPropertyValue("--safe-left")) || 0;
+    const safeRight = parseFloat(rootStyle.getPropertyValue("--safe-right")) || 0;
+    const viewportTop = (viewport?.offsetTop || 0) + safeTop;
+    const viewportBottom = (viewport?.offsetTop || 0) + (viewport?.height || window.innerHeight) - safeBottom;
+    const viewportLeft = (viewport?.offsetLeft || 0) + safeLeft;
+    const viewportRight = (viewport?.offsetLeft || 0) + (viewport?.width || window.innerWidth) - safeRight;
+    const top = viewportTop + 12;
+    const dock = document.querySelector(".bottom-tabs")?.getBoundingClientRect();
+    const bottom = Math.min(
+      viewportBottom - 12,
+      dock ? dock.top - 8 : Infinity,
+    );
+    // A hidden anchor cannot keep its menu reachable without moving the page.
+    const bounds = menu.getBoundingClientRect();
+    if (
+      anchor.top < viewportTop || anchor.bottom > Math.min(viewportBottom, dock?.top ?? Infinity)
+      || anchor.left < viewportLeft || anchor.right > viewportRight
+      || bounds.left < viewportLeft || bounds.right > viewportRight
+    ) {
+      emit("toggle-menu", props.task.id);
+      return;
+    }
+    const gap = 8;
+    const above = Math.max(0, anchor.top - gap - top);
+    const below = Math.max(0, bottom - anchor.bottom - gap);
+    const height = menu.scrollHeight + menu.offsetHeight - menu.clientHeight;
+    const flip = below < height && above > below;
+    menuStyle.value = {
+      top: flip ? "auto" : `${anchor.height + gap}px`,
+      bottom: flip ? `${anchor.height + gap}px` : "auto",
+      maxHeight: `${flip ? above : below}px`,
+      overflowY: "auto",
+      overscrollBehavior: "contain",
+    };
+  }
+
+  function schedulePosition() {
+    cancelAnimationFrame(frame);
+    frame = requestAnimationFrame(positionMenu);
+  }
+
+  positionMenu();
+  window.addEventListener("resize", schedulePosition);
+  window.addEventListener("scroll", schedulePosition, true);
+  viewport?.addEventListener("resize", schedulePosition);
+  viewport?.addEventListener("scroll", schedulePosition);
+  onCleanup(() => {
+    cancelAnimationFrame(frame);
+    window.removeEventListener("resize", schedulePosition);
+    window.removeEventListener("scroll", schedulePosition, true);
+    viewport?.removeEventListener("resize", schedulePosition);
+    viewport?.removeEventListener("scroll", schedulePosition);
+  });
+});
 </script>
 
 <template>
   <article
     class="task-card"
-    :class="{ 'is-task-completed': taskState.completed }"
+    :class="{ 'is-task-completed': taskState.completed, 'is-task-menu-open': menuOpen }"
     :style="cardStyle"
     :data-task-id="task.id"
   >
@@ -114,7 +187,7 @@ const displayName = computed(() => getTaskDisplayName(props.task?.name));
           <span class="material-symbols-outlined">more_horiz</span>
         </button>
 
-        <div class="task-menu-panel" :class="{ 'is-open': menuOpen }">
+        <div ref="menuPanelRef" class="task-menu-panel" :class="{ 'is-open': menuOpen }" :style="menuStyle">
           <button type="button" class="task-menu-item" @click="emit('edit-task', task.id)">
             <span class="material-symbols-outlined">edit</span>
             <span>编辑</span>

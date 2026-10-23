@@ -1,4 +1,8 @@
 :root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
   color-scheme: dark;
   --bg: #0a0a0a;
   --panel: #0a0a0a;
@@ -102,7 +106,7 @@ a {
 }
 
 .app-frame {
-  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   overflow: visible;
@@ -110,10 +114,10 @@ a {
 }
 
 .auth-page-shell {
-  min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
   place-items: center;
-  padding: 32px 16px;
+  padding: calc(32px + var(--safe-top)) calc(16px + var(--safe-right)) calc(32px + var(--safe-bottom)) calc(16px + var(--safe-left));
   background:
     radial-gradient(circle at top, color-mix(in srgb, var(--card-2) 72%, transparent), transparent 44%),
     linear-gradient(180deg, color-mix(in srgb, var(--panel) 96%, transparent), var(--bg));
@@ -353,8 +357,8 @@ a {
   position: relative;
   z-index: 1;
   width: min(680px, calc(100% - 32px));
-  max-height: calc(100vh - 64px);
-  margin: 32px auto;
+  max-height: calc(100dvh - 64px - var(--safe-top) - var(--safe-bottom));
+  margin: calc(32px + var(--safe-top)) auto 32px;
   padding: 20px;
   border: 1px solid var(--line);
   border-radius: 18px;
@@ -366,8 +370,8 @@ a {
 
 .widget-settings-dialog {
   width: min(560px, calc(100% - 40px));
-  max-height: calc(100vh - 110px);
-  margin: 56px auto;
+  max-height: calc(100dvh - 110px - var(--safe-top) - var(--safe-bottom));
+  margin: calc(56px + var(--safe-top)) auto 54px;
   padding: 16px 18px 14px;
   border-radius: 14px;
   background: #ffffff;
@@ -1636,6 +1640,10 @@ a {
     color-mix(in srgb, var(--task-accent) 5%, var(--card));
   box-shadow: 0 10px 26px rgba(15, 23, 42, 0.08);
   filter: brightness(1.02);
+  z-index: 16;
+}
+
+.task-card.is-task-menu-open {
   z-index: 16;
 }
 
@@ -4286,7 +4294,7 @@ body[data-theme="light"] .weather-tooltip {
 .pulse-note-modal {
   position: relative;
   width: min(560px, calc(100vw - 40px));
-  max-height: min(78vh, 760px);
+  max-height: min(78dvh, calc(100dvh - 48px - var(--safe-top) - var(--safe-bottom)), 760px);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 14px;
@@ -5960,7 +5968,7 @@ body[data-theme="light"] .weather-tooltip {
 
 .dialog-card {
   width: min(460px, 100%);
-  max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - 48px - var(--safe-top) - var(--safe-bottom));
   display: grid;
   gap: 12px;
   margin: auto 0;
@@ -5991,7 +5999,7 @@ body.dialog-open {
 
 .content-source-dialog-card {
   width: min(860px, calc(100vw - 40px));
-  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 48px - var(--safe-top) - var(--safe-bottom));
   padding: 20px 22px;
 }
 
@@ -6473,7 +6481,7 @@ body:not([data-theme="light"]) .weekly-mode-toggle .task-cancel-action:hover {
 
   .pulse-note-modal {
     width: min(100%, calc(100vw - 24px));
-    max-height: min(84vh, 720px);
+    max-height: min(84dvh, calc(100dvh - 32px - var(--safe-top) - var(--safe-bottom)), 720px);
     padding: 18px 18px 16px;
   }
 
@@ -6855,7 +6863,8 @@ body:not([data-theme="light"]) .weekly-mode-toggle .task-cancel-action:hover {
   }
 }
 
-@media screen and (display-mode: standalone) and (min-width: 380px) and (max-width: 430px) and (min-height: 780px) and (max-height: 980px) {
+/* AppShell owns standalone + compact mode, including the iOS standalone fallback. */
+@media screen {
   .app-frame.is-pwa-phone-shell {
     min-height: 100dvh;
     background: var(--panel);
@@ -6870,9 +6879,10 @@ body:not([data-theme="light"]) .weekly-mode-toggle .task-cancel-action:hover {
     align-items: center;
     gap: 8px 12px;
     padding:
-      max(12px, env(safe-area-inset-top))
-      16px
-      10px;
+      max(12px, var(--safe-top))
+      calc(16px + var(--safe-right))
+      10px
+      calc(16px + var(--safe-left));
   }
 
   .app-frame.is-pwa-phone-shell .nav-brand {
@@ -7006,8 +7016,9 @@ body:not([data-theme="light"]) .weekly-mode-toggle .task-cancel-action:hover {
     min-height: calc(100dvh - 188px);
     padding:
       12px
-      14px
-      calc(92px + env(safe-area-inset-bottom));
+      calc(14px + var(--safe-right))
+      calc(92px + var(--safe-bottom))
+      calc(14px + var(--safe-left));
   }
 
   .app-frame.is-pwa-phone-shell .center-stage > * {
@@ -7151,10 +7162,10 @@ body:not([data-theme="light"]) .weekly-mode-toggle .task-cancel-action:hover {
 
   .app-frame.is-pwa-phone-shell .bottom-tabs {
     position: fixed;
-    left: 14px;
-    right: 14px;
-    bottom: calc(10px + env(safe-area-inset-bottom));
-    z-index: 40;
+    left: calc(14px + var(--safe-left));
+    right: calc(14px + var(--safe-right));
+    bottom: calc(10px + var(--safe-bottom));
+    z-index: 30;
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 10px;
@@ -7471,5 +7482,71 @@ body:not([data-theme="light"]) .weekly-mode-toggle .task-cancel-action:hover {
 
   .app-frame.is-pwa-phone-shell .content-stream-view .content-stage-refresh {
     flex: 0 0 auto;
+  }
+}
+
+/* Platform adaptation stays local to LifeFlow; shared Dan UI tokens are unchanged. */
+html[data-layout="workspace"],
+html[data-layout="workspace"] body {
+  overscroll-behavior-y: none;
+}
+
+/* Lock the page for every modal, including auth dialogs outside AppShell. */
+html:has(.settings-modal:not([hidden]), .dialog-backdrop, .pulse-note-modal-backdrop),
+body:has(.settings-modal:not([hidden]), .dialog-backdrop, .pulse-note-modal-backdrop) {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.settings-modal,
+.dialog-backdrop,
+.pulse-note-modal-backdrop {
+  height: 100dvh;
+  bottom: auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.settings-modal {
+  padding-inline: var(--safe-left) var(--safe-right);
+}
+
+.dialog-backdrop {
+  padding: calc(24px + var(--safe-top)) calc(24px + var(--safe-right)) calc(24px + var(--safe-bottom)) calc(24px + var(--safe-left));
+}
+
+.pulse-note-modal-backdrop {
+  padding: calc(24px + var(--safe-top)) calc(24px + var(--safe-right)) calc(24px + var(--safe-bottom)) calc(24px + var(--safe-left));
+}
+
+.settings-dialog,
+.dialog-card,
+.pulse-task-popover-list,
+.task-note-input {
+  overscroll-behavior: contain;
+}
+
+@media (max-width: 880px) {
+  .app-frame:not(.is-pwa-phone-shell) .main-nav {
+    padding: calc(12px + var(--safe-top)) calc(16px + var(--safe-right)) 12px calc(16px + var(--safe-left));
+  }
+
+  .app-frame:not(.is-pwa-phone-shell) .center-stage {
+    padding-left: calc(12px + var(--safe-left));
+    padding-right: calc(12px + var(--safe-right));
+    padding-bottom: calc(12px + var(--safe-bottom));
+  }
+
+  .pulse-note-modal-backdrop {
+    padding: calc(16px + var(--safe-top)) calc(16px + var(--safe-right)) calc(16px + var(--safe-bottom)) calc(16px + var(--safe-left));
+  }
+}
+
+@media (max-width: 880px) and (any-pointer: coarse) {
+  /* Keep compact inputs, auth fields, and dialogs readable without changing desktop sizing. */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+  textarea,
+  select {
+    font-size: max(16px, 1rem) !important;
   }
 }
